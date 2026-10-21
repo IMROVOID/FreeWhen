@@ -1,0 +1,11 @@
+# Self-hosted Supabase release tag, read by update.sh to upgrade later.
+#
+# NOT YET PINNED. This file is a placeholder: the tag must be recorded from
+# what setup.sh actually installs on the VPS, not guessed from a doc
+# (docs/research/01-RESOLVED-ANSWERS.md Q1 names `self-hosted/v0.8.3` as the
+# example, which is evidence of the format, not of the version we run).
+#
+# On the VPS after `sh run.sh start`:
+#   cat .supabase-version   # or: git -C /srv/supabase describe --tags
+# then replace the line below.
+PINNED=none

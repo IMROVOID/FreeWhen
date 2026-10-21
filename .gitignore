@@ -1,0 +1,63 @@
+# Secrets — never commit. .env.example / .env.spike.example document the shape only.
+.env
+.env.*
+!.env.example
+!.env.spike.example
+
+# Spike transcripts may capture a live credential; the script writes none, but be safe.
+docs/spike/*.log
+docs/spike/*.transcript
+
+# Supabase self-hosted (PRD-10 §7.3) — cloned on the VPS, not in this repo
+/supabase/
+
+# Dependencies
+node_modules/
+
+# Expo / Metro
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native builds (produced locally by `npx expo run:android` — PRD-10 D2)
+/android/
+/ios/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+gradle/
+gradlew
+gradlew.bat
+
+# Signing and credential material. `docs/ENV.md` names a release keystore
+# path, so these are live concerns, not hypotheticals.
+*.keystore
+*.pem
+*.crt
+*.cer
+*.der
+*.pkcs12
+google-services.json
+GoogleService-Info.plist
+secrets.yaml
+secrets.yml
+secrets.json
+.envrc
+*.local.env
+.envrc
+
+# Test + tooling output
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
