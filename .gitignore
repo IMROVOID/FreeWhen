@@ -8,8 +8,13 @@
 docs/spike/*.log
 docs/spike/*.transcript
 
-# Supabase self-hosted (PRD-10 §7.3) — cloned on the VPS, not in this repo
-/supabase/
+# Supabase self-hosted (PRD-10 §7.3) — cloned on the VPS, not in this repo.
+# The CONTENTS are ignored, not the directory: `supabase/seed.sql` is a
+# source artifact of this repo (the PRD-05 §12A fixture, applied by
+# `npm run db:seed`), and a fresh clone cannot seed without it. Excluding
+# the directory itself would make the negation below unreachable.
+`/supabase/*
+!/supabase/seed.sql
 
 # Dependencies
 node_modules/

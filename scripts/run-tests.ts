@@ -17,10 +17,25 @@ import { join, relative, sep } from 'node:path';
 const TESTS_DIR = 'tests';
 const TEST_FILE_PATTERN = /\.test\.tsx?$/;
 
+/**
+ * The directories the in-process runner does NOT collect.
+ *
+ * `tests/db` needs a live PostgreSQL instance and runs in its own process,
+ * with its own runner (`npm run test:db`). It is excluded here because:
+ *
+ *  - the suite asserts against a shared database, and the in-process runner
+ *    executes files concurrently, which makes the counts race;
+ *  - a suite that needs a database should not be able to fail a run that
+ *    was only ever supposed to check the pure modules.
+ */
+const EXCLUDED_DIRS = new Set(['db']);
+
 function collectTestFiles(dir: string): string[] {
   const found: string[] = [];
 
   for (const entry of readdirSync(dir)) {
+    if (EXCLUDED_DIRS.has(entry)) continue;
+
     const fullPath = join(dir, entry);
     if (statSync(fullPath).isDirectory()) {
       found.push(...collectTestFiles(fullPath));
