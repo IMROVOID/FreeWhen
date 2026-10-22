@@ -1,0 +1,80 @@
+# tests/e2e/join-flow.yaml
+#
+# The funnel, as a machine-checkable flow (Plan 05, AC-11.1.1).
+#
+# This is the ONE end-to-end flow the phase must not break: tap a link, type a
+# name, decline location, reach a vote control — in under twenty seconds
+# (PRD-11 §4.2). Everything else in the app can degrade; this cannot, because it
+# is the moment a stranger becomes a participant.
+#
+# Run it against a running API and a device or emulator:
+#
+#   npm run start:api            # or: DATABASE_URL=... npx tsx server/index.ts
+#   maestro test tests/e2e/join-flow.yaml -e INVITE_URL=<url> -e EVENT_ID=<id>
+#
+# ★ NOT EXECUTED IN THIS SESSION. The flow asserts on testIDs that exist in the
+# screens (`join-name-input`, `join-submit`, `location-option-skip`), but no
+# Maestro run was performed, so it is authored evidence rather than proof. The
+# report for this phase records that distinction rather than claiming a green
+# run.
+appId: ir.freewhen.app
+---
+# The invite URL opens S4 directly — the link is the credential and the route.
+- openLink: ${INVITE_URL}
+
+# ── S4: one field, nothing else ────────────────────────────────────────────
+- extendedWaitUntil:
+    visible:
+      id: 'join-name-input'
+    timeout: 10000
+
+- assertVisible:
+    id: 'join-submit'
+
+# ★ No permission prompt may appear on S4 (FR-1.22, AC-1.2.1).
+# A location dialog here would fail the funnel for every guest who declines.
+- assertNotVisible: 'Allow FreeWhen to access this device''s location?'
+
+- tapOn:
+    id: 'join-name-input'
+- inputText: 'Bahar'
+
+- tapOn:
+    id: 'join-submit'
+
+# ── S5: five options, equal weight, skip among them ─────────────────────────
+- extendedWaitUntil:
+    visible:
+      id: 'location-option-skip'
+    timeout: 10000
+
+- assertVisible:
+    id: 'location-option-current'
+- assertVisible:
+    id: 'location-option-search'
+- assertVisible:
+    id: 'location-option-map'
+- assertVisible:
+    id: 'location-option-neighbourhood'
+
+# Skip is the fifth option and has the same weight as the other four.
+- tapOn:
+    id: 'location-option-skip'
+
+# ── S6 shell: joined, with the event reachable ──────────────────────────────
+- extendedWaitUntil:
+    visible:
+      id: 'event-home'
+    timeout: 10000
+
+# Phase 7 adds the vote control; this assertion is the boundary of Phase 5 and
+# is replaced, not deleted, when the vote lands.
+- assertVisible:
+    id: 'event-home-location'
+
+# ── The twenty-second rule ─────────────────────────────────────────────────
+# Maestro has no wall-clock assertion, so the timing is taken from the funnel
+# metric instead: `guest_joined.seconds_from_open` is emitted by the server and
+# is the number PRD-12 §8.1 requires. A run that completes the flow with a
+# `seconds_from_open` above 20 has failed AC-11.1.1 regardless of this script
+# passing.

@@ -37,8 +37,68 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'service_role') then
     create role service_role nologin;
   end if;
+
+  -- ★ `authenticator` is PostgREST's LOGIN role.
+  --
+  -- PostgREST connects as `authenticator`, and switches to the role named
+  -- in the JWT's `role` claim with `set role`. That switch is only legal
+  -- if `authenticator` is a MEMBER of the target role — PostgREST's own
+  -- documentation says the grant is mandatory, and without it every
+  -- authenticated request fails with a 500 whose database-side error
+  -- reads like a permissions bug in the app.
+  --
+  -- It exists on Supabase too, so this block is a no-op there.
+  --
+  -- ★ IT IS `nologin` HERE, AND THE COMPOSE FILE PROMOTES IT.
+  --
+  -- A migration cannot set a password — it would be a credential in the
+  -- source tree, which `gate:secrets` exists to prevent. So the role is
+  -- created without LOGIN, and the deployment grants it one:
+  --
+  --   alter role authenticator login password '<from the environment>';
+  --
+  -- On Supabase the role is platform-owned and already has a password.
+  if not exists (select 1 from pg_roles where rolname = 'authenticator') then
+    create role authenticator nologin;
+  end if;
 end
 $$;
+
+-- ★ `authenticator` MUST BE A MEMBER OF `anon` AND `authenticated`.
+--
+-- This is the grant PostgREST's documentation calls mandatory, and the
+-- reason is precise: PostgREST connects as `authenticator` and issues
+-- `set role anon` for an unauthenticated request and
+-- `set role authenticated` for a request with a token. A role can only
+-- switch to a role it is a member of.
+--
+-- ★ WHY IT WAS MISSING, AND WHY IT MATTERED.
+--
+-- Without the grant, the local backend's authorization worked only
+-- because `DATABASE_URL` pointed at `postgres` — a SUPERUSER, which may
+-- switch to any role. The moment the operator used a non-superuser
+-- service account, every `set role authenticated` failed with
+-- `permission denied to set role "authenticated"`, and the realtime
+-- bridge's per-subscriber fetch — the security boundary — stopped
+-- working.
+--
+-- A superuser silently masks a missing grant. The grant is what makes
+-- the two backends behave the SAME, which is the property D22 depends on.
+grant anon, authenticated to authenticator;
+
+-- ★ THE SERVICE ROLE MUST BE A MEMBER OF `authenticated` TOO.
+--
+-- The realtime bridge fetches each row AS the subscriber: it connects
+-- with the service role, sets the subscriber's claims, and then
+-- `set role authenticated` so the database's RLS policies decide what
+-- that subscriber may see.
+--
+-- That `set role` needs the membership. A superuser connection has it
+-- implicitly; a plain non-superuser service role does not, and the
+-- fetch would fail with `permission denied` — which, read as a
+-- permissions bug, is exactly the kind of mistake that gets "fixed" by
+-- making the connection a superuser.
+grant authenticated to service_role;
 
 -- ★ BYPASSRLS on `service_role`, matching Supabase.
 --

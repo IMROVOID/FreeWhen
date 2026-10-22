@@ -44,6 +44,12 @@
             "ios": ["fa", "en"]
           }
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "FreeWhen uses your approximate location only to estimate travel distance for the participants of an event you joined."
+        }
       ]
     ],
     "experiments": {

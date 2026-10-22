@@ -20,7 +20,23 @@ import { allowsOpaqueRun, isCredentialLine, MAPBOX_SECRET_SHAPE } from './creden
 
 const GATE = 'gate:web';
 
-const WEB_DIR = join(PROJECT_ROOT, 'dist');
+/**
+ * The bundle to scan.
+ *
+ * Defaults to `dist/`. A concurrent agent passes its own directory:
+ * `npm run gate:web -- .worktrees/p07/dist`. Without that, two agents
+ * exporting at the same time would scan each other's half-written output,
+ * and `--clear` on one side would delete the bundle the other is gating.
+ */
+const WEB_DIR = resolveWebDir();
+
+function resolveWebDir(): string {
+  const arg = process.argv.slice(2).find((a) => !a.startsWith('-'));
+  if (arg) {
+    return join(PROJECT_ROOT, arg.replace(/\\/g, '/'));
+  }
+  return join(PROJECT_ROOT, 'dist');
+}
 
 /** A third-party script origin. The session token lives in `localStorage`. */
 const THIRD_PARTY_SCRIPT = /<script[^>]+src=["']https?:\/\//;
@@ -45,7 +61,7 @@ let files: string[];
 try {
   files = walk(WEB_DIR);
 } catch {
-  fail(GATE, ['dist/ does not exist — run `npm run export:web` first']);
+  fail(GATE, [`${relativePath(WEB_DIR)} does not exist — run \`npm run export:web\` first`]);
 }
 
 const failures: string[] = [];
@@ -96,4 +112,4 @@ for (const file of files.filter((candidate) => candidate.endsWith('.html'))) {
 
 if (failures.length > 0) fail(GATE, failures);
 
-pass(GATE, `scanned ${files.length} files in dist/`, files.length);
+pass(GATE, `scanned ${files.length} files in ${relativePath(WEB_DIR)}/`, files.length);

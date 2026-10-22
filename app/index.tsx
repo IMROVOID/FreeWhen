@@ -1,85 +1,105 @@
-import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+/**
+ * S1 — the event list (Plan 05 Task 6, PRD-11 S1).
+ *
+ * What the user sees on launch: the events they created or joined, most
+ * recently active first, each with a status chip and — if they still owe a
+ * vote — an attention badge.
+ *
+ * ★ THE EMPTY STATE IS P0, NOT A NICETY.
+ *
+ * A brand-new user's first screen is empty by definition, so the empty state IS
+ * their first impression. It invites the one action that matters rather than
+ * showing nothing.
+ */
+
+import { useCallback } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Text } from '@/src/components/ui/Text';
 import { Button } from '@/src/components/ui/Button';
-import { Card } from '@/src/components/ui/Card';
-import { Stepper } from '@/src/components/ui/Stepper';
-import { formatDate } from '@/src/lib/format';
-import { radius, space } from '@/src/theme/tokens';
+import { EmptyState } from '@/src/components/ui/EmptyState';
+import { Text } from '@/src/components/ui/Text';
+import { EventRow } from '@/src/features/events/components/EventRow';
+import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
+import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
-/**
- * The Phase 1 landing screen.
- *
- * Its only job is to prove the locale pipeline end to end: a Persian
- * heading from the catalogue, a Jalali date with Persian digits, and a
- * Persian-digit counter — all start-aligned for RTL.
- */
-export default function IndexScreen() {
-  const { t, i18n } = useTranslation();
+export default function EventListScreen() {
+  const { t } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
-  const [count, setCount] = useState(3);
+  const router = useRouter();
 
-  const locale = i18n.language === 'en' ? 'en' : 'fa';
-  const date = formatDate('2026-08-02T12:00:00Z', locale);
+  const { events, isLoading, errorKey, reload } = useMyEvents();
+
+  const openEvent = useCallback(
+    (eventId: string) => {
+      router.push(`/event/${eventId}`);
+    },
+    [router],
+  );
 
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[8], paddingBottom: insets.bottom + space[8] },
+        { paddingTop: insets.top + space[8], paddingBottom: insets.bottom + space[10] },
       ]}
+      testID="event-list"
     >
-      <Text variant="display" align="start">
-        {t('app.jumbo')}
-      </Text>
-      <Text variant="bodyL" color={theme.textMuted} align="start">
-        {t('app.tagline')}
+      <Text variant="h1" align="start">
+        {t('events.list.heading')}
       </Text>
 
-      <Card variant="surface" style={styles.card}>
-        <Text variant="h3" align="start">
-          {t('app.emptyTitle')}
-        </Text>
-        <Text variant="body" color={theme.textMuted} align="start">
-          {t('app.emptyBody')}
-        </Text>
-
-        <Button label={t('app.createEvent')} onPress={() => undefined} variant="primary" />
-
-        <View style={styles.meta}>
-          <View style={styles.metaBlock}>
-            <Text variant="caption" color={theme.textMuted} align="start">
-              {t('app.sampleDate')}
-            </Text>
-            <Text variant="h3" align="start" numeric>
-              {date.primary}
-            </Text>
-            <Text variant="caption" color={theme.textFaint} align="start" numeric>
-              {date.secondary}
-            </Text>
-          </View>
-
-          <View style={styles.metaBlock}>
-            <Text variant="caption" color={theme.textMuted} align="start">
-              {t('app.sampleCount')}
-            </Text>
-            <Stepper
-              value={count}
-              onChange={setCount}
-              min={0}
-              max={20}
-              label={t('app.sampleParticipants')}
-              testID="sample-count"
-            />
-          </View>
+      {isLoading && events.length === 0 && (
+        <View style={styles.loading} accessibilityRole="progressbar">
+          <ActivityIndicator color={theme.textMuted} />
         </View>
-      </Card>
+      )}
+
+      {!isLoading && errorKey && (
+        <View style={styles.errorBlock}>
+          <Text variant="body" color={theme.textMuted} align="start">
+            {t(errorKey)}
+          </Text>
+          <Button
+            label={t('common.retry')}
+            onPress={() => void reload()}
+            variant="ghost"
+            size="medium"
+          />
+        </View>
+      )}
+
+      {!isLoading && !errorKey && events.length === 0 && (
+        <EmptyState
+          title={t('events.list.emptyTitle')}
+          body={t('events.list.emptyBody')}
+          actionLabel={t('events.list.create')}
+          onAction={() => router.push('/new')}
+          testID="event-list-empty"
+        />
+      )}
+
+      {events.length > 0 && (
+        <View style={styles.rows}>
+          {events.map((event) => (
+            <EventRow key={event.id} event={event} onPress={() => openEvent(event.id)} />
+          ))}
+
+          <Button
+            label={t('events.list.create')}
+            onPress={() => router.push('/new')}
+            variant="secondary"
+            size="medium"
+            testID="event-list-create"
+            style={styles.createAction}
+          />
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -90,19 +110,20 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: space[5],
-    gap: space[3],
-  },
-  card: {
-    marginTop: space[4],
-    gap: space[3],
-    borderRadius: radius.lg,
-  },
-  meta: {
     gap: space[4],
+  },
+  loading: {
+    marginTop: space[8],
+    alignItems: 'center',
+  },
+  errorBlock: {
+    gap: space[3],
+    marginTop: space[6],
+  },
+  rows: {
     marginTop: space[2],
   },
-  metaBlock: {
-    gap: space[1],
-    alignItems: 'flex-start',
+  createAction: {
+    marginTop: space[2],
   },
 });

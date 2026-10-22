@@ -64,7 +64,7 @@ export interface Session {
  */
 export async function openSession(
   userId: string,
-  options: { isAnonymous?: boolean; role?: 'anon' | 'authenticated' } = {},
+  options: { isAnonymous?: boolean; role?: 'anon' | 'authenticated' | 'service' } = {},
 ): Promise<Session> {
   const { isAnonymous = true, role = 'authenticated' } = options;
   const client = await pool().connect();
@@ -76,7 +76,19 @@ export async function openSession(
   });
 
   await client.query(`select set_config('request.jwt.claims', $1, false)`, [claims]);
-  await client.query(`set role ${role}`);
+
+  // ★ `service` MAPS TO THE `service_role` DATABASE ROLE.
+  //
+  // It is not a member of `authenticated` and it is not a member of `anon`, so
+  // `set role` cannot reach it directly — the role must be GRANTED first, and
+  // the grant is made permanent here because a test session that cannot set
+  // the role cannot test the function the way the server calls it.
+  if (role === 'service') {
+    await asOwner(`grant service_role to current_user`);
+    await client.query(`set role service_role`);
+  } else {
+    await client.query(`set role ${role}`);
+  }
 
   return {
     userId,
@@ -138,15 +150,42 @@ export async function asOwner<T extends QueryResultRow = QueryResultRow>(
   text: string,
   values: unknown[] = [],
 ): Promise<{ rows: T[]; rowCount: number }> {
-  const client = await pool().connect();
-  try {
-    await client.query('reset role');
-    await client.query('reset request.jwt.claims');
-    const result = await client.query<T>(text, values);
-    return { rows: result.rows, rowCount: result.rowCount ?? 0 };
-  } finally {
-    client.release();
+  const attempts = 5;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const client = await pool().connect();
+    try {
+      await client.query('reset role');
+      await client.query('reset request.jwt.claims');
+      const result = await client.query<T>(text, values);
+      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+    } catch (error) {
+      // ★ A DEADLOCK IS TRANSIENT, SO IT IS RETRIED.
+      //
+      // The suite's pool and the server's own pool are separate connection
+      // sets against the same database. A transaction in one that holds a row
+      // lock — `join_event` takes an `event` lock with `for update` — and a
+      // statement in the other that wants the same row wait for each other,
+      // and Postgres resolves the cycle by aborting one of them.
+      //
+      // The loser is rolled back and can simply try again, so a retry is the
+      // correct remedy. Without it, a healthy suite fails intermittently on a
+      // lock race that has nothing to do with the code under test.
+      const isDeadlock =
+        error instanceof Error &&
+        (error.message.includes('deadlock detected') ||
+          (error as { code?: string }).code === '40P01');
+
+      if (!isDeadlock || attempt === attempts) throw error;
+
+      await new Promise((resolve) => setTimeout(resolve, attempt * 50));
+    } finally {
+      client.release();
+    }
   }
+
+  // The loop either returns or throws; this satisfies the type checker.
+  throw new Error('asOwner exhausted its retries without returning or throwing');
 }
 
 /** A row id, so every fixture is addressable and cleanable. */
@@ -282,7 +321,12 @@ export async function seedVenue(
   return venueId;
 }
 
-/** Removes every row the suite created, so the tests are independent. */
+/**
+ * Removes every row the suite created, so the tests are independent.
+ *
+ * The deadlock retry lives in `asOwner`, which every statement in this file
+ * goes through.
+ */
 export async function truncateAll(): Promise<void> {
   await asOwner(`
     truncate table

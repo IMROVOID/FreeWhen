@@ -756,6 +756,17 @@ describe('row-level security', { concurrency: false }, () => {
         'enforce_decision_same_event',
         'enforce_participant_cap',
         'is_event_participant',
+        // Phase 5's guest join. It is a definer because the "join event" RLS
+        // policy requires the joiner to ALREADY be a participant, so a
+        // first-time join cannot insert under its own rights — and weakening
+        // that policy would let a member forge an organizer row.
+        //
+        // Its privilege surface is closed three ways: the identity it writes
+        // comes from `auth.uid()` and not from a parameter; execute is granted
+        // to `service_role` only, so a client cannot bypass the route's rate
+        // limiter; and the function is a server-only write path. The grant
+        // surface is asserted in `tests/db/join.test.ts`.
+        'join_event',
         'redeem_invite',
         'run_anon_cleanup_job',
         'run_retention_job',

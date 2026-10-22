@@ -1,0 +1,161 @@
+# docker-compose.local.yml
+#
+# The LOCAL POSTGRESQL BACKEND (PRD-10 D22, PRD-13 §4.1).
+#
+# ★ WHAT THIS IS, AND WHAT IT IS NOT.
+#
+# This file is the local backend's deployment: plain PostgreSQL plus
+# PostgREST, on a host that cannot run Supabase's five-service stack. It
+# is NOT a Supabase replacement and NOT a smaller Supabase — the schema,
+# the migrations and the RLS policies are identical on both, and only three
+# things swap (who issues JWTs, how realtime is delivered, whether an
+# admin UI exists).
+#
+# ★ Supabase REMAINS THE DEFAULT.
+#
+# This stack exists for the hosts that offer a managed Postgres but no
+# multi-container runtime. A host that can run the Supabase stack should
+# run Supabase, and `DATABASE_BACKEND=supabase` (the default) is what
+# selects it.
+#
+# ★ THE TOKEN SERVICE AND THE REALTIME BRIDGE ARE NOT IN HERE.
+#
+# They are Node processes from THIS repository, not containers:
+#
+#   npm run server        — the API and the auth routes
+#   npm run server:realtime — the LISTEN/NOTIFY → WebSocket bridge
+#
+# They are excluded on purpose. Putting the application's own server in a
+# Compose file would mean the image and the source tree could drift — the
+# container would run last week's code, and the bridge's security property
+# (fetch-as-subscriber) would be something nobody could test against the
+# running code.
+#
+# ★ THREE SERVICES, NOT FIVE.
+#
+# Postgres · PostgREST · the bridge's database access. There is no Auth
+# container (this repository's token service replaces it), no Realtime
+# container (the bridge replaces it), no Studio, no Storage, no Kong, no
+# imgproxy, no Edge Runtime. The absences are by construction — there is
+# nothing to prune and nothing to refuse at the proxy.
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: freewhen-local-pg
+    restart: unless-stopped
+    environment:
+      # ★ The password comes from the environment, never from a literal
+      # here. A password written into a Compose file is a credential in
+      # the source tree, and `gate:secrets` scans for exactly that shape.
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-freewhen}
+    ports:
+      # Bound to localhost on purpose. The database holds every user's
+      # identity and location; it is reachable from the host, not from
+      # the internet. Caddy publishes the API, not the database.
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - local-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      # PostgREST must not start before the database accepts connections —
+      # a PostgREST that boots against a missing database exits, and the
+      # restart loop masks the real error.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-freewhen}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    container_name: freewhen-local-pgrest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # ★ `db-uri` — the database PostgREST serves.
+      #
+      # The role is `authenticator`, NOT `postgres`. PostgREST connects as
+      # `authenticator` and switches to the JWT's role with `set role`,
+      # and that switch is only legal because migration 000 makes
+      # `authenticator` a member of `anon` and `authenticated`.
+      #
+      # Connecting as `postgres` would be a SUPERUSER, and a superuser
+      # bypasses RLS entirely — so every authenticated request would see
+      # every row, and the local backend would be a data leak rather than
+      # a peer of Supabase. A superuser also silently masks a missing
+      # grant, which is how the missing `authenticator` membership went
+      # unnoticed until a non-superuser service account was used.
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-freewhen}
+      # ★ `db-schemas=public` — the `auth` schema is NOT exposed.
+      #
+      # `auth.users` holds every user's id, email and phone. Exposing the
+      # schema would publish it to anyone holding the anon key, and would
+      # let an attacker enumerate user ids to impersonate. The token
+      # service reads it through the service role, which is not exposed.
+      PGRST_DB_SCHEMAS: public
+      # ★ `db-anon-role=anon` — the role an unauthenticated request runs
+      # as. Every policy is participant-scoped, so it sees nothing.
+      PGRST_DB_ANON_ROLE: anon
+      # ★ `jwt-secret` — the SAME secret the token service signs with.
+      #
+      # PostgREST validates the bearer JWT and sets `request.jwt.claims`
+      # from it, which is the GUC the `auth.uid()` shim reads. One secret,
+      # one service — a mismatch would mean every authenticated request
+      # 401s.
+      PGRST_JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      PGRST_DB_PRE_REQUEST: ''
+      PGRST_SERVER_PORT: 3000
+      PGRST_DB_POOL: 10
+      # The OpenAPI spec is useful and harmless: it describes the public
+      # schema's shape, and the schema is already RLS-protected.
+      PGRST_OPENAPI_MODE: 'ignore-privileges'
+    ports:
+      - '127.0.0.1:${POSTGREST_PORT:-3000}:3000'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://localhost:3000/ || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # grant-authenticator — ONE-TIME SETUP, not a service.
+  # ───────────────────────────────────────────────────────────────────────────
+  #
+  # ★ THE `authenticator` ROLE NEEDS A PASSWORD, AND A MIGRATION CANNOT
+  # GIVE IT ONE.
+  #
+  # Migration 000 creates the role `nologin`: a password written into a
+  # migration is a credential in the source tree, which is exactly what
+  # `gate:secrets` exists to prevent. So the password is applied here,
+  # from the environment, by a container that runs once and exits.
+  #
+  # ★ IT IS IDEMPOTENT, so `docker compose up` is safe to re-run.
+  #
+  # The `alter role ... password` form re-applies the same password every
+  # time, so a re-run converges rather than failing.
+  grant-authenticator:
+    image: postgres:15-alpine
+    container_name: freewhen-local-grant
+    profiles: ['setup']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        set -e
+        psql -h postgres -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-freewhen}" <<'SQL'
+        alter role authenticator login password '${POSTGRES_PASSWORD}';
+        SQL
+    restart: 'no'
+
+volumes:
+  local-pg-data:
