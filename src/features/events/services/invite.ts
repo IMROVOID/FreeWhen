@@ -18,7 +18,6 @@ export async function resolveInvite(
 ): Promise<InviteResolution> {
   const { data } = await apiRequest<{ event: InviteResolution }>(`/api/invite/${token}`, {
     userId,
-    platform: 'app',
   });
 
   return data.event;

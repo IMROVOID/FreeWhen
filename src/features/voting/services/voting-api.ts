@@ -107,7 +107,6 @@ export async function putVote(
   const { data } = await apiRequest<CastVoteResponse>(`/api/proposals/${proposalId}/vote`, {
     method: 'PUT',
     userId,
-    platform: 'app',
     body: {
       value,
       ...(options.openedAtIso ? { opened_at: options.openedAtIso } : {}),
@@ -147,7 +146,6 @@ export async function postConfirm(
   const { data } = await apiRequest<ConfirmResponse>(`/api/events/${eventId}/confirm`, {
     method: 'POST',
     userId,
-    platform: 'app',
     body: {
       axis: body.axis,
       preferred_proposal_id: body.preferredProposalId ?? null,

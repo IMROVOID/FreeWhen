@@ -140,7 +140,6 @@ export async function putRsvp(
   const { data } = await apiRequest<PutRsvpResponse>(`/api/events/${eventId}/rsvp`, {
     method: 'PUT',
     userId,
-    platform: 'app',
     body: { value },
   });
 

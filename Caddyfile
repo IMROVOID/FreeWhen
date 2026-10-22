@@ -1,0 +1,158 @@
+# Caddyfile — the one host, and every path it serves.
+#
+# ★ THIS FILE IS THE ROUTE CONTRACT (PRD-18 §4, AC-18.5.1, AC-18.5.2).
+#
+# Thirteen paths are served. Four are refused. Everything else 404s by
+# default, because nothing here answers a path it was not given.
+#
+# ★ ORDER MATTERS. CADDY EVALUATES `handle` BLOCKS IN FILE ORDER.
+#
+# The final `handle` is a catch-all: it exists so the single-page export
+# resolves client-side routes, and it will therefore swallow ANY path that
+# reaches it. The refusals must be declared BEFORE it, or `/studio` is served
+# the app shell instead of a 404.
+#
+# ★ `handle`, NEVER `handle_path`, FOR EVERY PROXY.
+#
+# `handle_path` STRIPS the matched prefix. `handle_path /api/*` would send
+# `/events` to an API that expects `/api/events` — a 404 that reads like a
+# routing bug and costs an afternoon. `handle` preserves the path.
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	# ── Security headers, on every response ────────────────────────────────
+	#
+	# `frame-ancestors 'none'` matters more than usual here: the session token
+	# lives in `localStorage`, so a framed page is a clickjacking path to it.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# ══════════════════════════════════════════════════════════════════════
+	# REFUSED — absence is a requirement, not an omission (AC-18.5.1)
+	# ══════════════════════════════════════════════════════════════════════
+	#
+	# Every block below must stay ABOVE the catch-all `handle` at the bottom.
+	# A refused path that falls through to the app shell returns 200 with the
+	# app's HTML, and a 200 is exactly what the acceptance criterion forbids.
+
+	# /studio is an admin UI. It sits behind HTTP basic auth in a full
+	# Supabase stack, but "authenticated admin surface on the public host" is
+	# not a property this deployment needs — reach it over an SSH tunnel.
+	# The bare host and the trailing-slash form are both refused.
+	@studio path /studio /studio/ /studio/*
+	handle @studio {
+		respond 404
+	}
+
+	# Pruned services (PRD-10 D20 §7.2). Storage and Edge Functions are not
+	# part of this deployment. Refusing them is not decoration: a pruned
+	# service that REAPPEARS after a `docker compose` change would otherwise
+	# become publicly reachable with nobody having decided that.
+	@storage path /storage/v1/*
+	handle @storage {
+		respond 404
+	}
+
+	@functions path /functions/v1/*
+	handle @functions {
+		respond 404
+	}
+
+	# Source maps expose the whole route structure. The export does not emit
+	# them (gate:web fails if it ever does), and the proxy refuses them anyway
+	# so a stale `dist/` on the host cannot serve one (AC-18.6.2).
+	@sourcemap path *.map
+	handle @sourcemap {
+		respond 404
+	}
+
+	# ══════════════════════════════════════════════════════════════════════
+	# BACKEND
+	# ══════════════════════════════════════════════════════════════════════
+
+	# The app's API. `handle` preserves `/api/...`.
+	handle /api/* {
+		reverse_proxy {$API_UPSTREAM:127.0.0.1:8787}
+	}
+
+	# The token service (GoTrue's anonymous sign-in path) and, on the Supabase
+	# backend, Kong. One env var per upstream, because the two backends place
+	# these on different hosts (PRD-10 D22).
+	handle /auth/v1/* {
+		reverse_proxy {$AUTH_UPSTREAM:127.0.0.1:8789}
+	}
+
+	# PostgREST. The same origin as the app, which is what makes the export's
+	# requests same-origin and the CSP's `connect-src 'self'` sufficient.
+	handle /rest/v1/* {
+		reverse_proxy {$REST_UPSTREAM:127.0.0.1:3000}
+	}
+
+	# The LISTEN/NOTIFY → WebSocket bridge.
+	handle /realtime/v1/* {
+		reverse_proxy {$REALTIME_UPSTREAM:127.0.0.1:8788}
+	}
+
+	# ══════════════════════════════════════════════════════════════════════
+	# STATIC ARTIFACTS — hand-written, not part of the export
+	# ══════════════════════════════════════════════════════════════════════
+	#
+	# Only two pages are hand-written. Everything else is a route in the app,
+	# because the app already renders it (PRD-18 D18-1).
+
+	# The APK download page, with the Play Protect note. `/dl/` itself serves
+	# `index.html`; the APK beside it is a plain file.
+	handle /dl/* {
+		root * {$STATIC_ROOT:/srv/static}
+		file_server
+	}
+
+	# The web privacy notice, for the store listing link.
+	@privacy path /privacy /privacy/ /privacy.html
+	handle @privacy {
+		root * {$STATIC_ROOT:/srv/static}
+		rewrite * /privacy/index.html
+		file_server
+	}
+
+	# ══════════════════════════════════════════════════════════════════════
+	# THE WEB EXPORT (D18-1)
+	# ══════════════════════════════════════════════════════════════════════
+
+	# Hashed asset names are immutable: a redeploy cannot change what a given
+	# filename means, so the browser may keep it for a year.
+	handle /assets/* {
+		root * {$WEB_ROOT:/srv/web}
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle /_expo/* {
+		root * {$WEB_ROOT:/srv/web}
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# ★ THE CATCH-ALL. MUST BE LAST.
+	#
+	# `try_files {path} {path}.html /index.html` is what makes the static
+	# export answer a deep link: `/e/<token>` has an emitted HTML file,
+	# `/event/<uuid>/map` resolves through its own file, and anything else
+	# falls back to the shell so the router can show its own not-found.
+	#
+	# HTML revalidates so a redeploy is visible on the next load — a cached
+	# shell pointing at deleted chunks is a white screen.
+	handle {
+		root * {$WEB_ROOT:/srv/web}
+		header Cache-Control "no-cache"
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+	}
+}

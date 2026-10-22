@@ -541,7 +541,9 @@
     "lowestRankLabel": "Rank one",
     "legend": "Rank is shown by number, size and colour.",
     "offMapVenue": "Outside the map area",
-    "attribution": "Map data from the map provider"
+    "attribution": "Map data from the map provider",
+    "unavailableOnWeb": "The map is not available in the browser",
+    "unavailableOnWebBody": "The ranked list below has everything you need: each place, its reason and its travel estimate."
   },
   "privacy": {
     "heading": "Privacy",
