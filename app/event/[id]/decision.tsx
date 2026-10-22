@@ -48,6 +48,16 @@ import { useVote } from '@/src/features/voting/hooks/useVote';
 import { buildDecisionCard } from '@/src/features/voting/services/decision-card';
 import { confirm, planConfirmation } from '@/src/features/voting/services/confirm';
 
+// Phase 10 — follow-through, mounted only on the confirmed branch.
+import { RsvpControls } from '@/src/features/follow-through/components/RsvpControls';
+import { AttendeeList } from '@/src/features/follow-through/components/AttendeeList';
+import { RunningLateAction } from '@/src/features/follow-through/components/RunningLateAction';
+import { CantMakeItAction } from '@/src/features/follow-through/components/CantMakeItAction';
+import { SharePlanButton } from '@/src/features/follow-through/components/SharePlanButton';
+import { AddToCalendarButton } from '@/src/features/follow-through/components/AddToCalendarButton';
+import { fetchRsvps, type RsvpState } from '@/src/features/follow-through/services/rsvp';
+import type { ShareablePlan } from '@/src/features/follow-through/services/share-plan';
+
 export default function DecisionScreen() {
   const { t: theme } = useTheme();
   const { t, i18n } = useTranslation();
@@ -79,6 +89,19 @@ export default function DecisionScreen() {
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
+  // ★ PHASE 10 — RSVP EXISTS ONLY ON THE CONFIRMED BRANCH.
+  //
+  // The state is fetched only when a decision is live, so a participant cannot
+  // even see counts before the group has decided (FR-6.1, AC-6.1.1). `canRsvp`
+  // inside `RsvpControls` is the second guard.
+  const [rsvpState, setRsvpState] = useState<RsvpState | null>(null);
+
+  // The card's attendee counts read RSVPs by participant id, while the controls
+  // work in names. Holding both keeps one fetch serving both consumers.
+  const [rsvpsById, setRsvpsById] = useState<Record<string, 'going' | 'maybe' | 'cannot'>>({});
+
+  const isConfirmedEvent = local?.event.status === 'CONFIRMED';
+
   // The confirmed state is what fires the Meet Point, and only on the edge.
   const wasConfirmed = useRef(false);
 
@@ -98,8 +121,11 @@ export default function DecisionScreen() {
       participants: local.participants,
       homeTz: local.event.home_tz,
       locale,
+      // Phase 10 wires the RSVPs the card was always ready to receive; before
+      // them its counts were necessarily zero.
+      rsvps: rsvpsById,
     });
-  }, [decision, chosenEntry, local, locale]);
+  }, [decision, chosenEntry, local, locale, rsvpsById]);
 
   const plan = useMemo(() => {
     if (!local) return null;
@@ -123,6 +149,28 @@ export default function DecisionScreen() {
     if (decision && !wasConfirmed.current) wasConfirmed.current = true;
     if (!decision) wasConfirmed.current = false;
   }, [decision]);
+
+  const loadRsvps = useCallback(async () => {
+    if (!isConfirmedEvent) {
+      setRsvpState(null);
+      return;
+    }
+
+    try {
+      const userId = await getStoredUserId();
+      const payload = await fetchRsvps(eventId, userId);
+      setRsvpState({ attendance: payload.attendance, mine: payload.mine });
+      setRsvpsById(payload.rsvps);
+    } catch {
+      // A failed read leaves the controls hidden rather than showing zeroes that
+      // would read as "nobody is coming". The card above still states the plan.
+      setRsvpState(null);
+    }
+  }, [eventId, isConfirmedEvent]);
+
+  useEffect(() => {
+    void loadRsvps();
+  }, [loadRsvps]);
 
   const onConfirm = useCallback(async () => {
     if (!plan) return;
@@ -240,6 +288,56 @@ export default function DecisionScreen() {
             testID="decision-outstanding-all"
           />
         )}
+
+        {/* ★ PHASE 10 — FOLLOW-THROUGH. Everything here needs a confirmed plan.
+            RSVP, the calendar file, sharing, running late and dropping out are all
+            about a place and time that now exist; before that the vote is the only
+            honest signal (FR-6.1). */}
+        {isConfirmed &&
+          card &&
+          rsvpState && (
+            <View style={styles.followThrough} testID="decision-follow-through">
+              <AttendeeList attendance={rsvpState.attendance} testID="decision-attendees" />
+
+              <RsvpControls
+                eventId={eventId}
+                eventStatus={local.event.status}
+                state={rsvpState}
+                myName={local.me.display_name}
+                onChange={setRsvpState}
+                testID="decision-rsvp"
+              />
+
+              <AddToCalendarButton
+                event={{
+                  decisionId: card.decisionId,
+                  title: card.venueName || card.axis,
+                  venueName: card.venueName,
+                  venueAddress: card.venueAddress,
+                  startUtc: card.startUtc ?? local.event.voting_deadline ?? '',
+                  endUtc: card.endUtc,
+                  description: [card.datePrimary, card.timeRange].filter(Boolean).join(' · '),
+                }}
+                testID="decision-calendar"
+              />
+
+              <SharePlanButton plan={shareablePlan(card)} testID="decision-share" />
+
+              <RunningLateAction
+                eventId={eventId}
+                statuses={[]}
+                onReported={() => void loadRsvps()}
+                testID="decision-running-late"
+              />
+
+              <CantMakeItAction
+                eventId={eventId}
+                alreadyCannot={rsvpState.mine === 'cannot'}
+                onChanged={() => void loadRsvps()}
+                testID="decision-cant-make-it"
+              />
+            </View>
+          )}
 
         <Banner
           message={voteError ? t(voteError) : ''}
@@ -365,6 +463,33 @@ function toStatusProps(
   };
 }
 
+/**
+ * The plan, reduced to what a share message needs (Task 10).
+ *
+ * ★ NO COORDINATES (§8). The shared text carries the venue's NAME, which is the
+ * same exposure as the line beside it. A coordinate in a group chat is a location
+ * disclosure to people who were never invited.
+ */
+function shareablePlan(card: {
+  venueName: string;
+  venueAddress: string | null;
+  startUtc: string | null;
+  timeRange: string | null;
+  going: number;
+  maybe: number;
+}): ShareablePlan {
+  return {
+    title: card.venueName,
+    venueName: card.venueName,
+    startUtc: card.startUtc,
+    timeRange: card.timeRange,
+    venueAddress: card.venueAddress,
+    going: card.going,
+    maybe: card.maybe,
+    link: null,
+  };
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -379,5 +504,8 @@ const styles = StyleSheet.create({
   },
   proposalRow: {
     gap: space[3],
+  },
+  followThrough: {
+    gap: space[4],
   },
 });

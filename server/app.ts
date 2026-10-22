@@ -41,6 +41,11 @@ import { activityHandler } from './routes/activity';
 import { confirmHandler } from './routes/confirm';
 import { decisionStatusHandler } from './routes/decision-status';
 import { castVoteHandler } from './routes/votes';
+// Phase 10 — follow-through (PRD-06 §3, §6).
+import { getRsvpHandler, putRsvpHandler } from './routes/rsvp';
+import { notificationsHandler } from './routes/notifications';
+import { statusUpdateHandler } from './routes/status-update';
+import { nudgeHandler } from './routes/nudge';
 
 type Handler = (request: Request, params: Record<string, string>) => Promise<Response>;
 
@@ -102,6 +107,21 @@ const ROUTES: Route[] = [
     segments: ['api', 'events', ':id', 'participants'],
     handler: listParticipantsHandler,
   },
+  // Phase 10 — RSVP after confirmation, the notification gate, running late
+  // and the organizer's nudge.
+  { method: 'GET', segments: ['api', 'events', ':id', 'rsvp'], handler: getRsvpHandler },
+  { method: 'PUT', segments: ['api', 'events', ':id', 'rsvp'], handler: putRsvpHandler },
+  {
+    method: 'POST',
+    segments: ['api', 'events', ':id', 'notifications'],
+    handler: notificationsHandler,
+  },
+  {
+    method: 'POST',
+    segments: ['api', 'events', ':id', 'status-update'],
+    handler: statusUpdateHandler,
+  },
+  { method: 'POST', segments: ['api', 'events', ':id', 'nudge'], handler: nudgeHandler },
 ];
 
 async function healthHandler(): Promise<Response> {

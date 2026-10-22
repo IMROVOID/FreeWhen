@@ -79,6 +79,9 @@ export default tseslint.config(
       '.agents/**',
       '.claude/**',
       '.mimocode/**',
+      // Per-agent git worktrees are full copies of this repo. Linting them
+      // reports every file twice and drowns the real output.
+      '.worktrees/**',
     ],
   },
   js.configs.recommended,

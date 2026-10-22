@@ -608,5 +608,76 @@
     "anonymousAccountDays": "An anonymous account with no activity is deleted after {{count}} days.",
     "coordinatesDeleted": "Locations deleted.",
     "noticeLink": "Details in the privacy notice"
+  },
+  "notifications": {
+    "genericBody": "There is an update for your plan.",
+    "mute": {
+      "label": "Mute notifications for this event",
+      "hint": "The \"decision confirmed\" notification is never muted."
+    },
+    "bodies": {
+      "N1": "A new proposal was added: {{venueName}}",
+      "N2": "A proposal you voted on changed: {{venueName}}",
+      "N3": "Voting closes in an hour.",
+      "N4": "The decision is confirmed: {{venueName}} — {{when}}",
+      "N5": "{{authorName}} is running {{minutes}} minutes late.",
+      "N6": "Reminder: you have not voted yet."
+    },
+    "errors": {
+      "muteFailed": "Your notification setting was not saved."
+    }
+  },
+  "rsvp": {
+    "question": "Are you coming?",
+    "values": {
+      "going": "I'm coming",
+      "maybe": "Maybe",
+      "cannot": "I can't"
+    },
+    "errors": {
+      "notConfirmed": "You can answer once the decision is confirmed.",
+      "unknownValue": "That answer is not valid.",
+      "lateWindowClosed": "The window for reporting lateness has closed.",
+      "nudgeCooldown": "You can send another nudge in a few hours.",
+      "nobodyOutstanding": "Everyone has voted, so there is nobody to nudge.",
+      "castFailed": "Your answer was not saved and has been reverted."
+    }
+  },
+  "followThrough": {
+    "attendees": {
+      "counts": "{{going}} going, {{maybe}} maybe",
+      "goingOnly": "{{going}} going",
+      "noneYet": "Nobody has answered yet.",
+      "reservationHint": "Book for {{maybe}} more, since that many are unsure."
+    },
+    "late": {
+      "title": "I'm running late",
+      "action": "Report {{minutes}} minutes late",
+      "option": "+{{minutes}} min",
+      "broadcast": "{{authorName}}{{minutes}} minutes late"
+    },
+    "cannot": {
+      "action": "I can't make it",
+      "confirmBody": "You will no longer be counted as coming.",
+      "confirmAction": "Yes, I can't make it",
+      "already": "You have told the group you cannot come."
+    },
+    "share": {
+      "action": "Share the plan",
+      "heading": "Our plan",
+      "when": "When",
+      "where": "Where",
+      "copied": "The plan text was copied.",
+      "unavailable": "Sharing is not available on this device.",
+      "webHint": "On the web the plan text is copied to your clipboard."
+    },
+    "errors": {
+      "generic": "That did not work. Try again."
+    }
+  },
+  "calendar": {
+    "add": "Add to calendar",
+    "copied": "The calendar file was copied.",
+    "unavailable": "A calendar file could not be created on this device."
   }
 }

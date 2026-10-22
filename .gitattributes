@@ -1,0 +1,17 @@
+# Normalise to LF in the repository, and check out LF everywhere.
+#
+# The privacy notice is compared byte-for-byte against its generated
+# TypeScript copy (tests/privacy/logs-audit.test.ts). With core.autocrlf=true
+# on Windows the markdown is rewritten to CRLF on checkout while the generated
+# module keeps LF, so the test fails on a clean tree for a reason that has
+# nothing to do with the content. Pinning LF makes the comparison meaningful
+# and platform-independent.
+* text=auto eol=lf
+
+# Binary assets must never be converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ttf binary
+*.otf binary
+*.ico binary
