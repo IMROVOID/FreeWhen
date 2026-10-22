@@ -225,5 +225,95 @@
       "cycle": "دوچرخه",
       "taxi": "تاکسی"
     }
+  },
+  "proposals": {
+    "heading": "پیشنهادها",
+    "subheading": "به ترتیب ساخت",
+    "emptyTitle": "هنوز پیشنهادی نیست",
+    "emptyBody": "اولین زمان یا مکان را پیشنهاد دهید تا بقیه درباره‌اش نظر بدهند.",
+    "newProposal": "پیشنهاد جدید",
+    "loadFailed": "پیشنهادها بارگذاری نشد",
+    "reconnecting": "در حال اتصال دوباره…",
+    "type": {
+      "TIME": "زمان",
+      "PLACE": "مکان",
+      "TIME_AND_PLACE": "زمان و مکان"
+    },
+    "status": {
+      "OPEN": "باز",
+      "CHOSEN": "انتخاب‌شده",
+      "REOPENED": "بازگشایی‌شده",
+      "WITHDRAWN": "پس‌گرفته‌شده"
+    },
+    "card": {
+      "timeLine": "{{date}} · {{start}}–{{end}}",
+      "endsNextDay": "پایان در روز بعد",
+      "proposedBy": "پیشنهاد {{name}}",
+      "lateMarker": "پیشنهاد جدید — بعد از شروع رأی‌گیری",
+      "hoursUnknown": "ساعات کاری نامشخص"
+    },
+    "form": {
+      "titleLabel": "عنوان پیشنهاد",
+      "notesLabel": "یادداشت (اختیاری)",
+      "linkLabel": "پیوند (اختیاری)",
+      "submit": "ثبت پیشنهاد",
+      "timeSection": "زمان پیشنهادی",
+      "placeSection": "مکان پیشنهادی",
+      "placeChosen": "مکان انتخاب‌شده",
+      "changePlace": "تغییر مکان",
+      "yourLocalTime": "به وقت محلی شما"
+    },
+    "duplicate": {
+      "title": "این مکان قبلاً پیشنهاد شده است",
+      "body": "«{{name}}» از قبل روی فهرست است.",
+      "distance": "حدود {{metres}} متر با آن فاصله دارد",
+      "useExisting": "رأی به «{{name}}»",
+      "createAnyway": "با این حال ثبت کن"
+    },
+    "place": {
+      "searchLabel": "جست‌وجوی مکان",
+      "noResults": "مکانی پیدا نشد",
+      "degraded": "جست‌وجوی مکان در دسترس نیست. می‌توانید مکان را روی نقشه انتخاب کنید.",
+      "pickOnMap": "مکان مورد نظر پیدا نشد؟ روی نقشه انتخاب کنید"
+    },
+    "validation": {
+      "titleRequired": "عنوان پیشنهاد را وارد کنید",
+      "titleTooLong": "عنوان حداکثر ۶۰ نویسه است",
+      "notesTooLong": "یادداشت حداکثر ۳۰۰ نویسه است",
+      "typeUnknown": "نوع پیشنهاد معتبر نیست",
+      "timeNeedsSlot": "برای پیشنهاد زمان، یک بازه انتخاب کنید",
+      "placeNeedsVenue": "برای پیشنهاد مکان، یک مکان انتخاب کنید",
+      "endBeforeStart": "زمان پایان باید بعد از شروع باشد",
+      "endWithoutStart": "زمان پایان بدون زمان شروع معنی ندارد",
+      "instantInvalid": "زمان انتخاب‌شده معتبر نیست",
+      "slotPast": "این زمان گذشته است",
+      "slotOutOfWindow": "این زمان خارج از بازهٔ رویداد است",
+      "slotOffGranularity": "زمان باید مضربی از ۳۰ دقیقه باشد",
+      "linkInvalid": "پیوند معتبر نیست",
+      "venueNameRequired": "نام مکان را وارد کنید",
+      "coordRange": "این موقعیت خارج از محدودهٔ پشتیبانی‌شده است",
+      "nothingToChange": "تغییری برای ثبت وجود ندارد",
+      "lockedConfirmed": "پس از ثبت تصمیم نهایی، پیشنهادها قابل ویرایش نیستند"
+    }
+  },
+  "slots": {
+    "heading": "زمان‌های پیشنهادی",
+    "day": "روز",
+    "startTime": "ساعت شروع",
+    "durationHint": "{{minutes}} دقیقه",
+    "granularityHint": "هر {{minutes}} دقیقه",
+    "showPast": "نمایش زمان‌های گذشته",
+    "hidePast": "پنهان کردن زمان‌های گذشته",
+    "pastBadge": "گذشته",
+    "emptyTitle": "هنوز زمانی پیشنهاد نشده",
+    "emptyBody": "اولین بازهٔ زمانی را اضافه کنید.",
+    "yourLocalTime": "به وقت محلی شما",
+    "endsNextDay": "پایان در روز بعد",
+    "hoursWarning": "ممکن است در این ساعت بسته باشد"
+  },
+  "availability": {
+    "heading": "دسترس‌پذیری",
+    "subheading": "همه یک مجموعه‌داده",
+    "hint": "روی خانه‌ها بکشید تا زمان‌های آزادتان را مشخص کنید."
   }
 }
