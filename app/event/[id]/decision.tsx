@@ -21,15 +21,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Banner } from '@/src/components/ui/Toast';
 import { Button } from '@/src/components/ui/Button';
-import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Text } from '@/src/components/ui/Text';
+import { ErrorState } from '@/src/components/states/ErrorState';
+import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { getStoredUserId } from '@/src/lib/session';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -198,22 +199,31 @@ export default function DecisionScreen() {
     }
   }, [plan, eventId, reload]);
 
+  // ★ A SKELETON, NOT A CENTRED SPINNER (§6, Plan 11 Task 6).
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <ActivityIndicator color={theme.textMuted} testID="decision-loading" />
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingTop: insets.top + space[6], paddingHorizontal: space[5] },
+        ]}
+      >
+        <ListSkeleton rows={3} testID="decision-loading" />
       </View>
     );
   }
 
   if (!local) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <EmptyState
-          title={t('decision.emptyTitle')}
-          body={errorKey ? t(errorKey) : t('errors.notParticipant')}
-          actionLabel={t('common.retry')}
-          onAction={() => void reload()}
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingTop: insets.top + space[6], paddingHorizontal: space[5] },
+        ]}
+      >
+        <ErrorState
+          messageKey={errorKey ?? 'errors.notParticipant'}
+          onRetry={() => void reload()}
           testID="decision-unavailable"
         />
       </View>
@@ -493,10 +503,6 @@ function shareablePlan(card: {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
   },
   content: {
     paddingHorizontal: space[5],

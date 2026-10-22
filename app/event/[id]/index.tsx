@@ -17,19 +17,32 @@
  * The hook keeps the last good proposals on screen and reports reconnecting
  * separately, so a bad connection is a status line rather than an empty state
  * that looks like the group has no options.
+ *
+ * ★ THE ORGANIZER-ALONE STATE IS ACTIONABLE (AC-11.3.1, Plan 11 Task 4).
+ *
+ * One participant, zero proposals is the most-seen empty state in the product:
+ * it is what every organizer sees seconds after creating an event. It offers the
+ * first-proposal action directly instead of describing the emptiness.
+ *
+ * ★ OFFLINE KEEPS THE PROPOSALS READABLE AND MARKS A QUEUED VOTE (AC-11.7.1).
+ *
+ * A vote that LOOKS submitted but has not left the device destroys trust in the
+ * tally, so the pending write is labelled next to the tally rather than hidden.
+ * The banner is a strip above the content, never a modal.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
-import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Text } from '@/src/components/ui/Text';
 import { Banner } from '@/src/components/ui/Toast';
+import { ListSkeleton } from '@/src/components/states/ListSkeleton';
+import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { DecisionStatusBand } from '@/src/features/voting/components/DecisionStatusBand';
@@ -37,6 +50,7 @@ import { TallyBar } from '@/src/features/voting/components/TallyBar';
 import { VoteControl } from '@/src/features/voting/components/VoteControl';
 import { useDecisionStatus } from '@/src/features/voting/hooks/useDecisionStatus';
 import { useVote } from '@/src/features/voting/hooks/useVote';
+import { useOffline } from '@/src/hooks/useOffline';
 import { apiRequest } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import { radius, space } from '@/src/theme/tokens';
@@ -69,6 +83,7 @@ export default function EventHomeScreen() {
   const [isMissing, setIsMissing] = useState(false);
 
   const { proposals, isLoading, isReconnecting, errorKey } = useProposals(eventId);
+  const { isOffline, pendingCount } = useOffline();
 
   // ★ THE VOTE STATE LIVES HERE, AND ITS PAYLOAD IS THE DECISION STATUS.
   //
@@ -147,24 +162,55 @@ export default function EventHomeScreen() {
     void loadEvent();
   }, [loadEvent]);
 
+  // One navigation target for the three places that offer a first proposal.
+  const openPropose = useCallback(() => {
+    if (!event) return;
+    router.push({
+      pathname: '/event/[id]/propose',
+      params: {
+        id: event.id,
+        windowStart: event.date_window_start,
+        windowEnd: event.date_window_end,
+        homeTz: event.home_tz,
+      },
+    });
+  }, [event, router]);
+
+  // ★ LOADING IS A SKELETON, NOT A CENTRED SPINNER (§6).
   if (isLoadingEvent) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <ActivityIndicator color={theme.textMuted} testID="event-home-loading" />
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingTop: insets.top + space[8], paddingHorizontal: space[5] },
+        ]}
+      >
+        <ListSkeleton rows={2} testID="event-home-loading" />
       </View>
     );
   }
 
   if (isMissing || !event) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <EmptyState
-          title={t('events.list.emptyTitle')}
-          body={t('errors.notParticipant')}
-          actionLabel={t('common.back')}
-          onAction={() => router.replace('/')}
-          testID="event-home-missing"
-        />
+      <View
+        style={[
+          styles.centered,
+          { backgroundColor: theme.bg, paddingTop: insets.top, paddingHorizontal: space[5] },
+        ]}
+      >
+        <Card variant="raised" testID="event-home-missing">
+          <Text variant="h3">{t('states.errorTitle')}</Text>
+          <Text variant="body" color={theme.textMuted}>
+            {t('errors.notParticipant')}
+          </Text>
+          <Button
+            label={t('common.back')}
+            onPress={() => router.replace('/')}
+            variant="secondary"
+            size="medium"
+            style={styles.missingAction}
+          />
+        </Card>
       </View>
     );
   }
@@ -180,6 +226,10 @@ export default function EventHomeScreen() {
       ]}
       testID="event-home"
     >
+      {/* ★ AC-11.7.1 — the strip sits above the content; everything below
+          stays readable while it is showing. */}
+      {isOffline && <OfflineBanner pendingCount={pendingCount} testID="event-home-offline" />}
+
       <Text variant="h1" align="start" numberOfLines={3}>
         {event.title}
       </Text>
@@ -227,19 +277,38 @@ export default function EventHomeScreen() {
       />
 
       {isLoading ? (
-        <ActivityIndicator color={theme.textMuted} testID="event-home-proposals-loading" />
+        <ListSkeleton rows={3} testID="event-home-proposals-loading" />
       ) : errorKey ? (
-        <Card variant="raised">
+        <Card variant="raised" testID="event-home-proposals-error">
+          <Text variant="h3">{t('states.errorTitle')}</Text>
           <Text variant="body" color={theme.textMuted}>
             {t(errorKey)}
           </Text>
+          <Button
+            label={t('common.retry')}
+            onPress={() => void reloadVotes()}
+            variant="secondary"
+            size="medium"
+            style={styles.retryAction}
+            testID="event-home-proposals-retry"
+          />
         </Card>
       ) : proposals.length === 0 ? (
+        /* ★ AC-11.3.1 — one participant, zero proposals. The prompt is the
+           first-proposal ACTION, not a description of the emptiness. */
         <Card variant="raised" testID="event-home-proposals-empty">
-          <Text variant="h3">{t('proposals.emptyTitle')}</Text>
+          <Text variant="h3">{t('states.organizerAlone')}</Text>
           <Text variant="body" color={theme.textMuted}>
-            {t('proposals.emptyBody')}
+            {t('states.organizerAloneBody')}
           </Text>
+          <Button
+            label={t('proposals.newProposal')}
+            onPress={openPropose}
+            variant="primary"
+            size="medium"
+            style={styles.retryAction}
+            testID="event-home-proposals-empty-action"
+          />
         </Card>
       ) : (
         <View style={styles.list} testID="event-home-proposals">
@@ -256,6 +325,18 @@ export default function EventHomeScreen() {
                 testID={`event-home-tally-${proposal.id}`}
               />
 
+              {/* ★ AC-11.7.1 — a queued vote is MARKED. A vote that looks
+                  submitted but is still on the device would poison the tally. */}
+              {isOffline && myVotes[proposal.id] && (
+                <Text
+                  variant="caption"
+                  color={theme.textMuted}
+                  testID={`event-home-pending-${proposal.id}`}
+                >
+                  {t('offline.pendingWrite')}
+                </Text>
+              )}
+
               <VoteControl
                 current={myVotes[proposal.id] ?? null}
                 onVote={(value) => void cast(proposal.id, value)}
@@ -271,17 +352,7 @@ export default function EventHomeScreen() {
 
       <Button
         label={t('proposals.newProposal')}
-        onPress={() =>
-          router.push({
-            pathname: '/event/[id]/propose',
-            params: {
-              id: event.id,
-              windowStart: event.date_window_start,
-              windowEnd: event.date_window_end,
-              homeTz,
-            },
-          })
-        }
+        onPress={openPropose}
         testID="event-home-new-proposal"
         style={styles.action}
       />
@@ -302,6 +373,17 @@ export default function EventHomeScreen() {
         variant="ghost"
         size="medium"
         testID="event-home-back"
+      />
+
+      {/* ★ S14 — the history is one tap from the decision it explains.
+          Plan 11 Task 6 builds the screen; this is its way in. */}
+      <Button
+        label={t('a11y.openActivity')}
+        accessibilityLabel={t('a11y.openActivity')}
+        onPress={() => router.push({ pathname: '/event/[id]/activity', params: { id: event.id } })}
+        variant="ghost"
+        size="medium"
+        testID="event-home-activity"
       />
     </ScrollView>
   );
@@ -339,5 +421,12 @@ const styles = StyleSheet.create({
   action: {
     marginTop: space[6],
     borderRadius: radius.pill,
+  },
+  retryAction: {
+    marginTop: space[2],
+    alignSelf: 'flex-start',
+  },
+  missingAction: {
+    marginTop: space[2],
   },
 });

@@ -15,13 +15,14 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Alert } from 'react-native';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { LanguageToggle } from '@/src/features/events/components/LanguageToggle';
 import { JoinForm } from '@/src/features/participants/components/JoinForm';
 import { joinEvent } from '@/src/features/participants/services/join';
@@ -148,11 +149,8 @@ export default function JoinScreen() {
       keyboardShouldPersistTaps="handled"
       testID="join-screen"
     >
-      {phase === 'loading' && (
-        <View style={styles.loading} accessibilityRole="progressbar">
-          <ActivityIndicator color={theme.textMuted} />
-        </View>
-      )}
+      {/* ★ A SKELETON, NOT A SPINNER (§6) — the form's shape is what arrives. */}
+      {phase === 'loading' && <ListSkeleton rows={2} testID="join-loading" />}
 
       {phase === 'invalid' && (
         <EmptyState
@@ -209,10 +207,5 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: space[5],
     flexGrow: 1,
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

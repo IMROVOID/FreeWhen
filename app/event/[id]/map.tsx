@@ -28,20 +28,23 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
-import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Text } from '@/src/components/ui/Text';
+import { ErrorState } from '@/src/components/states/ErrorState';
+import { ListSkeleton } from '@/src/components/states/ListSkeleton';
+import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { LensSwitcher } from '@/src/features/venues/components/LensSwitcher';
 import { MapErrorBoundary } from '@/src/features/venues/components/MapErrorBoundary';
 import { RankedList } from '@/src/features/venues/components/RankedList';
 import { VenueMap } from '@/src/features/venues/components/VenueMap';
 import { useLens } from '@/src/features/venues/hooks/useLens';
 import { useRanking } from '@/src/features/venues/hooks/useRanking';
+import { useOffline } from '@/src/hooks/useOffline';
 import {
   trackMapViewed,
   trackVenueSelected,
@@ -76,6 +79,7 @@ export default function RankedVenuesScreen() {
     isReconnecting,
     reload,
   } = useRanking(eventId, lens);
+  const { isOffline, pendingCount } = useOffline();
 
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
   const [renderLevel, setRenderLevel] = useState<MapRenderLevel>(4);
@@ -127,25 +131,34 @@ export default function RankedVenuesScreen() {
   // and is listed as off-map rather than silently dropped.
   const coordinates: Record<string, Coordinate> = useMemo(() => ({}), []);
 
+  // ★ LOADING IS SKELETON ROWS, NOT A CENTRED SPINNER (§6, Plan 11 Task 5).
   if (isLoading) {
     return (
-      <View style={[styles.centred, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <ActivityIndicator color={theme.textMuted} testID="ranking-loading" />
-        <Text variant="caption" color={theme.textMuted}>
-          {t('ranking.loading')}
-        </Text>
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingTop: insets.top + space[6], paddingHorizontal: space[4] },
+        ]}
+      >
+        <ListSkeleton rows={3} testID="ranking-loading" />
       </View>
     );
   }
 
   if (errorKey) {
     return (
-      <View style={[styles.centred, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <EmptyState
-          title={t('ranking.heading')}
-          body={t(errorKey)}
-          actionLabel={t('ranking.retry')}
-          onAction={() => void reload()}
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingTop: insets.top + space[6], paddingHorizontal: space[4] },
+        ]}
+      >
+        {isOffline && <OfflineBanner pendingCount={pendingCount} testID="ranking-offline" />}
+        <ErrorState
+          messageKey={errorKey}
+          retryKey="ranking.retry"
+          onRetry={() => void reload()}
+          testID="ranking-error"
         />
       </View>
     );
@@ -160,6 +173,8 @@ export default function RankedVenuesScreen() {
       ]}
       testID="ranking-screen"
     >
+      {isOffline && <OfflineBanner pendingCount={pendingCount} testID="ranking-offline" />}
+
       <View style={styles.header}>
         <Text variant="h1">{t('ranking.heading')}</Text>
         <Text variant="caption" color={theme.textMuted}>

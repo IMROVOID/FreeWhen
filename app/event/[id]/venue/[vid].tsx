@@ -15,13 +15,15 @@
  */
 
 import { useCallback, useEffect, useMemo } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { ErrorState } from '@/src/components/states/ErrorState';
+import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { VenueDetailPanel } from '@/src/features/venues/components/VenueDetailPanel';
 import { useLens } from '@/src/features/venues/hooks/useLens';
 import { useRanking } from '@/src/features/venues/hooks/useRanking';
@@ -67,21 +69,18 @@ export default function VenueDetailScreen() {
   }, [rank]);
 
   const body = (() => {
+    // ★ A SKELETON, NOT A CENTRED SPINNER (§6, Plan 11 Task 5).
     if (isLoading) {
-      return (
-        <View style={styles.centred}>
-          <ActivityIndicator color={theme.textMuted} testID="venue-loading" />
-        </View>
-      );
+      return <ListSkeleton rows={2} testID="venue-loading" />;
     }
 
     if (errorKey) {
       return (
-        <EmptyState
-          title={t('ranking.heading')}
-          body={t(errorKey)}
-          actionLabel={t('ranking.retry')}
-          onAction={() => void reload()}
+        <ErrorState
+          messageKey={errorKey}
+          retryKey="ranking.retry"
+          onRetry={() => void reload()}
+          testID="venue-error"
         />
       );
     }
@@ -129,10 +128,5 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: space[4],
     gap: space[5],
-  },
-  centred: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: space[8],
   },
 });

@@ -427,7 +427,7 @@
       "unknown": "{{actor}} recorded an action"
     }
   },
-"ranking": {
+  "ranking": {
     "heading": "Options",
     "subheading": "Ordered by fairness for everyone",
     "rank": "Rank",
@@ -679,5 +679,58 @@
     "add": "Add to calendar",
     "copied": "The calendar file was copied.",
     "unavailable": "A calendar file could not be created on this device."
+  },
+  "states": {
+    "loading": "Loading…",
+    "errorTitle": "Could not load",
+    "errorBody": "We could not reach the server. Try again.",
+    "emptyGeneric": "Nothing here yet",
+    "retry": "Try again",
+    "organizerAlone": "Start here: add the first proposal",
+    "organizerAloneBody": "Begin with a time or a place so everyone else can weigh in.",
+    "eventsEmpty": "You have no events yet",
+    "eventsEmptyBody": "Create your first event and invite your friends.",
+    "unknown": "Unknown",
+    "unknownNote": "This has not been checked; not knowing is not the same as no limitation.",
+    "mapNeedsTwo": "At least one place is needed for a comparison",
+    "noLocationNotice": "Your location is not saved, so this comparison left your trip out.",
+    "providerDegraded": "Full routing is unavailable; the times are estimates.",
+    "slotsEmpty": "No time has been proposed",
+    "peopleEmpty": "Nobody has opened this event yet",
+    "deniedTitle": "Access not granted",
+    "languageRestartReasonEn": "The app has to restart to switch to English — the layout changes from right-to-left to left-to-right.",
+    "languageRestartReasonFa": "The app has to restart to switch to Persian — the layout changes to right-to-left.",
+    "languageRestartAction": "Close and reopen",
+    "languageRestartLater": "Not now"
+  },
+  "a11y": {
+    "visitorLabel": "{{role}}: {{name}}",
+    "roles": {
+      "organizer": "Organizer",
+      "participant": "Participant",
+      "visitor": "Guest"
+    },
+    "retryHint": "Sends the request again",
+    "loadingHint": "This section is loading",
+    "voteSelected": "Selected",
+    "pendingWrite": "Waiting to send",
+    "openActivity": "Event history",
+    "languageSwitch": "Choose language",
+    "languageRestartHint": "The app has to restart before a new language takes effect"
+  },
+  "offline": {
+    "banner": "Offline — what has loaded stays readable",
+    "pendingBanner": "Offline — {{count}} change(s) will be sent when you reconnect",
+    "pendingWrite": "Waiting to send",
+    "reconnected": "Back online; the queued changes were sent.",
+    "cachedNote": "This content is from the last successful load."
+  },
+  "permission": {
+    "title": "Access not granted",
+    "locationDenied": "Your location is not saved. You can enter your neighbourhood by hand — the comparison runs on that instead.",
+    "manualAlternative": "Enter your neighbourhood by hand",
+    "manualPlaceholder": "e.g. Vanak, Tehran",
+    "saveManual": "Save neighbourhood",
+    "notificationsDenied": "Reminders are off. You can turn them on later in Settings."
   }
 }

@@ -23,16 +23,11 @@ import { Text } from '@/src/components/ui/Text';
 import { deleteAccount } from '@/src/features/privacy/services/account';
 import { DeleteAccountAction } from '@/src/features/privacy/components/DeleteAccountAction';
 import { NoticeViewer } from '@/src/features/privacy/components/NoticeViewer';
+import { LanguageToggle } from '@/src/features/settings/components/LanguageToggle';
 import { clearStoredUserId, getStoredUserId } from '@/src/lib/session';
-import { persistLanguage } from '@/src/i18n/store';
 import type { Language } from '@/src/i18n/types';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
-
-const LANGUAGES: ReadonlyArray<{ value: Language; labelKey: string }> = [
-  { value: 'fa', labelKey: 'settings.languageFa' },
-  { value: 'en', labelKey: 'settings.languageEn' },
-];
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
@@ -44,17 +39,6 @@ export default function SettingsScreen() {
 
   const [showNotice, setShowNotice] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
-
-  const chooseLanguage = useCallback(
-    (next: Language) => {
-      persistLanguage(next);
-      // The whole tree re-renders from the catalogue change; a direction flip
-      // (fa RTL ↔ en LTR) needs the documented restart, which the bootstrap
-      // handles on the next launch.
-      void i18n.changeLanguage(next);
-    },
-    [i18n],
-  );
 
   const confirmDeleteAccount = useCallback(async () => {
     setDeletingAccount(true);
@@ -84,21 +68,9 @@ export default function SettingsScreen() {
     >
       <Text variant="h1">{t('settings.heading')}</Text>
 
-      {/* Language */}
+      {/* Language — persist → flush → confirm restart (Plan 11 Task 6a). */}
       <Section title={t('settings.language')}>
-        <View style={styles.languageRow}>
-          {LANGUAGES.map((option) => (
-            <Button
-              key={option.value}
-              label={t(option.labelKey)}
-              variant={language === option.value ? 'primary' : 'secondary'}
-              size="medium"
-              onPress={() => chooseLanguage(option.value)}
-              testID={`settings-language-${option.value}`}
-              style={styles.languageButton}
-            />
-          ))}
-        </View>
+        <LanguageToggle current={language} testID="settings-language" />
       </Section>
 
       {/* Privacy and data */}
@@ -160,6 +132,4 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: space[5], gap: space[5] },
   section: { gap: space[3] },
   cardBody: { gap: space[3] },
-  languageRow: { flexDirection: 'row', gap: space[2] },
-  languageButton: { flex: 1 },
 });
