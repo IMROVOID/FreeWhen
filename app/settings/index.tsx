@@ -20,10 +20,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { Text } from '@/src/components/ui/Text';
+import { ErrorState } from '@/src/components/states/ErrorState';
+import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { deleteAccount } from '@/src/features/privacy/services/account';
 import { DeleteAccountAction } from '@/src/features/privacy/components/DeleteAccountAction';
 import { NoticeViewer } from '@/src/features/privacy/components/NoticeViewer';
 import { LanguageToggle } from '@/src/features/settings/components/LanguageToggle';
+import { useOffline } from '@/src/hooks/useOffline';
 import { clearStoredUserId, getStoredUserId } from '@/src/lib/session';
 import type { Language } from '@/src/i18n/types';
 import { space } from '@/src/theme/tokens';
@@ -39,9 +42,12 @@ export default function SettingsScreen() {
 
   const [showNotice, setShowNotice] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
+  const { isOffline, pendingCount } = useOffline();
 
   const confirmDeleteAccount = useCallback(async () => {
     setDeletingAccount(true);
+    setDeleteFailed(false);
 
     try {
       const userId = await getStoredUserId();
@@ -51,7 +57,9 @@ export default function SettingsScreen() {
       await clearStoredUserId();
       Alert.alert(t('settings.deleteAccountDone'));
     } catch {
-      Alert.alert(t('errors.unknown'));
+      // ★ A FAILED DELETION IS A DESIGNED ERROR STATE, NOT AN ALERT.
+      // This is the one action here whose failure the user must act on.
+      setDeleteFailed(true);
     } finally {
       setDeletingAccount(false);
     }
@@ -67,6 +75,10 @@ export default function SettingsScreen() {
       testID="settings"
     >
       <Text variant="h1">{t('settings.heading')}</Text>
+
+      {/* ★ AC-11.7.1 — offline is non-blocking. Every control below still
+          works against what has already loaded. */}
+      {isOffline && <OfflineBanner pendingCount={pendingCount} testID="settings-offline" />}
 
       {/* Language — persist → flush → confirm restart (Plan 11 Task 6a). */}
       <Section title={t('settings.language')}>
@@ -104,6 +116,13 @@ export default function SettingsScreen() {
 
       {/* Account */}
       <Section title={t('settings.accountSection')}>
+        {deleteFailed && (
+          <ErrorState
+            messageKey="errors.unknown"
+            onRetry={() => void confirmDeleteAccount()}
+            testID="settings-delete-error"
+          />
+        )}
         <DeleteAccountAction
           onConfirm={confirmDeleteAccount}
           busy={deletingAccount}

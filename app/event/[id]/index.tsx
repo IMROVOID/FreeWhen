@@ -41,6 +41,8 @@ import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { Text } from '@/src/components/ui/Text';
 import { Banner } from '@/src/components/ui/Toast';
+import { EmptyState } from '@/src/components/states/EmptyState';
+import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
@@ -279,37 +281,28 @@ export default function EventHomeScreen() {
       {isLoading ? (
         <ListSkeleton rows={3} testID="event-home-proposals-loading" />
       ) : errorKey ? (
-        <Card variant="raised" testID="event-home-proposals-error">
-          <Text variant="h3">{t('states.errorTitle')}</Text>
-          <Text variant="body" color={theme.textMuted}>
-            {t(errorKey)}
-          </Text>
-          <Button
-            label={t('common.retry')}
-            onPress={() => void reloadVotes()}
-            variant="secondary"
-            size="medium"
-            style={styles.retryAction}
-            testID="event-home-proposals-retry"
-          />
-        </Card>
+        <ErrorState
+          messageKey={errorKey}
+          onRetry={() => void reloadVotes()}
+          testID="event-home-proposals-error"
+        />
       ) : proposals.length === 0 ? (
         /* ★ AC-11.3.1 — one participant, zero proposals. The prompt is the
            first-proposal ACTION, not a description of the emptiness. */
-        <Card variant="raised" testID="event-home-proposals-empty">
-          <Text variant="h3">{t('states.organizerAlone')}</Text>
-          <Text variant="body" color={theme.textMuted}>
-            {t('states.organizerAloneBody')}
-          </Text>
-          <Button
-            label={t('proposals.newProposal')}
-            onPress={openPropose}
-            variant="primary"
-            size="medium"
-            style={styles.retryAction}
-            testID="event-home-proposals-empty-action"
-          />
-        </Card>
+        <EmptyState
+          prompt={t('states.organizerAlone')}
+          body={t('states.organizerAloneBody')}
+          testID="event-home-proposals-empty"
+          action={
+            <Button
+              label={t('proposals.newProposal')}
+              onPress={openPropose}
+              variant="primary"
+              size="medium"
+              testID="event-home-proposals-empty-action"
+            />
+          }
+        />
       ) : (
         <View style={styles.list} testID="event-home-proposals">
           {proposals.map((proposal) => (
@@ -421,10 +414,6 @@ const styles = StyleSheet.create({
   action: {
     marginTop: space[6],
     borderRadius: radius.pill,
-  },
-  retryAction: {
-    marginTop: space[2],
-    alignSelf: 'flex-start',
   },
   missingAction: {
     marginTop: space[2],
