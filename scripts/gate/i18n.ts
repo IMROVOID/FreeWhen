@@ -68,6 +68,9 @@ const PHASE_NAMESPACES: Record<string, string[]> = {
   '09': ['privacy', 'consent', 'settings', 'retention'],
   '10': ['notifications', 'rsvp', 'followThrough', 'calendar'],
   '11': ['states', 'a11y', 'offline', 'permission'],
+  // P14 extends `availability` but does not own it — P06 does. The two
+  // namespaces below are the chat parser and the reopen flow.
+  '14': ['parser', 'reopen'],
   '18': ['server', 'web'],
 };
 

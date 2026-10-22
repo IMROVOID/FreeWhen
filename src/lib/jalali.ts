@@ -159,3 +159,17 @@ export function jalaliToGregorianParts(
   const { gy, gm, gd } = toGregorian(jalaaliYear, jalaaliMonth, jalaaliDay);
   return { gy, gm, gd };
 }
+
+/** The Jalali components of a `YYYY-MM-DD` calendar day. */
+export function gregorianDayToJalali(date: string): { jy: number; jm: number; jd: number } {
+  const [year, month, day] = date.split('-').map(Number);
+  if (!year || !month || !day) throw new RangeError(`Invalid calendar day: ${date}`);
+
+  return toJalaali(year, month, day);
+}
+
+/** A Jalali date as a `YYYY-MM-DD` calendar day. */
+export function jalaliToGregorianDay(jalaaliYear: number, jalaaliMonth: number, jalaaliDay: number): string {
+  const { gy, gm, gd } = toGregorian(jalaaliYear, jalaaliMonth, jalaaliDay);
+  return `${gy}-${pad2(gm)}-${pad2(gd)}`;
+}

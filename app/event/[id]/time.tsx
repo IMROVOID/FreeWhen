@@ -25,12 +25,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
-import { Chip } from '@/src/components/ui/Chip';
+import { Chip, SegmentedControl } from '@/src/components/ui/Chip';
 import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
+import { AvailabilityGrid } from '@/src/features/availability/AvailabilityGrid';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { trackTimezoneMismatchShown } from '@/src/features/proposals/services/analytics';
@@ -38,6 +39,7 @@ import { deviceTimezone, timezonesDiffer } from '@/src/features/proposals/servic
 import { useOffline } from '@/src/hooks/useOffline';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
+import type { Language } from '@/src/i18n/types';
 import type { Proposal } from '@/src/types/proposal';
 
 /** Whether a proposal's slot has already started. */
@@ -45,19 +47,52 @@ function isPast(proposal: Proposal, now: number): boolean {
   return proposal.start_utc !== null && new Date(proposal.start_utc).getTime() < now;
 }
 
+/** The window the grid spans when the route did not carry one. */
+const FALLBACK_WINDOW_DAYS = 14;
+
+function daysFrom(date: string, count: number): string {
+  const start = Date.parse(`${date}T00:00:00.000Z`);
+  return new Date(start + count * 86_400_000).toISOString().slice(0, 10);
+}
+
 export default function TimeSlotsScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const params = useLocalSearchParams<{ id?: string; homeTz?: string }>();
+  const locale: Language = i18n.language === 'en' ? 'en' : 'fa';
+
+  const params = useLocalSearchParams<{
+    id?: string;
+    homeTz?: string;
+    windowStart?: string;
+    windowEnd?: string;
+    meId?: string;
+  }>();
   const eventId = typeof params.id === 'string' ? params.id : '';
   const homeTz = typeof params.homeTz === 'string' ? params.homeTz : 'Asia/Tehran';
 
-  const { proposals, isLoading, errorKey, isReconnecting } = useProposals(eventId);
+  const { proposals, isLoading, errorKey, isReconnecting, reload } = useProposals(eventId);
   const { isOffline, pendingCount } = useOffline();
   const [showPast, setShowPast] = useState(false);
+
+  // ★ PHASE 14 — THE GRID IS A SECOND VIEW OF THE SAME LIST (FR-3.10).
+  //
+  // The toggle switches between two renderings of `proposals`; there is no second
+  // fetch and no second store. A grid that read its own endpoint is how the two
+  // views come to answer "when can people meet?" differently.
+  const [view, setView] = useState<'list' | 'grid'>('list');
+
+  // The window's calendar days, in the event's zone. The route carries them when
+  // it has them; otherwise the proposal list's own span is the honest default.
+  const windowStartDate = typeof params.windowStart === 'string' ? params.windowStart.slice(0, 10) : '';
+  const windowEndDate =
+    typeof params.windowEnd === 'string'
+      ? params.windowEnd.slice(0, 10)
+      : daysFrom(windowStartDate || '2026-01-01', FALLBACK_WINDOW_DAYS);
+
+  const myProposalIds = useMemo(() => new Set<string>(), []);
 
   // The device zone is read once per mount: it does not change while a screen
   // is open, and re-reading it per render would be a wasted Intl lookup.
@@ -152,7 +187,29 @@ export default function TimeSlotsScreen() {
         />
       )}
 
-      {visible.length === 0 ? (
+      <SegmentedControl
+        options={[
+          { value: 'list', label: t('availability.viewList') },
+          { value: 'grid', label: t('availability.viewGrid') },
+        ]}
+        value={view}
+        onChange={(next) => setView(next === 'grid' ? 'grid' : 'list')}
+        testID="slots-view-toggle"
+      />
+
+      {view === 'grid' ? (
+        <AvailabilityGrid
+          eventId={eventId}
+          proposals={proposals}
+          windowStartDate={windowStartDate}
+          windowEndDate={windowEndDate}
+          homeTz={homeTz}
+          locale={locale}
+          onChanged={() => void reload()}
+          myProposalIds={myProposalIds}
+          testID="slots-grid"
+        />
+      ) : visible.length === 0 ? (
         <EmptyState
           title={t('slots.emptyTitle')}
           body={t('slots.emptyBody')}

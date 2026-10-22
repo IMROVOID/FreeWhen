@@ -44,7 +44,14 @@ export type FunnelEvent =
   | 'vote_cast'
   | 'decision_status_viewed'
   | 'decision_confirmed'
-  | 'no_viable_option_shown';
+  | 'no_viable_option_shown'
+  // Phase 14 — the P1 backlog that the user test justified (PRD-07, PRD-02).
+  //
+  // `chat_parse_ran` carries the candidate count and whether anything was
+  // recognised, so the paste feature's usefulness is measurable without ever
+  // recording what was pasted.
+  | 'chat_parse_ran'
+  | 'decision_reopened';
 
 /**
  * How a duplicate hint was resolved.

@@ -45,6 +45,9 @@ import { getRsvpHandler, putRsvpHandler } from './routes/rsvp';
 import { notificationsHandler } from './routes/notifications';
 import { statusUpdateHandler } from './routes/status-update';
 import { nudgeHandler } from './routes/nudge';
+// Phase 14 — the P1 backlog (PRD-07 chat parser, PRD-02 reopening).
+import { parseHandler } from './routes/parse';
+import { reopenHandler } from './routes/reopen';
 
 type Handler = (request: Request, params: Record<string, string>) => Promise<Response>;
 
@@ -126,6 +129,10 @@ const ROUTES: Route[] = [
     handler: statusUpdateHandler,
   },
   { method: 'POST', segments: ['api', 'events', ':id', 'nudge'], handler: nudgeHandler },
+  // Phase 14 — the chat parser reads and returns; it writes nothing (G1), and
+  // reopening restarts a decision while keeping its history (FR-2.22).
+  { method: 'POST', segments: ['api', 'events', ':id', 'parse'], handler: parseHandler },
+  { method: 'POST', segments: ['api', 'events', ':id', 'reopen'], handler: reopenHandler },
 ];
 
 /** Matches one route's segments, returning the captured params. */
