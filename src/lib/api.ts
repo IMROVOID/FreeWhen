@@ -16,6 +16,7 @@
 import Constants from 'expo-constants';
 
 import type { ApiErrorCode } from './errors';
+import { REQUEST_PLATFORM, type RequestPlatform } from './platform-tag';
 
 /** The development API port `server/index.ts` listens on. */
 const DEV_API_PORT = 8787;
@@ -75,7 +76,7 @@ export interface RequestOptions {
   /** The caller's identity, when one has been minted. */
   userId?: string | null;
   /** `web` or `app`, for the funnel's `invite_link_opened`. */
-  platform?: 'web' | 'app';
+  platform?: RequestPlatform;
 }
 
 /** A successful call: the body, plus the identity the server echoed. */
@@ -101,7 +102,7 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<ApiResult<T>> {
-  const { method = 'GET', body, userId, platform } = options;
+  const { method = 'GET', body, userId, platform = REQUEST_PLATFORM } = options;
 
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';

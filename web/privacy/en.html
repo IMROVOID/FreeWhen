@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy notice — FreeWhen</title>
+<style>
+:root{color-scheme:light dark}
+*{box-sizing:border-box}
+body{
+  margin:0;padding:2rem 1.25rem 4rem;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Vazirmatn,Tahoma,sans-serif;
+  font-size:16px;line-height:1.75;color:#15171c;background:#fbfbfc;
+}
+main{max-width:44rem;margin:0 auto}
+h1{font-size:1.5rem;line-height:1.35;margin:0 0 1rem}
+h2{font-size:1.125rem;margin:2rem 0 .5rem}
+p,li{margin:0 0 .75rem}
+ul{padding-inline-start:1.25rem}
+hr{border:0;border-top:1px solid #e3e5ea;margin:2rem 0}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.9375rem}
+th,td{border:1px solid #e3e5ea;padding:.5rem .625rem;text-align:start;vertical-align:top}
+th{background:#f2f3f6;font-weight:600}
+strong{font-weight:600}
+a{color:#2f5fd0}
+@media (prefers-color-scheme:dark){
+  body{color:#e7e9ee;background:#111318}
+  hr,th,td{border-color:#2a2e37}
+  th{background:#1b1f27}
+  a{color:#8fb0f5}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+<h1>Privacy notice — FreeWhen</h1>
+<p><strong>Applies from the first event you join.</strong> This notice is bundled with the app, so it opens without a network connection.</p>
+<hr />
+<h2>1. What we collect, and what we deliberately do not</h2>
+<p>We collect:</p>
+<ul>
+<li><strong>A display name.</strong> You choose it. It is visible to the people in your events.</li>
+<li><strong>An approximate starting area.</strong> Two decimal places — roughly a 1 km square. It is never a precise position.</li>
+<li><strong>Your transport modes, travel budget, and access needs</strong>, when you set them. These decide which venue is fair for the group.</li>
+<li><strong>Your votes, proposals, RSVPs, and comments</strong> inside an event.</li>
+</ul>
+<p>We deliberately do <strong>not</strong> collect: your precise GPS position, your contacts, your address book, your device identifiers for advertising, your background location, or your home address. There is no advertising or tracking SDK in this app.</p>
+<h2>2. Your location is approximate, on purpose</h2>
+<p>The device rounds your position to two decimal places <strong>before</strong> it leaves your phone. The precise reading is discarded on the device and is never sent to us, never stored, and never logged. The database itself cannot hold a third decimal place.</p>
+<p>If you decline the location permission, you can type your neighbourhood instead. <strong>Every feature still works</strong> — joining, proposing a place, voting, and seeing the decision. Declining location does not remove you from anything.</p>
+<h2>3. Who can see your starting area</h2>
+<p>Only the participants of that one event. Nobody else — not other events, not other groups, not us in any interface.</p>
+<p>You have two settings:</p>
+<ul>
+<li><strong>The participants of this event</strong> — they see your approximate area on the map.</li>
+<li><strong>Only for distance calculation</strong> — the area is used to work out a fair travel time for you, but the other participants see &quot;location not shared&quot;.</li>
+</ul>
+<p>The second setting does <strong>not</strong> exempt you from the fairness calculation. Your real area still counts when the group's travel times are compared. It is hidden from people's eyes, not from the calculation — otherwise &quot;private&quot; would be a way to opt out of fairness, which would be unfair to everyone else.</p>
+<h2>4. How long it is kept</h2>
+<p>Your starting area is deleted <strong>one hour after the event's date window ends</strong>. After that the coordinates no longer exist in our database.</p>
+<p>What survives is the record of what the group decided — the venue, the votes and the outcome. That is a shared history, and it does not contain your location.</p>
+<p>Anonymous accounts with no activity are deleted after <strong>30 days</strong>.</p>
+<h2>5. Deleting your location</h2>
+<p>There is a one-tap control to delete your starting area at any time. Deleting it:</p>
+<ul>
+<li>removes the coordinates immediately and permanently;</li>
+<li>leaves you in the event — your votes, proposals and RSVP are untouched;</li>
+<li>makes the ranking say honestly that your travel time is no longer included.</li>
+</ul>
+<p>It does not remove you from the group and it does not cancel your votes.</p>
+<h2>6. Deleting your account</h2>
+<p>In the app: <strong>Settings → Delete my account</strong>. This removes your account, every event you organised, and all of your location rows. Events you merely joined survive, because other people's plans are not yours to delete. This action cannot be undone.</p>
+<h2>7. Third parties who receive your approximate area</h2>
+<p>We use three services, and we name them because sending your area to a company is a disclosure, not an implementation detail.</p>
+<table><thead><tr>
+<th>Recipient</th>
+<th>What it receives</th>
+<th>Why</th>
+<th>Their retention</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Neshan</strong></td>
+<td>Your approximate starting area and the venue area, to calculate travel time. Data stays in Iran.</td>
+<td>Primary routing and search</td>
+<td><strong>Unverified</strong> — we could not confirm Neshan's retention period at a primary source. We state that plainly rather than invent an assurance.</td>
+</tr>
+<tr>
+<td><strong>OpenRouteService</strong></td>
+<td>The same rounded areas, only if Neshan is unavailable</td>
+<td>Fallback routing</td>
+<td><strong>Unverified</strong> — their terms are behind a consent wall we could not pass. The service is self-hostable, which would remove this disclosure entirely, and we intend to.</td>
+</tr>
+<tr>
+<td><strong>Mapbox</strong></td>
+<td>The map viewport — centred on the event's area, never on one person — to draw the map tiles</td>
+<td>Map rendering</td>
+<td><strong>Unverified</strong> — their policy page is rendered by JavaScript and could not be read. Mapbox also collects unidentified usage telemetry by default; the attribution control carries its opt-out and stays visible.</td>
+</tr>
+</tbody></table>
+<p><strong>What they do not receive:</strong> your name, your identity, your precise position, or which specific person the area belongs to. They receive coordinates, not a person.</p>
+<p>No other third party receives anything. We do not sell data. There is no analytics provider, no crash-reporting vendor, and no advertising network.</p>
+<h2>8. The activity log</h2>
+<p>Each event has a log of what happened — *&quot;Bahar changed their vote from maybe to yes&quot;*, *&quot;the venue was confirmed&quot;*. It records <strong>actions, not locations</strong>. There is no coordinate in it, ever, and it is visible to the participants of the event.</p>
+<h2>9. What this notice does not promise</h2>
+<p>We are honest about the gaps rather than implying completeness:</p>
+<ul>
+<li><strong>No identity verification.</strong> An invite link is the only credential. Anyone holding the link can join.</li>
+<li><strong>No blocking or reporting</strong> between participants. There is no chat in this version; comments are attached to proposals and the organiser can delete them.</li>
+<li><strong>No screenshot protection.</strong> If someone screenshots the map, nothing stops them. This is technically unpreventable.</li>
+<li><strong>No age verification.</strong> The app is for adults; the store listing states 18+.</li>
+<li><strong>Organiser control is tied to the device.</strong> Losing the device loses organiser control.</li>
+</ul>
+<h2>10. Your rights</h2>
+<p>You can see what we hold about you, correct it, delete your location, and delete your account — all inside the app. If you need something the app does not offer, contact the organiser of your event or the address in the store listing.</p>
+<hr />
+<p>*This notice describes what the app actually does. It is not legal advice and has not been reviewed by a lawyer. For a legal question about your situation, consult a qualified advisor in your jurisdiction.*</p>
+</main>
+</body>
+</html>

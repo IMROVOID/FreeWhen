@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>دانلود FreeWhen</title>
+<meta name="description" content="دانلود برنامهٔ اندروید FreeWhen" />
+<!--
+  A hand-written page, not a route in the app.
+
+  ★ WHY THIS IS NOT PART OF THE EXPORT.
+
+  It has to work for someone who does NOT have the app, from a link in a chat,
+  on a slow connection, before any JavaScript has been agreed to. An exported
+  React route would make the one page that must always load depend on the
+  bundle loading first.
+
+  ★ NO THIRD-PARTY SCRIPTS, NO CDN FONTS.
+
+  The page shares an origin with the app, whose session token lives in
+  `localStorage`. The CSP in the Caddyfile is `default-src 'self'`, and it is
+  only honest because this page loads nothing external (AC-18.6.3).
+-->
+<style>
+:root{color-scheme:light dark}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  padding:2rem 1.25rem;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Vazirmatn,Tahoma,sans-serif;
+  font-size:16px;line-height:1.8;color:#15171c;background:#fbfbfc;
+}
+main{width:100%;max-width:30rem}
+h1{font-size:1.5rem;line-height:1.35;margin:0 0 .375rem}
+.lede{margin:0 0 1.75rem;color:#5b6270;font-size:.9375rem}
+a.cta{
+  display:block;text-align:center;text-decoration:none;
+  background:#2f5fd0;color:#fff;font-weight:600;font-size:1rem;
+  padding:.875rem 1.25rem;border-radius:.75rem;
+}
+a.cta:active{transform:scale(.985)}
+.meta{margin:.75rem 0 0;color:#7c828e;font-size:.8125rem;text-align:center}
+.note{
+  margin:1.75rem 0 0;padding:.875rem 1rem;border-radius:.625rem;
+  background:#f2f3f6;border:1px solid #e3e5ea;font-size:.875rem;color:#3d434e;
+}
+.note h2{font-size:.9375rem;margin:0 0 .375rem}
+.note p{margin:0 0 .5rem}
+.note p:last-child{margin-bottom:0}
+.note ol{margin:0;padding-inline-start:1.125rem}
+.note li{margin:0 0 .25rem}
+.links{margin:1.75rem 0 0;font-size:.875rem;color:#7c828e;text-align:center}
+/* `unicode-bidi: isolate` is what stops a Latin link label inside a Persian
+   line from being reordered into "hsilgnE". `dir="ltr"` on the <a> alone does
+   not isolate the run — the bidi algorithm still treats it as part of the
+   surrounding RTL paragraph. */
+.links a{color:#2f5fd0;unicode-bidi:isolate}
+@media (prefers-color-scheme:dark){
+  body{color:#e7e9ee;background:#111318}
+  .lede{color:#9aa1ad}
+  .note{background:#1b1f27;border-color:#2a2e37;color:#c3c8d2}
+  .meta,.links{color:#8b919d}
+  a.cta{background:#4d78e0}
+  .links a{color:#8fb0f5}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>FreeWhen</h1>
+  <p class="lede">برنامهٔ اندروید — نسخهٔ آزمایشی</p>
+
+  <a class="cta" href="/dl/freewhen.apk" download>دانلود برنامه (APK)</a>
+  <p class="meta">اندروید ۸ به بالا · حدود ۲۰ مگابایت</p>
+
+  <div class="note">
+    <h2>اندروید ممکن است هشدار بدهد</h2>
+    <p>
+      این نسخه هنوز در Google Play منتشر نشده، پس گوشی شما ممکن است
+      «Play Protect» را نشان دهد یا بپرسد آیا به این منبع اعتماد می‌کنید.
+      این هشدار برای هر برنامه‌ای است که از بیرون فروشگاه نصب می‌شود، نه نشانهٔ
+      مشکل در این برنامه.
+    </p>
+    <ol>
+      <li>روی «نصب همچنان» یا «تنظیمات» بزنید.</li>
+      <li>اجازهٔ نصب از این مرورگر را روشن کنید.</li>
+      <li>به همین صفحه برگردید و دوباره دانلود را بزنید.</li>
+    </ol>
+  </div>
+
+  <p class="links">
+    <a href="/privacy">حریم خصوصی</a>
+    &nbsp;·&nbsp;
+    <a href="/" hreflang="fa">بازکردن در مرورگر</a>
+    &nbsp;·&nbsp;
+    <a href="/dl/en.html" hreflang="en" lang="en" dir="ltr">English</a>
+  </p>
+</main>
+</body>
+</html>

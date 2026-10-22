@@ -34,7 +34,6 @@ export async function joinEvent(
       ...(options.openedAt ? { opened_at: options.openedAt } : {}),
     },
     userId: options.userId ?? null,
-    platform: 'app',
   });
 
   // Persist before returning: a join that succeeded but was forgotten strands

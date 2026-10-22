@@ -30,7 +30,6 @@ export async function createProposal(
     method: 'POST',
     body: input,
     userId,
-    platform: 'app',
   });
 
   return { proposal: data.proposal, duplicate: data.duplicate, isLate: data.is_late };
@@ -57,7 +56,6 @@ export async function patchProposal(
     method: 'PATCH',
     body: patch,
     userId,
-    platform: 'app',
   });
 
   return data.proposal;
@@ -77,7 +75,6 @@ export async function withdrawProposal(
   const { data } = await apiRequest<{ proposal: Proposal }>(`/api/proposals/${proposalId}`, {
     method: 'DELETE',
     userId,
-    platform: 'app',
   });
 
   return data.proposal;

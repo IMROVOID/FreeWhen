@@ -17,6 +17,7 @@
     "db:seed": "tsx scripts/db/seed.ts",
     "db:verify-fixture": "tsx scripts/db/verify-fixture.ts",
     "gen:privacy-notice": "tsx scripts/privacy/gen-notice.ts",
+    "gen:web-pages": "tsx scripts/privacy/gen-web-pages.ts",
     "job:retention": "tsx scripts/jobs/run.ts retention",
     "job:anon-cleanup": "tsx scripts/jobs/run.ts anon-cleanup",
     "test:db": "tsx scripts/db/run-tests.ts",

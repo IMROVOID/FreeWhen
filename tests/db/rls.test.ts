@@ -753,6 +753,24 @@ describe('row-level security', { concurrency: false }, () => {
 
       const names = rows.rows.map((r) => r.proname).sort();
       assert.deepEqual(names, [
+        // Phase 18's demo read. It is a definer because the reviewer must see
+        // the ranking with NO session, and every other read is
+        // participant-scoped.
+        //
+        // Its privilege surface is closed by ONE predicate: `e.is_demo is true`.
+        // Execute is granted to `anon`, so the predicate is the entire safety —
+        // there is no policy behind it. Widening it to any condition the
+        // organizer controls (a status, a flag on their own event) would make
+        // their real event anonymously readable.
+        //
+        // Three things hold the line:
+        //  - `tests/deploy/demo-read.test.ts` asserts a non-demo event returns
+        //    `null` for `anon`, and again for the state this file warns about;
+        //  - the projection excludes `start_point` entirely, so no participant
+        //    area is exposed (FR-8.19);
+        //  - at most one demo event can exist (`event_single_demo_idx`), so the
+        //    anonymous read cannot be spread across a fleet of them.
+        'demo_event_summary',
         'enforce_decision_same_event',
         'enforce_participant_cap',
         'is_event_participant',

@@ -36,7 +36,6 @@ export async function createEvent(
     method: 'POST',
     body: input,
     userId: currentUserId,
-    platform: 'app',
   });
 
   if (userId) await storeUserId(userId);
