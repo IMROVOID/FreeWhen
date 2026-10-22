@@ -5,7 +5,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
@@ -28,7 +28,30 @@ function findProjectRoot(startDir: string): string {
   }
 }
 
-export const PROJECT_ROOT = findProjectRoot(dirname(fileURLToPath(import.meta.url)));
+const DEFAULT_ROOT = findProjectRoot(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * The tree the gates scan.
+ *
+ * ★ `--root <dir>` EXISTS SO A GATE CAN BE TESTED IN ISOLATION.
+ *
+ * `tests/gate/self-test.test.ts` proves each gate FAILS on a known-bad input by
+ * writing a probe file. Writing it into the real `src/` makes the probe visible
+ * to every other concurrently running scan — `npm test` runs one process per
+ * file — and a scan that sees another test's probe reports a failure against
+ * the tree rather than against the probe. With `--root`, the probe lives in a
+ * directory of its own and the gate under test scans exactly that.
+ *
+ * The default is unchanged: the project root, resolved from this file's
+ * location rather than from `process.cwd()`.
+ */
+export const PROJECT_ROOT = resolveRoot();
+
+function resolveRoot(): string {
+  const index = process.argv.indexOf('--root');
+  const value = index >= 0 ? process.argv[index + 1] : undefined;
+  return value ? resolve(DEFAULT_ROOT, value) : DEFAULT_ROOT;
+}
 
 /** The directories the gates scan. */
 export const SOURCE_DIRS = ['src', 'app', 'server', 'scripts'] as const;

@@ -31,7 +31,14 @@ const GATE = 'gate:web';
 const WEB_DIR = resolveWebDir();
 
 function resolveWebDir(): string {
-  const arg = process.argv.slice(2).find((a) => !a.startsWith('-'));
+  // A bare path is the bundle to scan; `--root <dir>` (which `shared.ts` reads)
+  // is the project whose `dist/` it belongs to. Skipping flag VALUES here
+  // matters: `--root D:\…\probe` would otherwise be read as the bundle path.
+  const args = process.argv.slice(2);
+  const arg = args.find(
+    (candidate, index) => !candidate.startsWith('-') && args[index - 1] !== '--root',
+  );
+
   if (arg) {
     return join(PROJECT_ROOT, arg.replace(/\\/g, '/'));
   }

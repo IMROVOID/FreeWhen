@@ -19,7 +19,7 @@
 
 [English](README.md) • [فارسی](README.fa.md)
 
-[Overview](#what-is-freewhen) • [Features](#key-features) • [Quick Start](#quick-start) • [Scoring Lenses](#decision-engine--scoring-lenses) • [Clients](#client-integration) • [Architecture](#architecture--structure) • [Guides](#advanced-guides) • [Development](#development--testing) • [Contributing](#contributing) • [Disclaimer](#disclaimer--legal-notice) • [References](#references--acknowledgements) • [License](#license)
+[Overview](#what-is-freewhen) • [Features](#key-features) • [Quick Start](#quick-start) • [Scoring Lenses](#decision-engine--scoring-lenses) • [Clients](#client-integration) • [Architecture](#architecture--structure) • [Guides](#advanced-guides) • [Development](#development--testing) • [Reviewer Path](#reviewer-quick-start--one-url-two-minutes) • [Runbook](#runbook--building-and-deploying) • [Contributing](#contributing) • [Disclaimer](#disclaimer--legal-notice) • [References](#references--acknowledgements) • [License](#license)
 
 </div>
 
@@ -43,6 +43,15 @@
   - [Quality & Release Gates](#quality--release-gates)
   - [Automated Test Suites](#automated-test-suites)
   - [Building Release Artifacts](#building-release-artifacts)
+- [Reviewer Quick-Start — One URL, Two Minutes](#reviewer-quick-start--one-url-two-minutes)
+  - [What is real, what is estimated, what is missing](#what-is-real-what-is-estimated-what-is-missing)
+- [Runbook — Building and Deploying](#runbook--building-and-deploying)
+  - [The seven release gates](#the-seven-release-gates)
+  - [Build the web artifact](#build-the-web-artifact)
+  - [Build the APK](#build-the-apk)
+  - [Deploy](#deploy)
+  - [Rollback](#rollback)
+  - [Analytics](#analytics)
 - [Contributing](#contributing)
 - [Known Gaps](#known-gaps)
 - [Disclaimer & Legal Notice](#disclaimer--legal-notice)
@@ -440,6 +449,7 @@ FreeWhen strictly distinguishes between client-inlined variables and server-only
 | `EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN` | Yes (map) | Restricted Mapbox public token (`pk.*`) | `—` |
 | `EXPO_PUBLIC_TILE_STYLE_URL` | No | Custom vector tile style URL | `—` |
 | `EXPO_PUBLIC_APP_BASE_URL` | Yes | Base URL used to formulate invite links | `—` |
+| `EXPO_PUBLIC_DEMO_TOKEN` | Yes (reviewer path) | The stable invite token `/start` routes to. Must resolve to the seeded `is_demo` event | `—` |
 
 #### 2. Server-Only Credentials (Never in Client Bundles)
 
@@ -522,6 +532,138 @@ npm run gate:web
 
 The compiled assets are placed in `dist/`, ready for hosting on any static web server or CDN.
 
+## Reviewer Quick-Start — One URL, Two Minutes
+
+**`/start`** is the reviewer entry point. It is an **app route** (`app/start.tsx`), not a hand-written page: it renders from the same web export as the product it describes, so the instructions and the screens cannot drift apart.
+
+No install, no account, no store. Open the URL and you are looking at a group deciding between venues.
+
+1. **Look at the ranked venues.** The top one tells you *who travels farthest and why*.
+2. **Switch the lens** (متعادل / سریعترین / عادلانهترین / کمخرجترین) — the ranking changes.
+3. **Tap a venue** — every person's trip, plus how certain we are about each number. Notice «تخمینی» (estimated).
+4. **Tap «ثبت تصمیم نهایی»** — the final Decision Card.
+5. **Open the same event in a second browser** — identical content.
+
+Scanning the QR on `/start` (or installing the APK from `/dl/`) opens the same event **as a participant**, which is the path that needs a name and a vote.
+
+**Why the demo loads without signing in.** The seeded event carries `is_demo = true`, and `demo_event_summary()` (migration `016_demo_read.sql`) is the only function an anonymous caller may execute. Every anonymous sign-in spends one request from a 30/hour/IP budget, so a reviewer who reloads four times would spend four of them, and a room of reviewers behind one NAT address would exhaust the budget in minutes. Sign-in is required only to vote or confirm — never to read the ranking.
+
+### What is real, what is estimated, what is missing
+
+| | |
+|---|---|
+| **Real** | Per-person travel times for driving, walking and cycling · the fairness ranking · live vote sync · approximate-location privacy |
+| **Estimated** | Public transit. No Iranian provider offers transit routing, so those numbers are distance-based and labelled as estimates in the app |
+| **Missing** | Venue wheelchair data (no such dataset exists for Iran — we show «نامشخص» rather than guessing) · block/report · iOS |
+| **In the browser** | The 3D map is Android-only. In the browser you get the ranked list, which is the part that carries the decision |
+
+The last row is a design decision, not a defect: the map degrades on web by design, the ranking does not. See [Known Gaps](#known-gaps).
+
+## Runbook — Building and Deploying
+
+Everything below runs on the operator's machine. There is **no CI pipeline and no EAS cloud build**, deliberately (PRD-13 §3, AC-10.1.1): one host, one operator, one deploy per day at most. The scripts exist so a manual step is *repeatable* rather than *remembered*.
+
+### The seven release gates
+
+```bash
+npm run gate:all
+```
+
+Seven, not six, because there are **two shipping artifacts**. The native bundle and the web bundle are built by different pipelines, and one can carry a key the other does not. Both go to strangers; both get scanned.
+
+| # | Gate | What its failure means |
+|---|---|---|
+| 1 | `gate:secrets` | A server credential is written down, or reached the bundle. **A leaked service-role key bypasses every RLS policy.** |
+| 2 | `gate:location` | Background location is declared, in `app.json` or the manifest |
+| 3 | `gate:engine-purity` | `src/engine/` imports React Native, Expo or Supabase — the fairness results stop being testable without a device |
+| 4 | `gate:logs` | Something logs a coordinate, a token, or pasted text |
+| 5 | `gate:design` | A hardcoded colour, radius, spacing, duration or font name |
+| 6 | `gate:i18n` | `fa.json` and `en.json` disagree — English is a shipping mode, not a fallback |
+| 7 | `gate:web` | The **exported** bundle carries a secret, an `sk.` token, a `.map`, or a third-party script origin |
+
+`gate:all` runs them in that order and stops at the first failure, because the first failure is almost always the cause. `gate:web` needs `dist/` to exist, so it prints a loud **SKIPPED — NOT CHECKED** line when the export has not been built, and exits non-zero. That skip is a developer convenience; the deploy path never sees it.
+
+### Build the web artifact
+
+```bash
+EXPO_PUBLIC_DEMO_TOKEN=freewhen-test-invite-token \
+EXPO_PUBLIC_APP_BASE_URL=https://your-host \
+npm run build:web
+```
+
+`scripts/build/export-web.sh` runs `source gates → export → gate:web → verify`, in that order. Three things are load-bearing:
+
+- **`--clear` is not optional.** A stale `dist/` keeps the previous build's hashed chunks while the new `index.html` references different ones — the page works locally and 404s on the host.
+- **`EXPO_PUBLIC_*` is inlined at export time, not read at runtime.** The demo token must be in the *build shell*, not only on the host. This is exactly why `gate:web` scans the output rather than the source.
+- **`web/` is not merged into `dist/`.** The app's client-side routing would shadow `/dl/` and `/privacy`; they are separate static roots so the two cannot collide.
+
+### Build the APK
+
+```bash
+export FREE_WHEN_RELEASE_STORE_FILE=/secure/freewhen-release.keystore
+export FREE_WHEN_RELEASE_STORE_PASSWORD=…
+npm run build:apk
+```
+
+`scripts/build/build-apk.sh` runs `npx expo prebuild --platform android` then `./gradlew assembleRelease`, and copies the result to `web/dl/freewhen.apk`. **No Expo account, no EAS, no build queue** — that removes the quota, the wait and the sanctions question in one step.
+
+#### The keystore
+
+**Store it, and record where.** Generate it once, outside the repository:
+
+```bash
+keytool -genkeypair -v -keystore freewhen-release.keystore \
+  -alias freewhen -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Android refuses an update signed by a different key. Lose the file and every future build is a *new app* that cannot be installed over the one already on a participant's phone — with no error message that explains why. The build script **fails** when `FREE_WHEN_RELEASE_STORE_FILE` is unset rather than producing an unsigned artifact that looks like a success.
+
+> **Keystore location for this deployment:** `______________________` (fill in when the host is provisioned; it must not be inside the repository and must not be the only copy).
+
+### Deploy
+
+```bash
+DEPLOY_HOST=deploy@your-host \
+DEPLOY_BASE_URL=https://your-host \
+EXPO_PUBLIC_DEMO_TOKEN=freewhen-test-invite-token \
+npm run deploy
+```
+
+`scripts/deploy/deploy.sh` runs gates → export → `gate:web` → rsync → migrate → Caddy reload → smoke test. **The order is the safety property**: moving the `rsync` above `gate:web` publishes an artifact that was never scanned, and that is the one edit this script must never receive. `tests/deploy/gates.test.ts` asserts the line ordering.
+
+The smoke test checks every served path *and* every refused one. A refused path returning `200` is the direction that matters most — it means `/studio`, a pruned service, or a source map is publicly reachable:
+
+```
+/health  /start  /privacy  /dl/  /dl/freewhen.apk  /api/health   → 200
+/studio  /storage/v1/*  /functions/v1/*  *.map                    → 404
+```
+
+### Rollback
+
+| Scenario | Action | Time |
+|---|---|---|
+| App bug shipped | Rebuild the APK, replace `/dl/freewhen.apk` | minutes |
+| **Web bug** | Re-export (`--clear`), rsync `dist/` | **minutes, no review** |
+| Backend bug | Redeploy the previous image; migrations are additive | minutes |
+| Migration damaged data | Restore the nightly `pg_dump` | ~an hour |
+| Host unreachable | The fallback host; installed APKs keep working | — |
+
+The local-build path **is** the rollback strategy. Removing the store from the loop means a fix reaches a reviewer the same day, and a JavaScript-only fix needs no APK rebuild at all.
+
+> **Nightly backup:** `pg_dump` to a second location. The demo data is small; a lost database mid-testing is recoverable in minutes.
+
+### Analytics
+
+Self-hosted into the `analytics_event` table (migration `017_analytics.sql`). **No US analytics SaaS** — reachability from Iran is unverified, and a monitoring endpoint that blocks a request is worse than no monitoring at all.
+
+```bash
+npm run db:query -- "select name, count(*) from analytics_event group by name"
+```
+
+The funnel (`server/lib/analytics.ts`) records the seven steps from PRD-12 §8.1: `invite_link_opened` → `guest_joined` → `start_point_set` → `proposal_created` → `vote_cast` → `decision_confirmed` → `rsvp_changed`. Step 2 → 5 is the acquisition funnel.
+
+Redaction is two layers, on purpose: `track()` runs every payload through `redactObject()`, and a database trigger rejects an INSERT whose props carry a coordinate-shaped **key**. One layer holds only as long as every future writer remembers it.
+
 ## Contributing
 
 We welcome contributions to FreeWhen! To maintain high code quality and architectural integrity, please adhere to these guidelines:
@@ -560,8 +702,11 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 | **G-4** | **No age verification.** | Low | A documented decision (PRD-08 §9.1); the listing states 18+ | If the user base skews young |
 | **G-5** | **Organizer identity is device-scoped.** Losing the device loses organizer control. | Event can strand | Ownership continuity (PRD-01 FR-1.31) prevents the worst case | P2 account system |
 | **G-6** | **No CAPTCHA on anonymous sign-in** if shipped before FR-8.39. | DB-size abuse | Time | If abuse is observed |
+| **G-7** | **The browser has no 3D map.** The ranked list is complete; the map is Android-only. | Low — the list carries the decision | No web build of the native map renderer; a web map is a separate renderer with separate costs (OQ-18.3, deferred to P2) | When a reviewer's confusion is traced to the missing map rather than to the ranking |
 
 **G-2 is the most important entry.** It is a conscious compliance risk that must be revisited before any messaging feature ships.
+
+**G-7 is a design decision, not an oversight.** PRD-18 D18-1 shipped the app as the web artifact precisely so the ranked list, the lens switch and the confirm action work without an install. The 3D map is the one screen that could not come with it, and every fact the map would show — each venue, its reason, its travel estimate, the participant legend — is on `/event/<id>` in the browser. Leaving it unwritten would turn an accepted trade into an apparent defect, which is why it is stated here and on `/start`.
 
 The in-app privacy notice (`assets/privacy/{fa,en}.md`, bundled for offline reading) states these limitations to the user in both languages, so the disclosure does not depend on someone reading this repository.
 

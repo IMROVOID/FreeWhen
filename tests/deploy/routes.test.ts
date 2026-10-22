@@ -22,6 +22,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const CADDYFILE = 'Caddyfile';
 
@@ -34,6 +35,36 @@ function caddyfile(): string {
 function lineOf(source: string, pattern: RegExp): number {
   return source.split(/\r?\n/).findIndex((line) => pattern.test(line));
 }
+
+test('the reviewer entry point is served from the export, not a static root', () => {
+  // Arrange — `/start` is an app route (PRD-18 D18-1), so it must reach the
+  // catch-all alongside `/e/` and `/event/`. A `root /srv/static` line for
+  // `/start` would bypass the app and serve a page that cannot do steps 2–4.
+  const source = caddyfile();
+
+  // Act
+  const startHandledByStatic = /@start|path \/start/.test(source);
+  const startInExport = existsSync(join('dist', 'start.html'));
+
+  // Assert
+  assert.ok(!startHandledByStatic, '/start has its own Caddy block — it must fall through to the export');
+  assert.ok(startInExport, 'dist/start.html is missing — run `npm run export:web`');
+});
+
+test('the public health check is proxied with its path preserved', () => {
+  // Arrange — a load balancer or uptime check points at the bare `/health`.
+  // `handle_path /health` would strip nothing here, but the same mistake on
+  // `/api/*` is the one this rule exists for, so the check is written once.
+  const source = caddyfile();
+
+  // Act
+  const health = lineOf(source, /handle \/health\s*\{/);
+  const api = lineOf(source, /handle \/api\/\*\s*\{/);
+
+  // Assert
+  assert.ok(health > 0, '/health is not proxied');
+  assert.ok(api > 0, '/api/* is not proxied');
+});
 
 test('the four deliberately-absent paths are all refused', () => {
   // Arrange
@@ -148,6 +179,8 @@ const REFUSED: ReadonlyArray<[string, number]> = [
 /** The paths the contract serves. The status is the documented one. */
 const SERVED: ReadonlyArray<[string, number]> = [
   ['/', 200],
+  ['/start', 200],
+  ['/health', 200],
   ['/privacy', 200],
   ['/dl/', 200],
 ];

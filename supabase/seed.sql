@@ -58,7 +58,7 @@ insert into auth.users (id, is_anonymous, created_at) values
 insert into event (
   id, title, activity_type, date_window_start, date_window_end,
   voting_deadline, status, home_tz, created_by,
-  invite_token_hash, invite_expires_at
+  invite_token_hash, invite_expires_at, is_demo
 ) values (
   '11111111-1111-1111-1111-111111111111',
   'شام جمعه',
@@ -72,7 +72,20 @@ insert into event (
   -- The sha256 of the plaintext token 'freewhen-test-invite-token'. The
   -- plaintext is never stored — only its hash (FR-8.27).
   encode(digest('freewhen-test-invite-token', 'sha256'), 'hex'),
-  '2026-08-16 21:00:00+00'
+  '2026-08-16 21:00:00+00',
+  -- ★ is_demo = TRUE IS WHAT MAKES /start WORK.
+  --
+  -- `demo_event_summary()` (migration 016) is `security definer`, so it
+  -- bypasses RLS — and `e.is_demo is true` is the ONLY predicate stopping it
+  -- from reading a real event. Without this column set, the reviewer's read
+  -- returns null, the page demands a sign-in, and every visit spends one of the
+  -- 30/hour/IP anonymous sign-ins until a room of reviewers behind one address
+  -- is locked out (PRD-18 AC-18.2.1).
+  --
+  -- The plaintext token for `EXPO_PUBLIC_DEMO_TOKEN` is
+  -- `freewhen-test-invite-token`. It is a stable literal, not minted through
+  -- the UI, so /start keeps working across restarts and reseeds.
+  true
 );
 
 -- ─────────────────────────────────────────────────────────────
