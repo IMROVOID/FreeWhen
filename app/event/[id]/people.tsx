@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,11 +25,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Card } from '@/src/components/ui/Card';
 import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Text } from '@/src/components/ui/Text';
+import { ErrorState } from '@/src/components/states/ErrorState';
+import { ListSkeleton } from '@/src/components/states/ListSkeleton';
+import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { StartPointCard } from '@/src/features/participants/components/StartPointCard';
 import { VisibilityToggle } from '@/src/features/participants/components/VisibilityToggle';
 import { useStartPoint } from '@/src/features/participants/hooks/useStartPoint';
 import { useParticipants } from '@/src/features/participants/hooks/useParticipants';
 import { patchProfile } from '@/src/features/participants/services/start-point';
+import { useOffline } from '@/src/hooks/useOffline';
 import { getStoredUserId } from '@/src/lib/session';
 import type { Language } from '@/src/i18n/types';
 import { space } from '@/src/theme/tokens';
@@ -60,6 +64,7 @@ export default function PeopleScreen() {
   }, []);
 
   const { participants, isLoading, errorKey, reload } = useParticipants(eventId, userId);
+  const { isOffline, pendingCount } = useOffline();
 
   const startPoint = useStartPoint(eventId, userId);
 
@@ -95,6 +100,8 @@ export default function PeopleScreen() {
       ]}
       testID="people"
     >
+      {isOffline && <OfflineBanner pendingCount={pendingCount} testID="people-offline" />}
+
       <Text variant="h1">{t('privacy.heading')}</Text>
 
       {/* Your own area: audience, expiry, revoke, and the visibility control. */}
@@ -120,20 +127,18 @@ export default function PeopleScreen() {
       <View style={styles.section}>
         <Text variant="h3">{t('privacy.audienceLabel')}</Text>
 
-        {isLoading && (
-          <View style={styles.loading} accessibilityRole="progressbar">
-            <ActivityIndicator color={theme.textMuted} />
-          </View>
-        )}
+        {isLoading && <ListSkeleton rows={2} testID="people-loading" />}
 
         {!isLoading && errorKey && (
-          <Text variant="body" color="textMuted">
-            {t(errorKey)}
-          </Text>
+          <ErrorState messageKey={errorKey} onRetry={() => void reload()} testID="people-error" />
         )}
 
         {!isLoading && !errorKey && participants.length === 0 && (
-          <EmptyState title={t('privacy.noStartPoint')} body={t('privacy.shareFootnote')} />
+          <EmptyState
+            title={t('states.peopleEmpty')}
+            body={t('privacy.shareFootnote')}
+            testID="people-empty"
+          />
         )}
 
         {participants.map((entry) => (

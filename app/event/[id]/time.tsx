@@ -23,17 +23,19 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ActivityIndicator } from 'react-native';
-
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { Chip } from '@/src/components/ui/Chip';
 import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Text } from '@/src/components/ui/Text';
+import { ErrorState } from '@/src/components/states/ErrorState';
+import { ListSkeleton } from '@/src/components/states/ListSkeleton';
+import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { trackTimezoneMismatchShown } from '@/src/features/proposals/services/analytics';
 import { deviceTimezone, timezonesDiffer } from '@/src/features/proposals/services/slot-time';
+import { useOffline } from '@/src/hooks/useOffline';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Proposal } from '@/src/types/proposal';
@@ -54,6 +56,7 @@ export default function TimeSlotsScreen() {
   const homeTz = typeof params.homeTz === 'string' ? params.homeTz : 'Asia/Tehran';
 
   const { proposals, isLoading, errorKey, isReconnecting } = useProposals(eventId);
+  const { isOffline, pendingCount } = useOffline();
   const [showPast, setShowPast] = useState(false);
 
   // The device zone is read once per mount: it does not change while a screen
@@ -82,20 +85,29 @@ export default function TimeSlotsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <ActivityIndicator color={theme.textMuted} testID="slots-loading" />
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingTop: insets.top + space[6], paddingHorizontal: space[5] },
+        ]}
+      >
+        <ListSkeleton rows={2} testID="slots-loading" />
       </View>
     );
   }
 
   if (errorKey) {
     return (
-      <View style={[styles.centered, { backgroundColor: theme.bg, paddingTop: insets.top }]}>
-        <EmptyState
-          title={t('slots.heading')}
-          body={t(errorKey)}
-          actionLabel={t('common.back')}
-          onAction={() => router.back()}
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingTop: insets.top + space[6], paddingHorizontal: space[5] },
+        ]}
+      >
+        <ErrorState
+          messageKey={errorKey}
+          onRetry={() => router.back()}
+          retryKey="common.back"
           testID="slots-error"
         />
       </View>
@@ -111,6 +123,8 @@ export default function TimeSlotsScreen() {
       ]}
       testID="slots-screen"
     >
+      {isOffline && <OfflineBanner pendingCount={pendingCount} testID="slots-offline" />}
+
       <Text variant="h1">{t('slots.heading')}</Text>
 
       {/* ★ AC-3.1.4 — P0. */}
@@ -179,10 +193,6 @@ export default function TimeSlotsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
   },
   content: {
     paddingHorizontal: space[5],

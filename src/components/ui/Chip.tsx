@@ -37,6 +37,7 @@ export function Chip({
       disabled={disabled}
       testID={testID}
       accessibilityRole="button"
+      accessibilityLabel={label}
       accessibilityState={{ selected, disabled }}
       style={style}
     >

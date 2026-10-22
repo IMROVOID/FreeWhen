@@ -10,19 +10,27 @@
  * A brand-new user's first screen is empty by definition, so the empty state IS
  * their first impression. It invites the one action that matters rather than
  * showing nothing.
+ *
+ * ★ ALL FOUR APPLICABLE STATES RUN THROUGH `ScreenStateGate` (Plan 11 Task 3).
+ *
+ * Loading is skeleton rows, not a full-screen spinner (§6), and an error offers
+ * a retry rather than a sentence on its own. Permission-denied is genuinely N/A
+ * here — the list needs no permission — so the gate is used with four states and
+ * not a placeholder fifth.
  */
 
 import { useCallback } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
-import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Text } from '@/src/components/ui/Text';
+import { ScreenStateGate, type ScreenState } from '@/src/components/states/ScreenStateGate';
 import { EventRow } from '@/src/features/events/components/EventRow';
 import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
+import { useOffline } from '@/src/hooks/useOffline';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -33,6 +41,7 @@ export default function EventListScreen() {
   const router = useRouter();
 
   const { events, isLoading, errorKey, reload } = useMyEvents();
+  const { isOffline } = useOffline();
 
   const openEvent = useCallback(
     (eventId: string) => {
@@ -40,6 +49,47 @@ export default function EventListScreen() {
     },
     [router],
   );
+
+  const createAction = (
+    <Button
+      label={t('events.list.create')}
+      onPress={() => router.push('/new')}
+      variant="primary"
+      size="medium"
+      testID="event-list-create"
+    />
+  );
+
+  // ★ THE STATE IS DERIVED IN ONE PLACE, SO NO BRANCH CAN FALL THROUGH.
+  const state: ScreenState = isLoading
+    ? { kind: 'loading', rows: 3 }
+    : errorKey
+      ? { kind: 'error', messageKey: errorKey, onRetry: () => void reload() }
+      : events.length === 0
+        ? {
+            kind: 'empty',
+            prompt: t('states.eventsEmpty'),
+            body: t('states.eventsEmptyBody'),
+            action: createAction,
+          }
+        : {
+            kind: 'ready',
+            children: (
+              <>
+                {events.map((event) => (
+                  <EventRow key={event.id} event={event} onPress={() => openEvent(event.id)} />
+                ))}
+                <Button
+                  label={t('events.list.create')}
+                  onPress={() => router.push('/new')}
+                  variant="secondary"
+                  size="medium"
+                  testID="event-list-create-secondary"
+                  style={styles.createAction}
+                />
+              </>
+            ),
+          };
 
   return (
     <ScrollView
@@ -54,52 +104,7 @@ export default function EventListScreen() {
         {t('events.list.heading')}
       </Text>
 
-      {isLoading && events.length === 0 && (
-        <View style={styles.loading} accessibilityRole="progressbar">
-          <ActivityIndicator color={theme.textMuted} />
-        </View>
-      )}
-
-      {!isLoading && errorKey && (
-        <View style={styles.errorBlock}>
-          <Text variant="body" color={theme.textMuted} align="start">
-            {t(errorKey)}
-          </Text>
-          <Button
-            label={t('common.retry')}
-            onPress={() => void reload()}
-            variant="ghost"
-            size="medium"
-          />
-        </View>
-      )}
-
-      {!isLoading && !errorKey && events.length === 0 && (
-        <EmptyState
-          title={t('events.list.emptyTitle')}
-          body={t('events.list.emptyBody')}
-          actionLabel={t('events.list.create')}
-          onAction={() => router.push('/new')}
-          testID="event-list-empty"
-        />
-      )}
-
-      {events.length > 0 && (
-        <View style={styles.rows}>
-          {events.map((event) => (
-            <EventRow key={event.id} event={event} onPress={() => openEvent(event.id)} />
-          ))}
-
-          <Button
-            label={t('events.list.create')}
-            onPress={() => router.push('/new')}
-            variant="secondary"
-            size="medium"
-            testID="event-list-create"
-            style={styles.createAction}
-          />
-        </View>
-      )}
+      <ScreenStateGate state={state} offline={isOffline} testID="event-list-states" />
     </ScrollView>
   );
 }
@@ -112,18 +117,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[5],
     gap: space[4],
   },
-  loading: {
-    marginTop: space[8],
-    alignItems: 'center',
-  },
-  errorBlock: {
-    gap: space[3],
-    marginTop: space[6],
-  },
-  rows: {
-    marginTop: space[2],
-  },
   createAction: {
     marginTop: space[2],
   },
 });
+

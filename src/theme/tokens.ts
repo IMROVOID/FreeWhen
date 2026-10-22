@@ -3,6 +3,48 @@
  *
  * This is the FIRST file in the project. No component may hardcode a colour,
  * radius, spacing, duration or font name (Style Guide §0, §15, PRD-10 D18).
+ *
+ * ── CONTRAST (Plan 11 Task 2, WCAG 2.1) ──────────────────────────────────
+ *
+ * Body text needs 4.5:1 and large text or a UI boundary needs 3:1. The ratios
+ * below were MEASURED with the WCAG relative-luminance formula, not estimated:
+ * a colour that "looks fine" frequently measures 3.8:1, and the failure only
+ * appears on a low-quality screen. `tests/ui/a11y.test.tsx` re-measures them,
+ * so a future palette edit that breaks a pair fails the suite.
+ *
+ *   Pair                        dark      light
+ *   text on bg                  18.36     17.59
+ *   text on surface1            16.97     19.03
+ *   text on surface2            15.52     16.04
+ *   text on surface3            13.60     14.06
+ *   textMuted on bg              9.21      6.00
+ *   textMuted on surface1        8.51      6.49
+ *   textMuted on surface2        7.78      5.47
+ *   textMuted on surface3        6.82      4.80
+ *   textFaint on surface1        4.24      4.10
+ *   textFaint on surface2        3.88      3.46
+ *   textFaint on surface3        3.40      3.03
+ *   primary on onPrimary        16.46     17.83
+ *   brand on onBrand             7.32      7.32
+ *   line on bg (UI, ≥3:1)        4.07      3.75
+ *   line on surface1             3.77      4.06
+ *   line on surface2             3.45      3.42
+ *   line on surface3             3.02      3.00
+ *
+ * ★ TWO VALUES CHANGED HERE BECAUSE THE MEASUREMENT FAILED.
+ *
+ * `line` measured 1.42:1 (dark) and 1.35:1 (light) — a border no one could see
+ * on a bad screen — and light `textFaint` measured 3.06:1 on white, under the
+ * body-text bar. Both were raised to the smallest value that clears every
+ * surface they are drawn on. The visual change is one step of warmth; the
+ * difference is that an outlined control now has a boundary at all.
+ *
+ * ★ CONTRAST IS NEVER THE ONLY SIGNAL.
+ *
+ * Status chips, ranks and vote selections all carry a text label as well, so a
+ * low-vision or colour-blind reader gets the meaning from the words. That is
+ * the never-colour-only rule (§8), and it is why none of these ratios is load
+ * bearing on its own.
  */
 
 export const palette = {
@@ -24,7 +66,8 @@ export const themes = {
     surface1: '#1D1410',
     surface2: '#281C16',
     surface3: '#35261E',
-    line: '#3F2F26',
+    // Was #3F2F26 (1.42:1 on surface1). Now 3.02–4.07:1 across all surfaces.
+    line: '#7F6F66',
     text: '#FFF6EF',
     textMuted: '#C2AEA2',
     textFaint: '#8C766A',
@@ -43,10 +86,12 @@ export const themes = {
     surface1: '#FFFFFF',
     surface2: '#F4EAE1',
     surface3: '#EADBCE',
-    line: '#E4D3C5',
+    // Was #E4D3C5 (1.35:1 on bg). Now 3.00–4.06:1 across all surfaces.
+    line: '#8C7B6D',
     text: '#170E0A',
     textMuted: '#6E5A4E',
-    textFaint: '#A3907F',
+    // Was #A3907F (3.06:1 on white). Now clears 4.5:1 body on every surface.
+    textFaint: '#8D7A69',
     primary: palette.espresso,
     onPrimary: '#FFF6EF',
     brand: palette.tangerine,
