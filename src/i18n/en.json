@@ -225,5 +225,95 @@
       "cycle": "Cycle",
       "taxi": "Taxi"
     }
+  },
+  "proposals": {
+    "heading": "Proposals",
+    "subheading": "In the order they were made",
+    "emptyTitle": "No proposals yet",
+    "emptyBody": "Suggest the first time or place so the group has something to react to.",
+    "newProposal": "New proposal",
+    "loadFailed": "Proposals could not be loaded",
+    "reconnecting": "Reconnecting…",
+    "type": {
+      "TIME": "Time",
+      "PLACE": "Place",
+      "TIME_AND_PLACE": "Time and place"
+    },
+    "status": {
+      "OPEN": "Open",
+      "CHOSEN": "Chosen",
+      "REOPENED": "Reopened",
+      "WITHDRAWN": "Withdrawn"
+    },
+    "card": {
+      "timeLine": "{{date}} · {{start}}–{{end}}",
+      "endsNextDay": "Ends the next day",
+      "proposedBy": "Suggested by {{name}}",
+      "lateMarker": "New suggestion — after voting started",
+      "hoursUnknown": "Opening hours unknown"
+    },
+    "form": {
+      "titleLabel": "Proposal title",
+      "notesLabel": "Notes (optional)",
+      "linkLabel": "Link (optional)",
+      "submit": "Add proposal",
+      "timeSection": "Suggested time",
+      "placeSection": "Suggested place",
+      "placeChosen": "Selected place",
+      "changePlace": "Change place",
+      "yourLocalTime": "Your local time"
+    },
+    "duplicate": {
+      "title": "This place has already been suggested",
+      "body": "“{{name}}” is already on the list.",
+      "distance": "About {{metres}} m away",
+      "useExisting": "Vote for “{{name}}”",
+      "createAnyway": "Create it anyway"
+    },
+    "place": {
+      "searchLabel": "Search for a place",
+      "noResults": "No places found",
+      "degraded": "Place search is unavailable. You can pick the place on the map instead.",
+      "pickOnMap": "Can’t find the place? Pick it on the map"
+    },
+    "validation": {
+      "titleRequired": "Enter a title for the proposal",
+      "titleTooLong": "The title is at most 60 characters",
+      "notesTooLong": "Notes are at most 300 characters",
+      "typeUnknown": "That proposal type is not valid",
+      "timeNeedsSlot": "Choose a time range for a time proposal",
+      "placeNeedsVenue": "Choose a place for a place proposal",
+      "endBeforeStart": "The end must be after the start",
+      "endWithoutStart": "An end time without a start time makes no sense",
+      "instantInvalid": "That time is not valid",
+      "slotPast": "That time has passed",
+      "slotOutOfWindow": "That time is outside the event window",
+      "slotOffGranularity": "The time must be a multiple of 30 minutes",
+      "linkInvalid": "That link is not valid",
+      "venueNameRequired": "Enter a name for the place",
+      "coordRange": "That location is outside the supported area",
+      "nothingToChange": "There is nothing to save",
+      "lockedConfirmed": "Proposals cannot be edited once a final decision is recorded"
+    }
+  },
+  "slots": {
+    "heading": "Suggested times",
+    "day": "Day",
+    "startTime": "Start time",
+    "durationHint": "{{minutes}} min",
+    "granularityHint": "Every {{minutes}} min",
+    "showPast": "Show past times",
+    "hidePast": "Hide past times",
+    "pastBadge": "Past",
+    "emptyTitle": "No times suggested yet",
+    "emptyBody": "Add the first time range.",
+    "yourLocalTime": "Your local time",
+    "endsNextDay": "Ends the next day",
+    "hoursWarning": "May be closed at this hour"
+  },
+  "availability": {
+    "heading": "Availability",
+    "subheading": "Everyone, one dataset",
+    "hint": "Paint the cells to mark when you are free."
   }
 }

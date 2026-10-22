@@ -21,11 +21,18 @@ import {
   rotateInviteHandler,
 } from './routes/events';
 import { joinInviteHandler, resolveInviteHandler } from './routes/invite';
+import { placeSearchHandler } from './routes/place-search';
 import {
   deleteStartPointHandler,
   patchParticipantHandler,
   setStartPointHandler,
 } from './routes/participants';
+import {
+  createProposalHandler,
+  listProposalsHandler,
+  patchProposalHandler,
+  withdrawProposalHandler,
+} from './routes/proposals';
 
 type Handler = (request: Request, params: Record<string, string>) => Promise<Response>;
 
@@ -56,6 +63,15 @@ const ROUTES: Route[] = [
     handler: deleteStartPointHandler,
   },
   { method: 'PATCH', segments: ['api', 'participants', 'me'], handler: patchParticipantHandler },
+  // Phase 6 — proposals (PRD-02 §4.1).
+  { method: 'GET', segments: ['api', 'events', ':id', 'proposals'], handler: listProposalsHandler },
+  { method: 'POST', segments: ['api', 'events', ':id', 'proposals'], handler: createProposalHandler },
+  { method: 'PATCH', segments: ['api', 'proposals', ':id'], handler: patchProposalHandler },
+  // Withdrawal is a status change, but DELETE is the verb a client expects and
+  // the handler documents why the row survives.
+  { method: 'DELETE', segments: ['api', 'proposals', ':id'], handler: withdrawProposalHandler },
+  // Phase 6 — server-mediated place search (PRD-04 §4.5, PRD-10 D9).
+  { method: 'GET', segments: ['api', 'place-search'], handler: placeSearchHandler },
 ];
 
 async function healthHandler(): Promise<Response> {
