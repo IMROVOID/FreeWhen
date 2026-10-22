@@ -43,15 +43,19 @@ export function formatDate(iso: string, locale: Language = 'fa'): { primary: str
 /** The reason contract: the engine sends `{ templateId, params }`, the client renders it. */
 export interface Reason {
   templateId: string;
-  params: Record<string, number | string | Reason>;
+  params: Record<string, number | string | null | Reason>;
 }
 
-type ReasonParam = number | string | Reason;
+type ReasonParam = number | string | null | Reason;
 
 /**
  * Applies the locale's digit set to a reason's parameters. Strings that are
  * participant names pass through unchanged — a display name is data
  * (PRD-05 §11.1).
+ *
+ * A `null` parameter means "unknown", and renders as the locale's word for
+ * it. It is NOT rendered as a zero: an unknown cost is not a free one
+ * (PRD-05 §8).
  */
 function localiseParams(params: Record<string, ReasonParam>, locale: Language): Record<string, string> {
   const out: Record<string, string> = {};
@@ -61,6 +65,8 @@ function localiseParams(params: Record<string, ReasonParam>, locale: Language): 
       out[key] = digits(value, locale);
     } else if (typeof value === 'string') {
       out[key] = value;
+    } else if (value === null) {
+      out[key] = translatorFor(locale)('common.unknown');
     } else {
       out[key] = renderReason(value, locale);
     }
