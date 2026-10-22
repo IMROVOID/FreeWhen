@@ -1,0 +1,138 @@
+# tests/e2e/decision-flow.yaml
+#
+# Create → join → vote → confirm, and both sessions agree (Plan 07, AC-2.5.1).
+#
+# ★ THE POINT OF THIS FLOW IS THE LAST ASSERTION.
+#
+# "Assertion 9 is the most valuable E2E check in the suite" (PRD-12 §6): two
+# participants, one decision, and the same venue and time on both screens. Every
+# unit test in this phase can pass while a per-user derived-state bug makes the
+# two sessions disagree, and only this flow would notice.
+#
+# Run it against a running API and two devices or emulators:
+#
+#   npm run server
+#   maestro test tests/e2e/decision-flow.yaml \
+#     -e INVITE_URL=<url> -e EVENT_ID=<id> -e ORGANIZER_ID=<auth user id>
+#
+# ★ NOT EXECUTED IN THIS SESSION.
+#
+# The flow asserts on testIDs that exist in the screens it drives —
+# `event-home-vote-<proposalId>`, `decision-confirm`, `decision-confirm-sheet`,
+# `decision-card` — but no Maestro run was performed here. It is authored
+# evidence, and the completion report says so rather than claiming a green run.
+# The behaviour it would check is covered in-process by
+# `tests/db/decision-card.test.ts` (AC-12.3.1) and `tests/db/voting.test.ts`
+# (AC-2.3.1, E1), which DO run.
+appId: ir.freewhen.app
+---
+# ── Session A: the organizer opens the event ───────────────────────────────
+- openLink: ${INVITE_URL}
+
+- extendedWaitUntil:
+    visible:
+      id: 'join-name-input'
+    timeout: 10000
+
+- tapOn:
+    id: 'join-name-input'
+- inputText: 'Organizer'
+
+# ★ Declining location must not block voting (FR-2.14, AC-2.1.1).
+- tapOn:
+    id: 'location-option-skip'
+
+# ── The Decision Status band is on the event screen (FR-2.25) ──────────────
+- extendedWaitUntil:
+    visible:
+      id: 'event-decision-band'
+    timeout: 10000
+
+- assertVisible:
+    id: 'event-home'
+
+# ── S6: the Decision Status area, with its five elements ───────────────────
+- tapOn:
+    id: 'event-decision-band'
+
+- extendedWaitUntil:
+    visible:
+      id: 'decision-status'
+    timeout: 10000
+
+# Who has responded, expandable to the names.
+- assertVisible:
+    id: 'decision-outstanding-all'
+
+# The time remaining, or the honest absence of a deadline.
+- assertVisible:
+    id: 'decision-status-deadline'
+
+# ── Vote: a participant with NO location still votes (AC-2.1.1) ────────────
+- extendedWaitUntil:
+    visible:
+      id: 'decision-vote-${PROPOSAL_ID}'
+    timeout: 10000
+
+- tapOn:
+    id: 'decision-vote-${PROPOSAL_ID}-yes'
+
+# The vote control shows the selection immediately.
+- assertVisible:
+    id: 'decision-vote-${PROPOSAL_ID}'
+
+# ── Confirm: one action, a summary sheet, an explicit second tap ───────────
+- tapOn:
+    id: 'decision-confirm'
+
+- extendedWaitUntil:
+    visible:
+      id: 'decision-confirm-sheet'
+    timeout: 10000
+
+# Confirmation proceeds even with outstanding voters (FR-2.20, AC-2.3.1). When
+# there are any, the sheet names them and still offers to proceed.
+- tapOn:
+    id: 'decision-confirm-sheet-proceed'
+
+# ── S12: the card REPLACES the status area in place (AC-11.5.1) ────────────
+- extendedWaitUntil:
+    visible:
+      id: 'decision-card'
+    timeout: 15000
+
+- assertNotVisible:
+    id: 'decision-status'
+
+# The result is announced, not only drawn (Style Guide §8).
+- assertVisible:
+    id: 'decision-card-announcement'
+
+# Capture what this session sees, to compare against the other.
+- copyTextFrom:
+    id: 'decision-card-venue'
+    label: 'session A venue'
+- copyTextFrom:
+    id: 'decision-card-date'
+    label: 'session A date'
+
+# ★ A SECOND CONFIRM DOES NOT ERROR (E1).
+#
+# The decision is already recorded, so the action is gone; the card stays.
+- assertNotVisible:
+    id: 'decision-confirm'
+
+- takeScreenshot: decision-card-session-a
+
+# ── Session B: a second participant sees the SAME card ─────────────────────
+#
+# Run the flow again as a second participant on a second device; the venue and
+# date captured above must match exactly (AC-2.5.1, AC-12.3.1). The manual step
+# is recorded here because Maestro has no cross-device assertion.
+#
+# - launchApp
+# - tapOn: id: 'event-decision-band'
+# - copyTextFrom: id: 'decision-card-venue'
+# - assertVisible: ${SESSION_A_VENUE}
+# - copyTextFrom: id: 'decision-card-date'
+# - assertVisible: ${SESSION_A_DATE}
