@@ -23,7 +23,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { PROJECT_ROOT, fail, pass, readFile } from './shared';
 
@@ -31,6 +31,26 @@ const GATE = 'gate:i18n';
 
 const FA_PATH = join(PROJECT_ROOT, 'src', 'i18n', 'fa.json');
 const EN_PATH = join(PROJECT_ROOT, 'src', 'i18n', 'en.json');
+
+/**
+ * The git tree the namespace-ownership baseline is read from.
+ *
+ * ★ THE BASELINE ALWAYS COMES FROM THE REPO, NEVER FROM A `--root` TREE.
+ *
+ * `--root` points at a throwaway probe directory (see `shared.ts`), which is
+ * not a checkout — `git` would fail there and the check would degrade to "no
+ * baseline" for a reason that has nothing to do with the catalogues. The
+ * catalogues being COMPARED come from `PROJECT_ROOT`; the history they are
+ * compared AGAINST comes from here.
+ */
+const GIT_ROOT = resolveGitRoot();
+
+function resolveGitRoot(): string {
+  const index = process.argv.indexOf('--root');
+  if (index < 0) return PROJECT_ROOT;
+
+  return process.env.FREEWHEN_GIT_ROOT ?? resolve(PROJECT_ROOT, '..');
+}
 
 /**
  * The namespace each phase owns inside the catalogues.
@@ -136,7 +156,7 @@ function activePhase(changed: string[] | null): string | null {
 
   try {
     const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: PROJECT_ROOT,
+      cwd: GIT_ROOT,
       encoding: 'utf8',
     }).trim();
     const match = /^feat\/(\d{2}[A-Z]?)/.exec(branch);
@@ -154,11 +174,11 @@ function baselineCatalogue(path: string): Record<string, unknown> | null {
     const base = execFileSync(
       'git',
       ['merge-base', 'HEAD', 'main'],
-      { cwd: PROJECT_ROOT, encoding: 'utf8' },
+      { cwd: GIT_ROOT, encoding: 'utf8' },
     ).trim();
 
     const raw = execFileSync('git', ['show', `${base}:${path.replace(/\\/g, '/')}`], {
-      cwd: PROJECT_ROOT,
+      cwd: GIT_ROOT,
       encoding: 'utf8',
     });
     return JSON.parse(raw) as Record<string, unknown>;

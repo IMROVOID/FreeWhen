@@ -11,8 +11,7 @@
  * `server/index.ts` adapts `node:http` to this function and does nothing else.
  */
 
-import { json } from './lib/http';
-import { servicePool } from './lib/supabase';
+import { healthHandler } from './routes/health';
 import {
   createEventHandler,
   getEventHandler,
@@ -57,6 +56,11 @@ interface Route {
 }
 
 const ROUTES: Route[] = [
+  // Two paths, one handler. Caddy routes the bare `/health` (a proxy's probe
+  // wants a short path); the API routes `/api/health` (an operator curls what
+  // the app calls). A deployment where those two disagree is a deployment
+  // whose uptime check and proxy health check are measuring different things.
+  { method: 'GET', segments: ['health'], handler: healthHandler },
   { method: 'GET', segments: ['api', 'health'], handler: healthHandler },
   { method: 'POST', segments: ['api', 'events'], handler: createEventHandler },
   { method: 'GET', segments: ['api', 'events'], handler: listEventsHandler },
@@ -123,17 +127,6 @@ const ROUTES: Route[] = [
   },
   { method: 'POST', segments: ['api', 'events', ':id', 'nudge'], handler: nudgeHandler },
 ];
-
-async function healthHandler(): Promise<Response> {
-  try {
-    await servicePool().query('select 1');
-    return json({ ok: true });
-  } catch {
-    // The status, not the error: a health check that echoes a driver message
-    // publishes the connection string's host and user to an anonymous caller.
-    return json({ ok: false }, 503);
-  }
-}
 
 /** Matches one route's segments, returning the captured params. */
 function match(segments: string[], path: string[]): Record<string, string> | null {

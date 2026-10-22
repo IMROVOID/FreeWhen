@@ -77,6 +77,21 @@
 	# BACKEND
 	# ══════════════════════════════════════════════════════════════════════
 
+	# The public health check. The SAME handler answers `/api/health` through
+	# the proxy below, but a proxy, an uptime check and a reviewer all expect
+	# an unadorned `/health` — and a health endpoint behind a prefix is one
+	# that a load balancer cannot be pointed at. It also pre-warms a pooled
+	# database connection, so a check every minute keeps the demo host from
+	# being cold at the moment someone opens it (PRD-13 R "demo database
+	# idle-paused").
+	#
+	# ★ IT IS REFUSED NOTHING AND IT IS NOT CACHED. The handler sets
+	# `cache-control: no-store` itself; a cached 200 is a health check that
+	# reports the past.
+	handle /health {
+		reverse_proxy {$API_UPSTREAM:127.0.0.1:8787}
+	}
+
 	# The app's API. `handle` preserves `/api/...`.
 	handle /api/* {
 		reverse_proxy {$API_UPSTREAM:127.0.0.1:8787}
