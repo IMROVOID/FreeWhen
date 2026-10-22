@@ -186,6 +186,72 @@ export async function patchParticipant(
 }
 
 /**
+ * S13 — the participants of one event, as the caller may see them (Task 13).
+ *
+ * ★ THE COORDINATE IS NEVER IN THIS PAYLOAD, FOR ANYONE.
+ *
+ * The screen shows an approximate area, not a point, and the audience list only
+ * needs to know whether an area exists. Returning the coordinate so the client
+ * could draw a pin would put a precise-enough-to-note-down value in a response
+ * that three separate call sites could then log. `has_start_point` is the whole
+ * disclosure.
+ *
+ * ★ `visibility = 'private'` READS AS `not_shared` TO EVERYONE ELSE.
+ *
+ * This is VISIBILITY_FILTER applied at the read, so the screen cannot forget it.
+ * The owner still sees their own row — they must be able to manage what they
+ * shared — and the engine is unaffected, because it reads `start_point` directly
+ * rather than through this projection.
+ */
+export interface ParticipantAudienceEntry {
+  id: string;
+  display_name: string;
+  role: ParticipantSummary['role'];
+  /** `true` only when this viewer may see that an area exists. */
+  start_point_shared: boolean;
+  /** `not_shared` when the member hid it from peers. */
+  start_point_state: 'shared' | 'not_shared' | 'none';
+  is_self: boolean;
+}
+
+export async function listParticipantsFor(
+  caller: Caller,
+  eventId: string,
+): Promise<ParticipantAudienceEntry[] | null> {
+  const member = await participantFor(caller, eventId);
+  if (!member) return null;
+
+  const result = await servicePool().query<{
+    id: string;
+    display_name: string;
+    role: ParticipantSummary['role'];
+    visibility: ParticipantSummary['visibility'];
+    has_start_point: boolean;
+  }>(
+    `select p.id, p.display_name, p.role, p.visibility,
+            exists (select 1 from start_point sp where sp.participant_id = p.id) as has_start_point
+       from participant p
+      where p.event_id = $1
+      order by (p.role = 'organizer') desc, p.display_name asc`,
+    [eventId],
+  );
+
+  return result.rows.map((row) => {
+    const isSelf = row.id === member.id;
+    const shared = row.has_start_point && (row.visibility === 'event' || isSelf);
+
+    return {
+      id: row.id,
+      display_name: row.display_name,
+      role: row.role,
+      start_point_shared: shared,
+      start_point_state: !row.has_start_point ? 'none' : shared ? 'shared' : 'not_shared',
+      is_self: isSelf,
+    };
+  });
+}
+
+/**
  * The audience and expiry shown after a start point is added (FR-8.9).
  *
  * Computed rather than stored: the audience is whoever is a participant now, so

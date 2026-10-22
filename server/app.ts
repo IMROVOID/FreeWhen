@@ -20,12 +20,15 @@ import {
   revokeInviteHandler,
   rotateInviteHandler,
 } from './routes/events';
+import { deleteAccountHandler } from './routes/account';
 import { joinInviteHandler, resolveInviteHandler } from './routes/invite';
 import { placeSearchHandler } from './routes/place-search';
 import {
   deleteStartPointHandler,
+  listParticipantsHandler,
   patchParticipantHandler,
   setStartPointHandler,
+  setVisibilityHandler,
 } from './routes/participants';
 import {
   createProposalHandler,
@@ -86,6 +89,19 @@ const ROUTES: Route[] = [
   },
   { method: 'POST', segments: ['api', 'events', ':id', 'confirm'], handler: confirmHandler },
   { method: 'GET', segments: ['api', 'events', ':id', 'activity'], handler: activityHandler },
+  // Phase 9 — in-app account deletion (Apple §5.1.1(v), PRD-08 B5).
+  { method: 'DELETE', segments: ['api', 'account'], handler: deleteAccountHandler },
+  // Phase 9 — per-participant visibility and the S13 audience list (FR-8.18).
+  {
+    method: 'PUT',
+    segments: ['api', 'participants', ':id', 'visibility'],
+    handler: setVisibilityHandler,
+  },
+  {
+    method: 'GET',
+    segments: ['api', 'events', ':id', 'participants'],
+    handler: listParticipantsHandler,
+  },
 ];
 
 async function healthHandler(): Promise<Response> {

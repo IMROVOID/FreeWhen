@@ -1,0 +1,165 @@
+/**
+ * S15 — Settings (Plan 09 Task 13).
+ *
+ * Language, the privacy notice, what is retained and for how long, and the two
+ * deletion controls. This is the screen Apple's reviewers look for: in-app
+ * account deletion (§5.1.1(v)) and an offline-readable notice must both be
+ * reachable from here without a network round trip.
+ *
+ * ★ THE NOTICE OPENS FROM THE BUNDLE, NOT FROM THE VPS.
+ *
+ * Phase 12 also serves it over HTTP, but that is for the store listing link.
+ * The in-app copy must render in airplane mode (E10), so it never fetches.
+ */
+
+import { useCallback, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { Button } from '@/src/components/ui/Button';
+import { Card } from '@/src/components/ui/Card';
+import { Text } from '@/src/components/ui/Text';
+import { deleteAccount } from '@/src/features/privacy/services/account';
+import { DeleteAccountAction } from '@/src/features/privacy/components/DeleteAccountAction';
+import { NoticeViewer } from '@/src/features/privacy/components/NoticeViewer';
+import { clearStoredUserId, getStoredUserId } from '@/src/lib/session';
+import { persistLanguage } from '@/src/i18n/store';
+import type { Language } from '@/src/i18n/types';
+import { space } from '@/src/theme/tokens';
+import { useTheme } from '@/src/theme/useTheme';
+
+const LANGUAGES: ReadonlyArray<{ value: Language; labelKey: string }> = [
+  { value: 'fa', labelKey: 'settings.languageFa' },
+  { value: 'en', labelKey: 'settings.languageEn' },
+];
+
+export default function SettingsScreen() {
+  const { t } = useTranslation();
+  const { i18n } = useTranslation();
+  const { t: theme } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  const language: Language = i18n.language === 'en' ? 'en' : 'fa';
+
+  const [showNotice, setShowNotice] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const chooseLanguage = useCallback(
+    (next: Language) => {
+      persistLanguage(next);
+      // The whole tree re-renders from the catalogue change; a direction flip
+      // (fa RTL ↔ en LTR) needs the documented restart, which the bootstrap
+      // handles on the next launch.
+      void i18n.changeLanguage(next);
+    },
+    [i18n],
+  );
+
+  const confirmDeleteAccount = useCallback(async () => {
+    setDeletingAccount(true);
+
+    try {
+      const userId = await getStoredUserId();
+      await deleteAccount(userId);
+      // The identity is gone server-side, so the local copy must go too —
+      // keeping it would let the app keep sending a header for a deleted user.
+      await clearStoredUserId();
+      Alert.alert(t('settings.deleteAccountDone'));
+    } catch {
+      Alert.alert(t('errors.unknown'));
+    } finally {
+      setDeletingAccount(false);
+    }
+  }, [t]);
+
+  return (
+    <ScrollView
+      style={[styles.screen, { backgroundColor: theme.bg }]}
+      contentContainerStyle={[
+        styles.content,
+        { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[12] },
+      ]}
+      testID="settings"
+    >
+      <Text variant="h1">{t('settings.heading')}</Text>
+
+      {/* Language */}
+      <Section title={t('settings.language')}>
+        <View style={styles.languageRow}>
+          {LANGUAGES.map((option) => (
+            <Button
+              key={option.value}
+              label={t(option.labelKey)}
+              variant={language === option.value ? 'primary' : 'secondary'}
+              size="medium"
+              onPress={() => chooseLanguage(option.value)}
+              testID={`settings-language-${option.value}`}
+              style={styles.languageButton}
+            />
+          ))}
+        </View>
+      </Section>
+
+      {/* Privacy and data */}
+      <Section title={t('settings.privacySection')}>
+        <Card variant="raised" style={styles.cardBody}>
+          <Text variant="body" weight={600}>
+            {t('retention.heading')}
+          </Text>
+          <Text variant="caption" color="textMuted">
+            {t('retention.coordinatesAfterEvent')}
+          </Text>
+          <Text variant="caption" color="textMuted">
+            {t('retention.decisionHistoryKept')}
+          </Text>
+
+          <Button
+            label={showNotice ? t('common.close') : t('privacy.noticeAction')}
+            variant="secondary"
+            size="medium"
+            onPress={() => setShowNotice((open) => !open)}
+            testID="settings-notice-toggle"
+          />
+          <Text variant="caption" color="textFaint">
+            {t('privacy.noticeFootnote')}
+          </Text>
+        </Card>
+
+        {/* The notice renders inline once opened: no navigation, no fetch. */}
+        {showNotice && <NoticeViewer language={language} testID="settings-notice" />}
+      </Section>
+
+      {/* Account */}
+      <Section title={t('settings.accountSection')}>
+        <DeleteAccountAction
+          onConfirm={confirmDeleteAccount}
+          busy={deletingAccount}
+          testID="settings-delete-account"
+        />
+      </Section>
+
+      <Text variant="caption" color="textFaint" align="center">
+        {t('privacy.knownGapsBody')}
+      </Text>
+    </ScrollView>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text variant="h3">{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  content: { paddingHorizontal: space[5], gap: space[5] },
+  section: { gap: space[3] },
+  cardBody: { gap: space[3] },
+  languageRow: { flexDirection: 'row', gap: space[2] },
+  languageButton: { flex: 1 },
+});

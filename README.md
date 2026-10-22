@@ -44,6 +44,7 @@
   - [Automated Test Suites](#automated-test-suites)
   - [Building Release Artifacts](#building-release-artifacts)
 - [Contributing](#contributing)
+- [Known Gaps](#known-gaps)
 - [Disclaimer & Legal Notice](#disclaimer--legal-notice)
 - [References & Acknowledgements](#references--acknowledgements)
 - [License](#license)
@@ -546,6 +547,23 @@ We welcome contributions to FreeWhen! To maintain high code quality and architec
    npm run gate:all
    ```
 6. **Submit PR**: Open a pull request against `main` detailing the changes, affected components, and testing evidence.
+
+## Known Gaps
+
+These are consciously deferred limitations, documented rather than hidden. Each has a trigger that makes it mandatory. Stating a known gap honestly is worth more than an implied claim of completeness — a reviewer who finds an undocumented gap discounts everything else.
+
+| # | Gap | Risk | Why deferred | Trigger to address |
+|---|---|---|---|---|
+| **G-1** | **No identity verification for guests.** The invite link *is* the credential. | Catastrophic if a link goes public | Acceptable for invite-only friend groups; expiry, revocation and rate limiting are the mitigations | Any public or semi-public launch |
+| **G-2** | **No block/report between participants.** Apple §1.2 requires blocking for UGC apps. | **Compliance risk** | No chat or free-text sharing between participants exists at MVP scope. Comments are proposal-scoped plain text with organizer deletion. | **Becomes mandatory the moment chat or user profiles are added** |
+| **G-3** | **No screenshot protection.** | Unpreventable | Structurally impossible to prevent | Documented in the in-app privacy notice |
+| **G-4** | **No age verification.** | Low | A documented decision (PRD-08 §9.1); the listing states 18+ | If the user base skews young |
+| **G-5** | **Organizer identity is device-scoped.** Losing the device loses organizer control. | Event can strand | Ownership continuity (PRD-01 FR-1.31) prevents the worst case | P2 account system |
+| **G-6** | **No CAPTCHA on anonymous sign-in** if shipped before FR-8.39. | DB-size abuse | Time | If abuse is observed |
+
+**G-2 is the most important entry.** It is a conscious compliance risk that must be revisited before any messaging feature ships.
+
+The in-app privacy notice (`assets/privacy/{fa,en}.md`, bundled for offline reading) states these limitations to the user in both languages, so the disclosure does not depend on someone reading this repository.
 
 ## Disclaimer & Legal Notice
 

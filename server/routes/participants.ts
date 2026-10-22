@@ -24,6 +24,7 @@ import {
 } from '../lib/http';
 import {
   deleteStartPoint,
+  listParticipantsFor,
   patchParticipant,
   setStartPoint,
   startPointAudience,
@@ -108,6 +109,77 @@ export async function deleteStartPointHandler(request: Request): Promise<Respons
   if (!removed.ok) return wireError(removed.reason);
 
   return json({ deleted: true });
+}
+
+/**
+ * `PUT /api/participants/:id/visibility` — Plan 09 Task 2 (FR-8.18).
+ *
+ * ★ A PARTICIPANT MAY ONLY CHANGE THEIR OWN VISIBILITY.
+ *
+ * `:id` is checked against the caller's own participant row for the event, so a
+ * member cannot make someone else's area public — which would be a disclosure
+ * performed by the wrong person, and the worst possible bug in this control.
+ *
+ * The routing table captures `:id`, but the participant is always resolved from
+ * the authenticated caller; the segment exists so the client's path names the
+ * resource it is changing.
+ */
+export async function setVisibilityHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const caller = await callerFrom(request);
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const body = await readJsonBody(request);
+  if (!body) return validationFailed([{ path: [], message: 'errors.validationFailed' }]);
+
+  const eventId = eventIdFrom(request, body);
+  if (!eventId) return validationFailed([{ path: ['event_id'], message: 'errors.validationFailed' }]);
+
+  if (!withinMutationLimits(caller, eventId)) return wireError('RATE_LIMITED');
+
+  const parsed = ParticipantPatchSchema.safeParse(body);
+  if (!parsed.success) return validationFailed(parsed.error.issues);
+  if (!parsed.data.visibility) {
+    return validationFailed([{ path: ['visibility'], message: 'errors.validationFailed' }]);
+  }
+
+  const own = await listParticipantsFor(caller, eventId);
+  if (!own) return wireError('NOT_PARTICIPANT');
+
+  // The `:id` must be the caller's own participant row. Anything else is either
+  // a stale client or an attempt to change someone else's disclosure.
+  const target = own.find((entry) => entry.id === params.id);
+  if (!target || !target.is_self) return wireError('NOT_PARTICIPANT');
+
+  // `visibility` is the ONLY field this endpoint writes: routing a full patch
+  // here would let a visibility request also rename the participant.
+  const patched = await patchParticipant(caller, eventId, {
+    visibility: parsed.data.visibility,
+  });
+  if (!patched.ok) return wireError(patched.reason);
+
+  return json({ participant: patched.participant });
+}
+
+/** `GET /api/events/:id/participants` — S13's list (Plan 09 Task 13). */
+export async function listParticipantsHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const caller = await callerFrom(request);
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const eventId = params.id;
+  if (!eventId || !isUuid(eventId)) {
+    return validationFailed([{ path: ['id'], message: 'errors.validationFailed' }]);
+  }
+
+  const participants = await listParticipantsFor(caller, eventId);
+  if (!participants) return wireError('NOT_PARTICIPANT');
+
+  return json({ participants });
 }
 
 /** `PATCH /api/participants/me` */
