@@ -45,14 +45,49 @@ const TRACKING_TABLE = `
  * keep true when there is no exception to remember.
  */
 async function protectTrackingTable(pool: Pool): Promise<void> {
+  // ★ THE ROLE IS NAMED ONLY IF IT EXISTS.
+  //
+  // The `authenticated` role is created by migration 000 — the portability
+  // shim — and the runner protects its tracking table BEFORE any migration
+  // is applied. On a genuinely fresh database the role does not exist yet,
+  // and `create policy ... to authenticated` fails with
+  // `role "authenticated" does not exist`.
+  //
+  // That is not a hypothetical: it is the exact failure a new host hits on
+  // its first `npm run db:migrate`, and the database cannot be migrated at
+  // all without hand-applying migration 000 first.
+  //
+  // The policy is recreated unconditionally AFTER the migrations run, so
+  // the end state is identical — the `to authenticated` clause is present
+  // on every database that has been migrated. The conditional form is only
+  // for the window before the roles exist.
   await pool.query(`
     alter table schema_migrations enable row level security;
     drop policy if exists "no client access to schema_migrations" on schema_migrations;
-    create policy "no client access to schema_migrations" on schema_migrations
-      for all to authenticated
-      using (false)
-      with check (false);
   `);
+
+  const roles = await pool.query<{ rolname: string }>(
+    `select rolname from pg_roles where rolname = 'authenticated'`,
+  );
+
+  if (roles.rowCount && roles.rowCount > 0) {
+    await pool.query(`
+      create policy "no client access to schema_migrations" on schema_migrations
+        for all to authenticated
+        using (false)
+        with check (false);
+    `);
+  } else {
+    // The role does not exist yet, so the policy names nobody. `public` is
+    // the fallback: the policy still denies every row, and the `to
+    // authenticated` clause is restored by the post-migration pass.
+    await pool.query(`
+      create policy "no client access to schema_migrations" on schema_migrations
+        for all to public
+        using (false)
+        with check (false);
+    `);
+  }
 }
 
 /**
@@ -138,6 +173,19 @@ export async function migrate(
       client.release();
     }
   }
+
+  // ★ THE TRACKING TABLE IS PROTECTED AGAIN, NOW THAT THE ROLES EXIST.
+  //
+  // `protectTrackingTable` runs BEFORE the migrations, because the
+  // tracking table has to exist before the runner can record what it
+  // applies. At that point the `authenticated` role may not exist yet —
+  // migration 000 creates it — so the policy is created against `public`.
+  //
+  // Recreating it here means the END STATE is identical on every
+  // database: the policy names `authenticated`, and no client role can
+  // read the table. The pre-migration pass exists only to get past the
+  // first migration.
+  await protectTrackingTable(pool);
 
   return applied;
 }
