@@ -28,7 +28,26 @@ export type FunnelEvent =
   | 'guest_joined'
   | 'join_declined_location'
   | 'invite_redeem_failed'
-  | 'account_upgraded';
+  | 'account_upgraded'
+  // Phase 6 — proposals (PRD-02 §9, PRD-03 §9).
+  | 'proposal_created'
+  | 'duplicate_detected'
+  | 'time_proposal_created'
+  | 'opening_hours_warning_shown'
+  | 'timezone_mismatch_shown';
+
+/**
+ * How a duplicate hint was resolved.
+ *
+ * ★ THIS PAIR IS THE ONLY EVIDENCE FOR THE 75 m THRESHOLD.
+ *
+ * `voted_existing` means the hint was right and saved a redundant proposal;
+ * `created_anyway` means it fired on something the user considered distinct. A
+ * threshold set too high shows up as a rising `created_anyway` share long before
+ * anyone reports it, which is why the distinction is recorded rather than a
+ * single `duplicate_detected` count.
+ */
+export type DuplicateResolution = 'voted_existing' | 'created_anyway';
 
 /** The reason values `invite_redeem_failed` may carry. */
 export type RedeemFailureReason = 'invalid' | 'event_full' | 'rate_limited';

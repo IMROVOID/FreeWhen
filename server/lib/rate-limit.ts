@@ -37,6 +37,15 @@ export const MUTATION_PER_EVENT = 600;
 export const SIGNIN_PER_IP = 30;
 
 /**
+ * Place search per address (Plan 06 Task 8).
+ *
+ * Every search spends a metered Neshan quota on behalf of an unauthenticated
+ * caller, so it is budgeted even though it reads nothing. A typist searching
+ * for one café will not exceed this; a script draining the quota will.
+ */
+export const SEARCH_PER_IP = 60;
+
+/**
  * The ceiling on tracked keys.
  *
  * An unbounded map keyed by attacker-chosen strings is a memory exhaustion
@@ -161,13 +170,14 @@ export function clientIp(headers: Headers | Record<string, string | undefined>):
   return read('x-real-ip')?.trim() || 'unknown';
 }
 
-/** The four buckets the app uses. Module-level, so they survive a request. */
+/** The six buckets the app uses. Module-level, so they survive a request. */
 export const limiters = {
   redeemByIp: new RateLimiter(REDEEM_PER_IP),
   redeemByToken: new RateLimiter(REDEEM_PER_TOKEN),
   mutationByParticipant: new RateLimiter(MUTATION_PER_PARTICIPANT),
   mutationByEvent: new RateLimiter(MUTATION_PER_EVENT),
   signInByIp: new RateLimiter(SIGNIN_PER_IP),
+  searchByIp: new RateLimiter(SEARCH_PER_IP),
 } as const;
 
 /** Clears every limiter. Tests only — a running server never calls this. */
