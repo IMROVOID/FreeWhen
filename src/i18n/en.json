@@ -314,7 +314,54 @@
   "availability": {
     "heading": "Availability",
     "subheading": "Everyone, one dataset",
-    "hint": "Paint the cells to mark when you are free."
+    "hint": "Paint the cells to mark when you are free.",
+    "cellLabel": "{{weekday}} {{time}} — {{count}} {{count, plural, one {person} other {people}}}",
+    "cellTitle": "{{weekday}} — {{time}}",
+    "legend": "Each cell is a {{minutes}}-minute slot. Tapping again withdraws your own proposal.",
+    "viewList": "List view",
+    "viewGrid": "Grid view"
+  },
+  "parser": {
+    "tabChat": "Paste group chat",
+    "heading": "Paste the conversation",
+    "body": "Paste your group's messages here and see what we can find. Nothing is created until you confirm it.",
+    "label": "Message text",
+    "placeholder": "e.g. Friday evening at Café Didar? Or Saturday 19:00 at the Central Restaurant",
+    "submit": "Find proposals",
+    "recognisedTitle": "Suggestions found",
+    "confirmSelected": "Add {{count}} {{count, plural, one {proposal} other {proposals}}}",
+    "nothingTitle": "Nothing recognised",
+    "nothingBody": "The text you pasted did not contain a time or a place we could identify. You can add the proposal by hand.",
+    "manualEntry": "Add manually",
+    "editAgain": "Edit the text",
+    "confidence": "{{percent}}% confidence",
+    "sourceDeterministic": "Found without AI",
+    "select": "Include",
+    "deselect": "Leave out",
+    "weekdayResolved": "“{{weekday}}” resolved to {{date}} — please confirm",
+    "providerDisclosure": "Only this text and the event window are sent; no name and no location.",
+    "validation": {
+      "textTooLong": "The text is at most 4000 characters",
+      "textRequired": "Enter some text to check"
+    }
+  },
+  "reopen": {
+    "action": "Reopen the decision",
+    "banner": "This decision has been reopened.",
+    "bannerReason": "Reason: {{reason}}",
+    "bannerBy": "by {{name}}",
+    "sheetTitle": "Reopen the decision",
+    "sheetBody": "The previous decision stays in the history and voting opens again. The reason is shown to everyone.",
+    "reasonLabel": "Reason for reopening",
+    "reasonPlaceholder": "e.g. the venue was closed",
+    "confirm": "Yes, reopen",
+    "cancel": "Not now",
+    "done": "The decision was reopened.",
+    "notFound": "There is no decision to reopen.",
+    "validation": {
+      "reasonRequired": "Write the reason for reopening (at least 3 characters)",
+      "reasonTooLong": "The reason is at most 300 characters"
+    }
   },
   "voting": {
     "yes": "I'm in",

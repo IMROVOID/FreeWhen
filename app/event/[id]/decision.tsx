@@ -32,6 +32,7 @@ import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { getStoredUserId } from '@/src/lib/session';
+import { isApiFailure } from '@/src/lib/api';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
@@ -48,6 +49,8 @@ import { useDecisionStatus } from '@/src/features/voting/hooks/useDecisionStatus
 import { useVote } from '@/src/features/voting/hooks/useVote';
 import { buildDecisionCard } from '@/src/features/voting/services/decision-card';
 import { confirm, planConfirmation } from '@/src/features/voting/services/confirm';
+import { ReopenSheet } from '@/src/features/voting/components/ReopenSheet';
+import { reopenDecision } from '@/src/features/voting/services/reopen';
 
 // Phase 10 — follow-through, mounted only on the confirmed branch.
 import { RsvpControls } from '@/src/features/follow-through/components/RsvpControls';
@@ -89,6 +92,15 @@ export default function DecisionScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  // ★ PHASE 14 — REOPENING IS ORGANIZER-ONLY AND ONLY FROM A CONFIRMED STATE.
+  //
+  // Reopening anything else would be undoing a decision that does not exist. The
+  // reason is required by the sheet AND by the server (AC-2.6.1); this screen only
+  // decides when the affordance is offered.
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopenError, setReopenError] = useState<string | null>(null);
+  const [reopenedNotice, setReopenedNotice] = useState<string | null>(null);
 
   // ★ PHASE 10 — RSVP EXISTS ONLY ON THE CONFIRMED BRANCH.
   //
@@ -199,6 +211,33 @@ export default function DecisionScreen() {
     }
   }, [plan, eventId, reload]);
 
+  /**
+   * Reopens the confirmed decision.
+   *
+   * ★ THE RELOAD IS THE POINT. The decision this screen was rendering no longer
+   * exists as live, so leaving the stale card on screen would show a decision the
+   * group has just undone — the exact contradiction the reopen exists to correct.
+   */
+  const onReopen = useCallback(
+    async (reason: string) => {
+      setReopenError(null);
+
+      try {
+        const userId = await getStoredUserId();
+        const result = await reopenDecision(eventId, reason, userId);
+
+        // Nothing live to reopen: the status is already what it should be, so
+        // the screen reloads rather than reporting a failure.
+        setReopenedNotice(result.alreadyReopened ? 'reopen.notFound' : 'reopen.done');
+        await reload();
+      } catch (error) {
+        setReopenError(isApiFailure(error) ? error.messageKey : 'errors.validationFailed');
+        throw error;
+      }
+    },
+    [eventId, reload],
+  );
+
   // ★ A SKELETON, NOT A CENTRED SPINNER (§6, Plan 11 Task 6).
   if (isLoading) {
     return (
@@ -282,6 +321,21 @@ export default function DecisionScreen() {
               router.push({ pathname: '/event/[id]/propose', params: { id: eventId } })
             }
             testID="decision-status"
+          />
+        )}
+
+        {/* ★ PHASE 14 — THE REOPENED BANNER (AC-2.6.1).
+            It says that the decision moved AND why, because a group that only
+            sees the state change has no way to know whether the organizer lost
+            confidence or the venue closed. */}
+        {reopenedNotice && (
+          <Banner
+            message={t(reopenedNotice)}
+            visible
+            tone="warning"
+            actionLabel={t('common.ok')}
+            onAction={() => setReopenedNotice(null)}
+            testID="decision-reopen-notice"
           />
         )}
 
@@ -406,6 +460,19 @@ export default function DecisionScreen() {
           />
         )}
 
+        {/* ★ REOPENING IS OFFERED ONLY WHERE IT CAN APPLY: a confirmed event, to
+            its organizer. A guest who was overruled can ask; they cannot unilaterally
+            restart a vote the group just finished. */}
+        {isConfirmed && isOrganizer && (
+          <Button
+            label={t('reopen.action')}
+            onPress={() => setReopenOpen(true)}
+            variant="ghost"
+            size="medium"
+            testID="decision-reopen"
+          />
+        )}
+
         <Button
           label={t('common.back')}
           onPress={() => router.back()}
@@ -426,6 +493,14 @@ export default function DecisionScreen() {
           testID="decision-confirm-sheet"
         />
       )}
+
+      <ReopenSheet
+        visible={reopenOpen}
+        onDismiss={() => setReopenOpen(false)}
+        onReopen={onReopen}
+        errorKey={reopenError}
+        testID="decision-reopen-sheet"
+      />
     </View>
   );
 }

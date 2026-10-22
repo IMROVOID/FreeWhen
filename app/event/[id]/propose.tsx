@@ -23,8 +23,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { SegmentedControl } from '@/src/components/ui/Chip';
 import { Input } from '@/src/components/ui/Input';
 import { Text } from '@/src/components/ui/Text';
+import { ChatParserTab } from '@/src/features/parser/components/ChatParserTab';
+import type { ParsedCandidate } from '@/src/features/parser/types';
 import { DuplicateOffer } from '@/src/features/proposals/components/DuplicateOffer';
 import { ProposalTypeSegment } from '@/src/features/proposals/components/ProposalTypeSegment';
 import { TimeSlotPicker, defaultEndFor } from '@/src/features/proposals/components/TimeSlotPicker';
@@ -36,10 +39,14 @@ import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
+import type { Language } from '@/src/i18n/types';
 import type { DuplicateHint, ProposalType, VenueRef } from '@/src/types/proposal';
 
+/** Which of the two entry modes the screen is in. */
+type ProposeMode = 'manual' | 'chat';
+
 export default function ProposeScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -56,8 +63,11 @@ export default function ProposeScreen() {
   const windowEnd = typeof params.windowEnd === 'string' ? params.windowEnd : '';
   const homeTz = typeof params.homeTz === 'string' ? params.homeTz : 'Asia/Tehran';
 
+  const locale: Language = i18n.language === 'en' ? 'en' : 'fa';
+
   const { append } = useProposals(eventId);
 
+  const [mode, setMode] = useState<ProposeMode>('manual');
   const [type, setType] = useState<ProposalType>('TIME');
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
@@ -122,6 +132,38 @@ export default function ProposeScreen() {
     }
   }, [append, eventId, link, needsPlace, needsTime, notes, router, startUtc, title, type, venue]);
 
+  /**
+   * Confirms one parsed candidate through the ORDINARY create path.
+   *
+   * ★ THERE IS NO SECOND WRITE PATH (AC-7.1.1, AC-7.2.1).
+   *
+   * A candidate is not a proposal and has no endpoint of its own. Confirming it
+   * calls exactly the same `createProposal` the manual form calls, so two of
+   * three selected produce exactly two proposals and nothing else can.
+   */
+  const confirmCandidate = useCallback(
+    async (candidate: ParsedCandidate) => {
+      const userId = await getStoredUserId();
+
+      const outcome = await createProposal(
+        eventId,
+        {
+          type: candidate.type,
+          title: candidate.title,
+          notes: null,
+          link: null,
+          start_utc: candidate.startUtc,
+          end_utc: candidate.endUtc,
+          venue: null,
+        },
+        userId,
+      );
+
+      append(outcome.proposal);
+    },
+    [append, eventId],
+  );
+
   if (duplicate) {
     return (
       <ScrollView
@@ -149,6 +191,47 @@ export default function ProposeScreen() {
     );
   }
 
+  if (mode === 'chat') {
+    return (
+      <ScrollView
+        style={[styles.screen, { backgroundColor: theme.bg }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[10] },
+        ]}
+        testID="propose-chat-screen"
+      >
+        <Text variant="h1">{t('parser.heading')}</Text>
+
+        <SegmentedControl
+          options={[
+            { value: 'chat', label: t('parser.tabChat') },
+            { value: 'manual', label: t('proposals.newProposal') },
+          ]}
+          value="chat"
+          onChange={(next) => setMode(next === 'chat' ? 'chat' : 'manual')}
+          testID="propose-mode-chat"
+        />
+
+        <ChatParserTab
+          eventId={eventId}
+          locale={locale}
+          onConfirm={confirmCandidate}
+          onManualEntry={() => setMode('manual')}
+          testID="propose-chat"
+        />
+
+        <Button
+          label={t('common.back')}
+          onPress={() => router.back()}
+          variant="ghost"
+          size="medium"
+          testID="propose-chat-back"
+        />
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
@@ -159,6 +242,16 @@ export default function ProposeScreen() {
       testID="propose-screen"
     >
       <Text variant="h1">{t('proposals.newProposal')}</Text>
+
+      <SegmentedControl
+        options={[
+          { value: 'chat', label: t('parser.tabChat') },
+          { value: 'manual', label: t('proposals.newProposal') },
+        ]}
+        value="manual"
+        onChange={(next) => setMode(next === 'chat' ? 'chat' : 'manual')}
+        testID="propose-mode"
+      />
 
       <ProposalTypeSegment value={type} onChange={setType} testID="propose-type" />
 
