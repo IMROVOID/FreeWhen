@@ -34,7 +34,17 @@ export type FunnelEvent =
   | 'duplicate_detected'
   | 'time_proposal_created'
   | 'opening_hours_warning_shown'
-  | 'timezone_mismatch_shown';
+  | 'timezone_mismatch_shown'
+  // Phase 7 — voting and the decision (PRD-02 §9).
+  //
+  // `decision_confirmed` carries `elapsed_since_open_s` and
+  // `outstanding_voters`, which are the "time to decision" and "who blocked
+  // convergence" numbers the user test measures. Missing them makes Phase 13
+  // unmeasurable, so they are named parts of the payload rather than extras.
+  | 'vote_cast'
+  | 'decision_status_viewed'
+  | 'decision_confirmed'
+  | 'no_viable_option_shown';
 
 /**
  * How a duplicate hint was resolved.

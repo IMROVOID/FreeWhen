@@ -33,6 +33,11 @@ import {
   patchProposalHandler,
   withdrawProposalHandler,
 } from './routes/proposals';
+// Phase 7 — voting and the decision (PRD-02 §4.2–§4.6).
+import { activityHandler } from './routes/activity';
+import { confirmHandler } from './routes/confirm';
+import { decisionStatusHandler } from './routes/decision-status';
+import { castVoteHandler } from './routes/votes';
 
 type Handler = (request: Request, params: Record<string, string>) => Promise<Response>;
 
@@ -72,6 +77,15 @@ const ROUTES: Route[] = [
   { method: 'DELETE', segments: ['api', 'proposals', ':id'], handler: withdrawProposalHandler },
   // Phase 6 — server-mediated place search (PRD-04 §4.5, PRD-10 D9).
   { method: 'GET', segments: ['api', 'place-search'], handler: placeSearchHandler },
+  // Phase 7 — voting, the Decision Status area, confirmation and the log.
+  { method: 'PUT', segments: ['api', 'proposals', ':id', 'vote'], handler: castVoteHandler },
+  {
+    method: 'GET',
+    segments: ['api', 'events', ':id', 'decision-status'],
+    handler: decisionStatusHandler,
+  },
+  { method: 'POST', segments: ['api', 'events', ':id', 'confirm'], handler: confirmHandler },
+  { method: 'GET', segments: ['api', 'events', ':id', 'activity'], handler: activityHandler },
 ];
 
 async function healthHandler(): Promise<Response> {
