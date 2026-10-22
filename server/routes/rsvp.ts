@@ -23,7 +23,7 @@
  * which looks exactly like a user who changed their mind.
  */
 
-import { RSVP_VALIDATION, RSVP_VALUES, type RsvpValue } from '../../src/features/follow-through/services/rsvp';
+import { RSVP_VALIDATION, RSVP_VALUES, type RsvpValue } from '../../src/features/follow-through/services/contract';
 
 import {
   callerIdFrom,

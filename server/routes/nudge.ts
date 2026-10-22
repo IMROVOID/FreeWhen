@@ -21,7 +21,7 @@
  * database at this moment — never taken from the request.
  */
 
-import { NUDGE_COOLDOWN_MS, RSVP_VALIDATION } from '../../src/features/follow-through/services/rsvp';
+import { NUDGE_COOLDOWN_MS, RSVP_VALIDATION } from '../../src/features/follow-through/services/contract';
 
 import { callerIdFrom, isUuid, json, wireError } from '../lib/http';
 import { limiters } from '../lib/rate-limit';

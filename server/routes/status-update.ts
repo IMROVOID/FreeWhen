@@ -25,7 +25,7 @@ import {
   RUNNING_LATE_OPTIONS,
   RUNNING_LATE_VISIBLE_MS,
   RSVP_VALIDATION,
-} from '../../src/features/follow-through/services/rsvp';
+} from '../../src/features/follow-through/services/contract';
 
 import {
   callerIdFrom,

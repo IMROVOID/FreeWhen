@@ -19,11 +19,17 @@
  */
 
 import { apiRequest } from '@/src/lib/api';
+import { RSVP_VALUES, RUNNING_LATE_VISIBLE_MS, type RsvpValue } from './contract';
 
-/** The three attendance answers. */
-export const RSVP_VALUES = ['going', 'maybe', 'cannot'] as const;
-
-export type RsvpValue = (typeof RSVP_VALUES)[number];
+export {
+  NUDGE_COOLDOWN_MS,
+  RSVP_VALIDATION,
+  RSVP_VALUES,
+  RUNNING_LATE_OPTIONS,
+  RUNNING_LATE_VISIBLE_MS,
+  type RunningLateMinutes,
+  type RsvpValue,
+} from './contract';
 
 /** One participant's RSVP, as the wire carries it. */
 export interface Rsvp {
@@ -202,27 +208,6 @@ export function optimisticRsvp(
 }
 
 /**
- * How long a "running late" status stays on the card.
- *
- * E7: a permanent badge outlives its meaning — the event it referred to is over
- * and the status stops saying anything true.
- */
-export const RUNNING_LATE_VISIBLE_MS = 2 * 60 * 60 * 1000;
-
-/** The late-arrival increments the UI offers, in minutes (E7). */
-export const RUNNING_LATE_OPTIONS = [10, 20, 30] as const;
-
-export type RunningLateMinutes = (typeof RUNNING_LATE_OPTIONS)[number];
-
-/**
- * The nudge cooldown per organizer, per event (AC-6.5.1).
- *
- * A nudge is social pressure applied deliberately; left unbounded it becomes spam
- * and the group mutes the one notification that mattered.
- */
-export const NUDGE_COOLDOWN_MS = 4 * 60 * 60 * 1000;
-
-/**
  * Whether a running-late status is still worth showing.
  *
  * Measured from the reported instant, so a status set the day before does not
@@ -234,12 +219,3 @@ export function isRunningLateVisible(reportedAt: string, now: Date = new Date())
 
   return now.getTime() - reported < RUNNING_LATE_VISIBLE_MS;
 }
-
-/** The catalogue keys a 422 carries, mirrored for the client's own guards. */
-export const RSVP_VALIDATION = {
-  eventNotConfirmed: 'rsvp.errors.notConfirmed',
-  unknownValue: 'rsvp.errors.unknownValue',
-  lateWindowClosed: 'rsvp.errors.lateWindowClosed',
-  nudgeCooldown: 'rsvp.errors.nudgeCooldown',
-  nobodyOutstanding: 'rsvp.errors.nobodyOutstanding',
-} as const;
