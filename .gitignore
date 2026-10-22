@@ -19,6 +19,10 @@ docs/spike/*.transcript
 # Dependencies
 node_modules/
 
+# Per-agent git worktrees. A parallel agent works in its own checkout, so
+# these directories hold a second copy of the tree. They are never committed.
+.worktrees/
+
 # Expo / Metro
 .expo/
 dist/
