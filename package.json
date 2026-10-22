@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "tsx scripts/run-tests.ts",
+    "test:engine": "tsx scripts/run-engine-tests.ts",
     "db:migrate": "tsx scripts/db/migrate.ts",
     "db:seed": "tsx scripts/db/seed.ts",
     "db:verify-fixture": "tsx scripts/db/verify-fixture.ts",
