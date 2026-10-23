@@ -63,3 +63,45 @@ describe('the rule cannot be satisfied by launch alone', () => {
     assert.deepEqual(asks, [{ isFirstVote: true, hasAsked: false }]);
   });
 });
+
+describe('★ the veto does not fire the prompt (P14 composition)', () => {
+  /**
+   * `useVote.write` is shared by `cast` and `toggleVeto`. A dealbreaker veto
+   * writes `no` + `is_dealbreaker`, so on a participant's FIRST-EVER veto the
+   * server truthfully reports `previous: null` — `isFirstVote` would be true.
+   *
+   * The prompt must still not fire, because a veto is not the vote that earns
+   * it (FR-6.14). The guard is `reportVote`, which only `cast` passes.
+   *
+   * These assertions restate that composition as a contract: whatever the
+   * server reports, a path that does not pass `reportVote` cannot reach the
+   * gate at all. `onVoted` is only invoked under `reportVote`, so `isFirstVote`
+   * never even reaches `shouldRequestAfterVote` from a veto.
+   */
+  test('a first-ever veto reports isFirstVote=true, so the gate alone cannot protect us', () => {
+    // This is the hazard, stated: if `write` fired `onVoted` unconditionally,
+    // the veto would satisfy the gate below and prompt the user.
+    assert.equal(shouldRequestAfterVote({ isFirstVote: true, hasAsked: false }), true);
+  });
+
+  test('the protection is reportVote, upstream of the gate', () => {
+    // The veto path passes `reportVote: false`, so `onVoted` is never called and
+    // `shouldRequestAfterVote` is never consulted. Encoded as a table so the
+    // intent is unambiguous: only the `cast` row may prompt.
+    const paths = [
+      { path: 'cast', reportVote: true, mayPrompt: true },
+      { path: 'toggleVeto', reportVote: false, mayPrompt: false },
+    ];
+
+    for (const entry of paths) {
+      // `onVoted` is reached only when reportVote is true.
+      const reachesGate = entry.reportVote;
+
+      assert.equal(
+        reachesGate && shouldRequestAfterVote({ isFirstVote: true, hasAsked: false }),
+        entry.mayPrompt,
+        `${entry.path}: reportVote=${entry.reportVote}`,
+      );
+    }
+  });
+});

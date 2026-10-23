@@ -60,6 +60,19 @@ export interface UseVoteOptions {
 export interface UseVoteResult {
   /** Casts or changes a vote on one proposal. */
   cast: (proposalId: string, value: VoteValue) => Promise<void>;
+  /**
+   * Sets or clears the caller's veto on one proposal (FR-2.17).
+   *
+   * ★ A VETO IS WRITTEN AS `no`, ALWAYS.
+   *
+   * There is no "veto without a no": the filter reads the flag and the tally
+   * reads the value, so a veto recorded beside a `yes` would make the two
+   * disagree about what the participant said. Setting a veto therefore writes
+   * `no` + the flag; clearing it keeps the `no` and drops the flag, because the
+   * participant still does not want that venue — they just no longer want to
+   * force the group's hand.
+   */
+  toggleVeto: (proposalId: string, vetoNow: boolean) => Promise<void>;
   /** The proposal currently being written, or `null`. */
   pending: string | null;
   /** A catalogue key for the last failure, cleared on the next attempt. */
@@ -132,48 +145,61 @@ export function useVote({ status, setStatus, reload, onVoted }: UseVoteOptions):
   // reverts to what the user last SAW, not to the intermediate optimistic state.
   const snapshot = useRef<DecisionStatusResponse | null>(null);
 
-  const cast = useCallback(
-    async (proposalId: string, value: VoteValue) => {
+  /**
+   * The shared write-and-revert body for both mutations.
+   *
+   * Kept in one place so a veto and a vote cannot drift on the two properties
+   * that matter: the optimistic write is applied before the request, and a
+   * failure restores the snapshot AND names itself.
+   *
+   * `reportVote` is the one thing the two callers must NOT share. The push
+   * prompt hangs off the first real vote (FR-6.14), so only `cast` opts in;
+   * `toggleVeto` passes `false` and can never fire `onVoted`.
+   */
+  const write = useCallback(
+    async (
+      proposalId: string,
+      value: VoteValue,
+      isDealbreaker: boolean,
+      optimistic: (current: DecisionStatusResponse) => DecisionStatusResponse,
+      reportVote: boolean,
+    ) => {
       setErrorKey(null);
 
-      // ★ SNAPSHOT BEFORE THE OPTIMISTIC WRITE.
       if (status) {
         snapshot.current = status;
-        setStatus(optimisticVote(status, proposalId, value, status.me.display_name));
+        setStatus(optimistic(status));
       }
 
       setPending(proposalId);
 
       try {
         const userId = await getStoredUserId();
-        const written = await putVote(proposalId, value, userId);
+        const written = await putVote(proposalId, value, userId, { isDealbreaker });
 
-        // ★ ONLY IN THE SUCCESS BRANCH.
+        // ★ ONLY IN THE SUCCESS BRANCH, AND ONLY FOR A REAL VOTE.
         //
         // `previous === null` is the server's own statement that this was the
         // participant's first answer on this proposal. The callback fires AFTER
         // the write was accepted and BEFORE the reload, so a prompt can never
         // appear for a vote that was rejected or reverted below.
-        onVoted?.({ proposalId, isFirstVote: written.previous === null });
+        //
+        // `reportVote` is what keeps a VETO from firing it. `write` is shared by
+        // `cast` and `toggleVeto`, and a veto is not the first-vote moment the
+        // push prompt hangs off (FR-6.14): it writes `no` + the flag, so the
+        // server would truthfully report `previous: null` on a first-ever veto
+        // and the prompt would fire for a gesture the participant did not make
+        // as a vote. Only `cast` passes `reportVote: true`.
+        if (reportVote) {
+          onVoted?.({ proposalId, isFirstVote: written.previous === null });
+        }
 
-        // The server's answer is the authority: it is what the other
-        // participants already see, and it may carry a tally that moved while
-        // this request was in flight.
         await reload();
       } catch (error) {
-        // ★ THE REVERT IS VISIBLE.
-        //
-        // The snapshot goes back first, so the selection the user sees matches
-        // what is stored; the message is the second half of the same promise.
         if (snapshot.current) setStatus(snapshot.current);
 
-        // A specific server refusal names its own reason (a withdrawn
-        // proposal, a confirmed event). A transport failure gets the generic
-        // "reverted, try again", which is true in both cases.
         setErrorKey(
-          error instanceof ApiFailure
-            ? error.messageKey
-            : 'voting.castFailedReverted',
+          error instanceof ApiFailure ? error.messageKey : 'voting.castFailedReverted',
         );
       } finally {
         setPending(null);
@@ -182,7 +208,63 @@ export function useVote({ status, setStatus, reload, onVoted }: UseVoteOptions):
     [status, setStatus, reload, onVoted],
   );
 
+  const cast = useCallback(
+    async (proposalId: string, value: VoteValue) => {
+      // ★ CHANGING THE VALUE CLEARS THE VETO.
+      //
+      // A veto only exists on a `no`. Moving the vote to `yes` or `maybe`
+      // without clearing the flag would leave the venue excluded by a
+      // participant who now wants it.
+      await write(
+        proposalId,
+        value,
+        false,
+        (current) => {
+          const patched = optimisticVote(current, proposalId, value, current.me.display_name);
+          return {
+            ...patched,
+            myDealbreakers: patched.myDealbreakers.filter((id) => id !== proposalId),
+          };
+        },
+        // A real vote: this is the moment the push prompt may fire.
+        true,
+      );
+    },
+    [write],
+  );
+
+  const toggleVeto = useCallback(
+    async (proposalId: string, vetoNow: boolean) => {
+      await write(
+        proposalId,
+        'no',
+        vetoNow,
+        (current) => {
+          // The vote must be `no` for the flag to mean anything, so this is the
+          // same tally patch a `no` tap makes — expressed through `optimisticVote`
+          // rather than a second copy of it.
+          const patched = optimisticVote(current, proposalId, 'no', current.me.display_name);
+
+          const without = patched.myDealbreakers.filter((id) => id !== proposalId);
+
+          return {
+            ...patched,
+            myDealbreakers: vetoNow ? [...without, proposalId] : without,
+          };
+        },
+        // ★ A VETO NEVER FIRES THE PUSH PROMPT.
+        //
+        // It writes `no` + the flag, so on a participant's first-ever veto the
+        // server truthfully reports `previous: null` and a naive composition
+        // would ask for notification permission on a gesture that was not a
+        // vote. The prompt belongs to the vote (FR-6.14).
+        false,
+      );
+    },
+    [write],
+  );
+
   const clearError = useCallback(() => setErrorKey(null), []);
 
-  return { cast, pending, errorKey, clearError };
+  return { cast, toggleVeto, pending, errorKey, clearError };
 }

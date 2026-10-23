@@ -71,9 +71,19 @@ const PHASE_NAMESPACES: Record<string, string[]> = {
   // `parser`, which parses a pasted message; it does not own the room.
   '10': ['notifications', 'rsvp', 'followThrough', 'calendar', 'chat'],
   '11': ['states', 'a11y', 'offline', 'permission'],
-  // P14 extends `availability` but does not own it — P06 does. The two
-  // namespaces below are the chat parser and the reopen flow.
-  '14': ['parser', 'reopen'],
+  // P14 owns the chat parser, the reopen flow, per-proposal comments, and the
+  // two namespaces its cut P1 items created: the opening-hours advisory and the
+  // dealbreaker veto.
+  //
+  // ★ THE CUT ITEMS DO NOT WRITE INTO P06's or P08's SUBTREES.
+  //
+  // The obvious placement was `slots.*` for the advisory and `ranking.*` for
+  // the veto, and it fails this gate — correctly. Ownership is exclusive ("a
+  // namespace may not be claimed by two phases"), so writing there either
+  // claims a foreign namespace or writes one this phase does not own. New keys
+  // therefore live in new P14 namespaces, which is also what keeps this branch
+  // mergeable with the parallel one editing the same two files.
+  '14': ['parser', 'reopen', 'comments', 'openingHours', 'dealbreaker', 'autoLock'],
   '18': ['server', 'web'],
 };
 
@@ -174,6 +184,30 @@ function activePhase(changed: string[] | null): string | null {
   return null;
 }
 
+/**
+ * The top-level namespaces present on `main`'s tip, or `null`.
+ *
+ * ★ THIS IS WHAT SEPARATES "INHERITED BY A MERGE" FROM "WRITTEN HERE".
+ *
+ * The ownership baseline is the merge-base, so a branch that merged another
+ * phase sees that phase's namespaces in its diff. Comparing instead against
+ * `main`'s current tip identifies exactly the set the merge imported: those are
+ * history this branch carries, not subtrees it authored. Anything absent from
+ * `main`'s tip but present in this tree was written on this branch and is still
+ * subject to the exclusive-ownership rule.
+ */
+function mainNamespaces(path: string): Set<string> | null {
+  try {
+    const raw = execFileSync('git', ['show', `main:${path.replace(/\\/g, '/')}`], {
+      cwd: GIT_ROOT,
+      encoding: 'utf8',
+    });
+    return new Set(Object.keys(JSON.parse(raw) as Record<string, unknown>));
+  } catch {
+    return null;
+  }
+}
+
 /** The catalogue as it was at the merge-base with main, or null. */
 function baselineCatalogue(path: string): Record<string, unknown> | null {
   try {
@@ -217,6 +251,14 @@ const baseline = baselineCatalogue(relative);
  */
 const changed = baseline ? changedNamespaces(baseline, fa) : null;
 
+/**
+ * The namespaces a merge of `main` brought into this branch.
+ *
+ * `null` when `main` cannot be read, which makes every changed namespace subject
+ * to the ownership rule — the strict reading, not the permissive one.
+ */
+const mergedNamespaces = mainNamespaces(relative);
+
 const phase = activePhase(changed);
 const owned = phase ? (PHASE_NAMESPACES[phase] ?? []) : null;
 
@@ -236,7 +278,29 @@ if (phase && owned === null) {
         `FREEWHEN_PHASE= to the phase that owns the changed namespaces.`,
     );
   } else {
-    const foreign = (changed ?? []).filter((name) => !owned.includes(name));
+    // ★ A NAMESPACE OWNED BY ANOTHER PHASE IS NOT FOREIGN WHEN A MERGE BROUGHT IT IN.
+    //
+    // This check compares against `main`'s merge-base. On a branch that has
+    // MERGED another phase, the diff necessarily contains that phase's
+    // namespaces — they are not this phase's writes, they are history it
+    // inherited. Blaming P10 for P14's `comments.*` is a false positive, and a
+    // gate that fails on a correct merge teaches people to bypass it.
+    //
+    // ★ THE DISTINCTION IS THE MERGE COMMIT, NOT THE NAMESPACE LIST.
+    //
+    // Doing this by "is it owned by SOME phase" would let a phase quietly write
+    // another phase's subtree and pass — the exact bug this guard exists for.
+    // So a namespace is excused only when it was already present in `main`'s tip
+    // as of this branch's most recent merge of `main`: that is the set the merge
+    // imported rather than authored. Anything this branch wrote itself is still
+    // checked, so a single-phase diff fails on exactly the input it always did.
+    const excused = (changed ?? []).filter((name) =>
+      mergedNamespaces !== null ? mergedNamespaces.has(name) : false,
+    );
+
+    const foreign = (changed ?? []).filter(
+      (name) => !owned.includes(name) && !excused.includes(name),
+    );
 
     if (foreign.length > 0) {
       failures.push(

@@ -358,6 +358,34 @@ async function myMutePreference(eventId: string, caller: Caller): Promise<boolea
   return result.rows[0]?.notifications_muted ?? false;
 }
 
+/**
+ * The proposal ids the caller has vetoed, in an event (PRD-02 FR-2.17).
+ *
+ * ★ A SUBSET OF `myVotes`, NOT A REPLACEMENT FOR IT.
+ *
+ * The dealbreaker flag rides alongside the vote value rather than replacing the
+ * `myVotes` shape, because the two answer different questions: which button is
+ * filled in, and whether that button carries a veto. A client that only had the
+ * veto list could not draw the selected vote, and one that only had `myVotes`
+ * could not draw the veto — so both travel.
+ *
+ * Only `no` votes can be dealbreakers. The database does not enforce that
+ * pairing (a value change and a stale flag are two columns), so it is read back
+ * as-is and the UI is the thing that keeps them consistent.
+ */
+async function myDealbreakers(eventId: string, participantId: string): Promise<string[]> {
+  const result = await servicePool().query<{ proposal_id: string }>(
+    `select v.proposal_id
+     from vote v
+     join proposal pr on pr.id = v.proposal_id
+     where pr.event_id = $1 and v.participant_id = $2 and v.is_dealbreaker
+     order by pr.created_at asc, pr.id asc`,
+    [eventId, participantId],
+  );
+
+  return result.rows.map((row) => row.proposal_id);
+}
+
 /** The live decision row for an axis, or `null`. */
 export interface DecisionRow {
   id: string;
@@ -428,6 +456,14 @@ export interface DecisionStatusPayload {
   participants: EventParticipant[];
   /** The caller's votes, keyed by proposal id. */
   myVotes: Record<string, VoteValue>;
+  /**
+   * The proposal ids the caller has vetoed (FR-2.17).
+   *
+   * A dealbreaker is a hard `no`, so this is always a subset of the ids in
+   * `myVotes`. It is a list rather than a flag per entry so the client can ask
+   * "have I vetoed this?" without walking the vote map.
+   */
+  myDealbreakers: string[];
   /** The caller's participant row. */
   me: EventParticipant;
   /**
@@ -462,13 +498,17 @@ export async function loadDecisionStatus(
   const me = await participantIn(eventId, caller);
   if (!me) return null;
 
-  const [participants, votes, proposals, myOwnVotes, muted] = await Promise.all([
-    eventParticipants(eventId),
-    eventVotes(eventId),
-    eventProposals(eventId),
-    myVotes(eventId, me.id),
-    myMutePreference(eventId, caller),
-  ]);
+  // Six slots: P14's veto list and this branch's mute preference are independent
+  // facts about the caller, and neither replaces the other.
+  const [participants, votes, proposals, myOwnVotes, myOwnDealbreakers, muted] =
+    await Promise.all([
+      eventParticipants(eventId),
+      eventVotes(eventId),
+      eventProposals(eventId),
+      myVotes(eventId, me.id),
+      myDealbreakers(eventId, me.id),
+      myMutePreference(eventId, caller),
+    ]);
 
   const [timeDecision, placeDecision] = await Promise.all([
     liveDecision(eventId, 'time'),
@@ -490,6 +530,7 @@ export async function loadDecisionStatus(
     })),
     participants,
     myVotes: myOwnVotes,
+    myDealbreakers: myOwnDealbreakers,
     me,
     notifications_muted: muted,
     decisions,

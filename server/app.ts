@@ -48,6 +48,13 @@ import { nudgeHandler } from './routes/nudge';
 // Phase 14 — the P1 backlog (PRD-07 chat parser, PRD-02 reopening).
 import { parseHandler } from './routes/parse';
 import { reopenHandler } from './routes/reopen';
+// Phase 14 — per-proposal comments (PRD-02 §4.3). Scoped to a proposal on
+// purpose: an event-wide sibling would trigger Apple §1.2's UGC obligations.
+import {
+  createCommentHandler,
+  deleteCommentHandler,
+  listCommentsHandler,
+} from './routes/comments';
 // D23 — the in-room chat surface (PRD-06 FR-6.7b).
 import {
   listMessagesHandler,
@@ -144,6 +151,19 @@ const ROUTES: Route[] = [
   { method: 'GET', segments: ['api', 'events', ':id', 'messages'], handler: listMessagesHandler },
   { method: 'POST', segments: ['api', 'events', ':id', 'messages'], handler: postMessageHandler },
   { method: 'POST', segments: ['api', 'messages', ':id', 'report'], handler: reportMessageHandler },
+  // Phase 14 — per-proposal comments. There is deliberately no
+  // `/api/events/:id/comments`.
+  {
+    method: 'GET',
+    segments: ['api', 'proposals', ':id', 'comments'],
+    handler: listCommentsHandler,
+  },
+  {
+    method: 'POST',
+    segments: ['api', 'proposals', ':id', 'comments'],
+    handler: createCommentHandler,
+  },
+  { method: 'DELETE', segments: ['api', 'comments', ':id'], handler: deleteCommentHandler },
 ];
 
 /** Matches one route's segments, returning the captured params. */

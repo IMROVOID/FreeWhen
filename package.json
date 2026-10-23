@@ -23,6 +23,7 @@
     "job:retention": "tsx scripts/jobs/run.ts retention",
     "job:anon-cleanup": "tsx scripts/jobs/run.ts anon-cleanup",
     "test:db": "tsx scripts/db/run-tests.ts",
+    "test:e2e": "maestro test tests/e2e",
     "worktree": "tsx scripts/agent-worktree.ts",
     "server": "tsx server/index.ts",
     "server:auth": "tsx server/auth/index.ts",

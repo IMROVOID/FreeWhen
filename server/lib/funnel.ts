@@ -51,7 +51,11 @@ export type FunnelEvent =
   // recognised, so the paste feature's usefulness is measurable without ever
   // recording what was pasted.
   | 'chat_parse_ran'
-  | 'decision_reopened';
+  | 'decision_reopened'
+  // P14 — a per-proposal comment was added. The payload carries the event, the
+  // proposal and the LENGTH. Never the body: a comment is user text, and a
+  // metric that stored it would be a second copy of the conversation.
+  | 'comment_added';
 
 /**
  * How a duplicate hint was resolved.

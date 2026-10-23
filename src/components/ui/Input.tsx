@@ -11,6 +11,13 @@ export interface InputProps {
   label: string;
   error?: string;
   secureTextEntry?: boolean;
+  /**
+   * Grows to a paragraph field.
+   *
+   * A 300-character comment does not fit a single line, and a one-line field
+   * makes the user scroll horizontally through their own sentence.
+   */
+  multiline?: boolean;
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }
@@ -25,6 +32,7 @@ export function Input({
   label,
   error,
   secureTextEntry = false,
+  multiline = false,
   testID,
   style,
 }: InputProps) {
@@ -57,9 +65,10 @@ export function Input({
           onBlur={() => setIsFocused(false)}
           placeholder={isFloating ? undefined : label}          placeholderTextColor={t.textFaint}
           secureTextEntry={secureTextEntry}
+          multiline={multiline}
           testID={testID}
           accessibilityLabel={label}
-          style={[styles.input, { color: t.text }]}
+          style={[styles.input, multiline ? styles.inputMultiline : null, { color: t.text }]}
         />
       </View>
 
@@ -82,6 +91,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
     paddingVertical: space[2],
     justifyContent: 'center',
+  },
+  inputMultiline: {
+    minHeight: 96,
+    textAlignVertical: 'top',
   },
   input: {
     fontSize: 15,
