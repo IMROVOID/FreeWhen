@@ -207,6 +207,19 @@ export async function createUser(options: { isAnonymous?: boolean } = {}): Promi
 
 /**
  * Creates an event with an organizer, and returns the ids.
+ *
+ * ★ THE DEFAULT WINDOW OPENS AT `now`, NOT AT `now + 1 day`.
+ *
+ * The suites' slot fixtures pin a start to 18:00 UTC one day ahead and assert
+ * it is accepted. With a window that opened at `now + 1 day` — the same
+ * calendar day but the CURRENT time of day — a run after 18:00 UTC proposed a
+ * slot that began before its own window opened, and the server correctly
+ * answered 422 `slotOutOfWindow`. Seventeen voting tests failed for a reason
+ * that depended on the hour the suite was run rather than on the code.
+ *
+ * Opening the default window at `now` makes every in-window fixture legal at
+ * any hour. A test that needs a window NOT containing its slot still passes
+ * one explicitly, which is the only case where the distinction matters.
  */
 export async function seedEvent(
   options: {
@@ -230,7 +243,7 @@ export async function seedEvent(
     [
       eventId,
       options.title ?? 'Test event',
-      options.windowStart ?? new Date(Date.now() + 86_400_000).toISOString(),
+      options.windowStart ?? new Date(Date.now()).toISOString(),
       options.windowEnd ?? new Date(Date.now() + 4 * 86_400_000).toISOString(),
       options.status ?? 'OPEN',
       organizerId,
