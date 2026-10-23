@@ -25,7 +25,7 @@ import {
   isTokenShaped,
 } from './invite-token';
 import { ensureServerSql } from './server-sql';
-import { servicePool, withCallerTransaction, type Caller } from './supabase';
+import { scopedQueryable, withCallerTransaction, type Caller } from './supabase';
 
 /** The two errors an invite route may return. `null` means "no error". */
 export type InviteFailure = 'INVITE_INVALID' | 'EVENT_FULL';
@@ -79,7 +79,7 @@ export async function resolveInvite(
 ): Promise<{ ok: true; event: InviteResolution } | { ok: false; reason: InviteFailure }> {
   if (!isTokenShaped(token)) return { ok: false, reason: 'INVITE_INVALID' };
 
-  const result = await servicePool().query<{ redeem_invite: ResolvePayload }>(
+  const result = await scopedQueryable().query<{ redeem_invite: ResolvePayload }>(
     `select redeem_invite($1) as redeem_invite`,
     [token],
   );
@@ -186,7 +186,7 @@ export async function issueInvite(
   eventId: string,
   baseUrl: string,
 ): Promise<IssueOutcome> {
-  const found = await servicePool().query<EventInviteRow>(
+  const found = await scopedQueryable().query<EventInviteRow>(
     `select created_by, status, date_window_end from event where id = $1`,
     [eventId],
   );
@@ -201,7 +201,7 @@ export async function issueInvite(
   const plaintext = generateInviteToken();
   const expiresAt = inviteExpiresAt(new Date(row.date_window_end));
 
-  await servicePool().query(
+  await scopedQueryable().query(
     `update event
         set invite_token_hash = $1,
             invite_expires_at = $2,
@@ -237,7 +237,7 @@ export async function revokeInvite(
   caller: Caller,
   eventId: string,
 ): Promise<{ ok: true } | { ok: false; reason: 'NOT_FOUND' | 'NOT_ORGANIZER' }> {
-  const found = await servicePool().query<{ created_by: string }>(
+  const found = await scopedQueryable().query<{ created_by: string }>(
     `select created_by from event where id = $1`,
     [eventId],
   );
@@ -246,7 +246,7 @@ export async function revokeInvite(
   if (!row) return { ok: false, reason: 'NOT_FOUND' };
   if (row.created_by !== caller.userId) return { ok: false, reason: 'NOT_ORGANIZER' };
 
-  await servicePool().query(
+  await scopedQueryable().query(
     `update event
         set invite_token_hash = null,
             invite_expires_at = null,

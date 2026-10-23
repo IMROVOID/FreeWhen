@@ -24,7 +24,7 @@
  */
 
 import { json } from '../lib/http';
-import { servicePool } from '../lib/supabase';
+import { scopedQueryable } from '../lib/supabase';
 
 /** The body. Two fields, both non-identifying. */
 interface HealthBody {
@@ -43,7 +43,7 @@ interface HealthBody {
  */
 async function databaseReachable(): Promise<boolean> {
   try {
-    await servicePool().query('select 1');
+    await scopedQueryable().query('select 1');
     return true;
   } catch {
     return false;

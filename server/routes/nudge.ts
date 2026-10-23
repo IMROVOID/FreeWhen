@@ -25,7 +25,7 @@ import { NUDGE_COOLDOWN_MS, RSVP_VALIDATION } from '../../src/features/follow-th
 
 import { callerIdFrom, isUuid, json, wireError } from '../lib/http';
 import { limiters } from '../lib/rate-limit';
-import { resolveCaller, servicePool, type Caller } from '../lib/supabase';
+import { resolveCaller, scopedQueryable, type Caller } from '../lib/supabase';
 
 /** The cooldown, exported so the test and the UI share one number. */
 export const NUDGE_COOLDOWN = NUDGE_COOLDOWN_MS;
@@ -43,7 +43,7 @@ async function callerFrom(request: Request): Promise<Caller | null> {
 }
 
 async function participantIn(eventId: string, caller: Caller): Promise<ParticipantRow | null> {
-  const result = await servicePool().query<ParticipantRow>(
+  const result = await scopedQueryable().query<ParticipantRow>(
     `select id, display_name, role
      from participant
      where event_id = $1 and auth_user_id = $2`,
@@ -63,7 +63,7 @@ async function participantIn(eventId: string, caller: Caller): Promise<Participa
  * names.
  */
 async function outstandingParticipants(eventId: string): Promise<ParticipantRow[]> {
-  const result = await servicePool().query<ParticipantRow>(
+  const result = await scopedQueryable().query<ParticipantRow>(
     `select p.id, p.display_name, p.role
      from participant p
      where p.event_id = $1
@@ -83,7 +83,7 @@ async function outstandingParticipants(eventId: string): Promise<ParticipantRow[
 
 /** The instant of the most recent nudge by this organizer, or `null`. */
 async function lastNudgeAt(eventId: string, actorId: string): Promise<Date | null> {
-  const result = await servicePool().query<{ created_at: Date }>(
+  const result = await scopedQueryable().query<{ created_at: Date }>(
     `select created_at
      from activity_log
      where event_id = $1
@@ -152,7 +152,7 @@ export async function nudgeHandler(
     );
   }
 
-  await servicePool().query(
+  await scopedQueryable().query(
     `insert into activity_log (event_id, actor_id, action, subject_type, detail)
      values ($1, $2, 'nudged', 'event', $3::jsonb)`,
     [eventId, me.id, JSON.stringify({ recipients: outstanding.length })],

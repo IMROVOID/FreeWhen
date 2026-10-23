@@ -13,7 +13,7 @@
 import { EventCreateSchema, type EventSummary, type ParticipantSummary } from '@/src/types/event';
 import type { EventCreateInput } from '@/src/types/event';
 
-import { servicePool, withTransaction, type Caller } from './supabase';
+import { scopedQueryable, withTransaction, type Caller } from './supabase';
 
 interface EventRow {
   id: string;
@@ -178,7 +178,7 @@ export async function createEvent(
 
 /** The event the caller can see, or `null`. Used after a status transition. */
 export async function getEventFor(caller: Caller, eventId: string): Promise<EventSummary | null> {
-  const result = await servicePool().query<EventRow>(`${EVENT_SELECT} where e.id = $2`, [
+  const result = await scopedQueryable().query<EventRow>(`${EVENT_SELECT} where e.id = $2`, [
     caller.userId,
     eventId,
   ]);
@@ -199,7 +199,7 @@ export async function getEventFor(caller: Caller, eventId: string): Promise<Even
  * the signal the screen actually wants, and it needs no schema change.
  */
 export async function listMyEvents(caller: Caller): Promise<EventSummary[]> {
-  const result = await servicePool().query<EventRow>(
+  const result = await scopedQueryable().query<EventRow>(
     `${EVENT_SELECT}
      order by greatest(
        e.created_at,
@@ -220,7 +220,7 @@ export async function listMyEvents(caller: Caller): Promise<EventSummary[]> {
 
 /** Whether the caller organizes this event. Rotation and revocation are theirs. */
 export async function isOrganizer(caller: Caller, eventId: string): Promise<boolean> {
-  const result = await servicePool().query<{ ok: boolean }>(
+  const result = await scopedQueryable().query<{ ok: boolean }>(
     `select exists (
        select 1 from event where id = $1 and created_by = $2
      ) as ok`,

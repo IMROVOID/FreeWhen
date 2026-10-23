@@ -28,7 +28,7 @@
  */
 
 import { callerIdFrom, isUuid, json, wireError } from '../lib/http';
-import { resolveCaller, servicePool, type Caller } from '../lib/supabase';
+import { resolveCaller, scopedQueryable, type Caller } from '../lib/supabase';
 
 /** The inventory this phase ships (N1–N6). N7 is Phase 14. */
 export const NOTIFICATION_TYPES = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6'] as const;
@@ -259,7 +259,7 @@ async function storedMuteFor(
   caller: Caller,
   eventId: string,
 ): Promise<boolean | null> {
-  const result = await servicePool().query<{ notifications_muted: boolean }>(
+  const result = await scopedQueryable().query<{ notifications_muted: boolean }>(
     `select notifications_muted from participant
       where event_id = $1 and auth_user_id = $2`,
     [eventId, caller.userId],

@@ -23,7 +23,7 @@
  */
 
 import type { UserStore } from './routes';
-import { createAnonymousUser, servicePool } from '../lib/supabase';
+import { createAnonymousUser, scopedQueryable } from '../lib/supabase';
 
 /**
  * The identity store the auth service writes through.
@@ -39,7 +39,7 @@ export const postgresUserStore: UserStore = {
   async ping(): Promise<boolean> {
     // `select 1` proves the connection works. It does NOT need the
     // service role, and it is the cheapest possible check.
-    await servicePool().query('select 1');
+    await scopedQueryable().query('select 1');
     return true;
   },
 };

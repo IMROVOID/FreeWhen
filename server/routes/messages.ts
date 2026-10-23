@@ -32,7 +32,7 @@ import {
   wireError,
 } from '../lib/http';
 import { limiters } from '../lib/rate-limit';
-import { resolveCaller, servicePool, type Caller } from '../lib/supabase';
+import { resolveCaller, scopedQueryable, type Caller } from '../lib/supabase';
 
 /** The stored bound. Mirrors the column check in migration 009. */
 export const MESSAGE_BODY_MIN = 1;
@@ -66,7 +66,7 @@ async function participantIn(
   eventId: string,
   caller: Caller,
 ): Promise<{ id: string; display_name: string } | null> {
-  const result = await servicePool().query<{ id: string; display_name: string }>(
+  const result = await scopedQueryable().query<{ id: string; display_name: string }>(
     `select id, display_name
        from participant
       where event_id = $1 and auth_user_id = $2`,
@@ -157,7 +157,7 @@ export async function listMessagesHandler(
 
   // Newest last, so the thread reads top-to-bottom like every chat app and the
   // newest message sits beside the composer.
-  const result = await servicePool().query<MessageRow>(
+  const result = await scopedQueryable().query<MessageRow>(
     `select id, event_id, participant_id, sender_name, body, message_type, created_at
        from event_message
       where event_id = $1
@@ -206,7 +206,7 @@ export async function postMessageHandler(
     return validationFailed([{ path: ['body'], message: 'errors.validationFailed' }]);
   }
 
-  const result = await servicePool().query<MessageRow>(
+  const result = await scopedQueryable().query<MessageRow>(
     `insert into event_message (event_id, participant_id, sender_name, body, message_type)
      values ($1, $2, $3, $4, 'chat')
      returning id, event_id, participant_id, sender_name, body, message_type, created_at`,
@@ -245,7 +245,7 @@ export async function reportMessageHandler(
 
   // The message's event decides who is allowed to report it: a participant of
   // ANOTHER event has no business filing against this one.
-  const found = await servicePool().query<{ event_id: string }>(
+  const found = await scopedQueryable().query<{ event_id: string }>(
     `select event_id from event_message where id = $1`,
     [messageId],
   );
@@ -268,7 +268,7 @@ export async function reportMessageHandler(
     reason = rawReason.trim().slice(0, REPORT_REASON_MAX);
   }
 
-  const result = await servicePool().query<{ id: string }>(
+  const result = await scopedQueryable().query<{ id: string }>(
     `insert into message_report (message_id, reporter_id, reason)
      values ($1, $2, $3)
      returning id`,

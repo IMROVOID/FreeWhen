@@ -13,21 +13,26 @@
  * like a passing suite.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { SERVER_SQL, serverSqlFiles } from '../sql';
+import { scopedQueryable } from './supabase';
 
-import { servicePool } from './supabase';
+/**
+ * `server/sql` is INLINED, not read from disk (Plan 39 T1).
+ *
+ * ★ WHY THE READ WENT AWAY.
+ *
+ * This module used `node:fs` + `node:path` + `node:url` to enumerate and read
+ * `server/sql/*.sql` at import time. That one dependency made the entire server
+ * un-runnable on a host with no filesystem — the whole API refused to boot for
+ * the sake of a 9 KB constant.
+ *
+ * The `.sql` files remain the source of truth a human edits. `server/sql/index.ts`
+ * is generated from them by `npm run gen:server-sql`, and
+ * `tests/server/server-sql.test.ts` fails if the two drift, so a forgotten
+ * regeneration is a red suite rather than a deployed server running stale SQL.
+ */
 
-/** `server/sql`, resolved from this file rather than from the working directory. */
-export const SQL_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'sql');
-
-/** Every `.sql` file in `server/sql`, in name order. */
-export function serverSqlFiles(): string[] {
-  return readdirSync(SQL_DIR)
-    .filter((name) => name.endsWith('.sql'))
-    .sort();
-}
+export { serverSqlFiles };
 
 /**
  * Applies every server SQL file. Memoised, so a running server pays for it once.
@@ -50,13 +55,61 @@ let applied: Promise<void> | undefined;
  * look like a bug in the join rather than a wiped schema.
  *
  * So the applier verifies what it created and re-applies when it is missing.
- * The check is one indexed catalogue lookup, and it runs once per process in
- * the steady state.
+ *
+ * ★ THE CHECK IS MEMOIZED, AND IT HAS TO BE (Plan 39 T4).
+ *
+ * This comment used to claim the lookup "runs once per process in the steady
+ * state". It did not — `missingFunctions()` was awaited on every call, and
+ * `joinViaInvite` calls `ensureServerSql()` on every join. On Node that was one
+ * wasted round-trip per join. On a Worker it is one per REQUEST, on top of the
+ * per-request client connect, which doubles the connection cost of the hottest
+ * write path in the product.
+ *
+ * `verified` now records WHEN the check last passed, and it is honoured only
+ * for a bounded window. That keeps both properties:
+ *
+ *   - steady state costs a timestamp comparison, not a round-trip
+ *   - a schema wiped by another suite is still noticed, because the window
+ *     expires and the next caller re-verifies
+ *
+ * A permanent latch would have saved the round-trip permanently and silently
+ * defeated the recovery path — which is the bug the original check was written
+ * to prevent. A TTL cannot be correct in every topology, but it degrades to
+ * "the old behaviour, occasionally" rather than "never again".
  */
 const EXPECTED_FUNCTIONS = ['join_event'] as const;
 
+/**
+ * How long a passing verification is trusted, in milliseconds.
+ *
+ * ★ CHOSEN FOR THE FAILURE MODE, NOT THE LATENCY.
+ *
+ * The cost of trusting a stale pass is a join failing with "function does not
+ * exist" for up to this long after a schema wipe; that is a test-suite
+ * annoyance, not a production hazard, because a real deploy does not drop the
+ * public schema under a running server. The cost of a shorter window is one
+ * catalogue lookup per window per isolate.
+ *
+ * 30 s is short enough that a `--fresh` migration in a neighbouring suite is
+ * noticed within one test file's runtime, and long enough that a busy Worker
+ * pays the lookup a negligible number of times.
+ */
+const VERIFY_TTL_MS = 30_000;
+
+/** When the check last passed, or 0 when it has not. */
+let verifiedAt = 0;
+
+function verificationIsFresh(now = Date.now()): boolean {
+  return verifiedAt !== 0 && now - verifiedAt < VERIFY_TTL_MS;
+}
+
+/** Forces the next `ensureServerSql()` to re-verify. Tests use this. */
+export function resetServerSqlVerification(): void {
+  verifiedAt = 0;
+}
+
 async function missingFunctions(): Promise<string[]> {
-  const result = await servicePool().query<{ proname: string }>(
+  const result = await scopedQueryable().query<{ proname: string }>(
     `select p.proname
        from pg_proc p
        join pg_namespace n on n.oid = p.pronamespace
@@ -74,24 +127,59 @@ export async function ensureServerSql(): Promise<void> {
     applied = apply();
     applied.catch(() => {
       applied = undefined;
+      verifiedAt = 0;
     });
   }
 
+  // ★ THE STEADY-STATE EXIT. A timestamp comparison instead of a round-trip.
+  if (verificationIsFresh()) return applied;
+
   const missing = await missingFunctions();
   if (missing.length > 0) {
-    // The schema was rebuilt under us. Re-apply and let the next call verify.
+    // ★ ONE RETRY, NOT A LOOP.
+    //
+    // The schema was rebuilt under us, so re-apply. The retry is bounded
+    // deliberately: if `join_event` is still missing after the DDL ran, the
+    // .sql itself is wrong and a recursive re-check would spin forever — a
+    // hang that looks like a network problem and is not.
     applied = undefined;
-    await ensureServerSql();
+    verifiedAt = 0;
+    await apply();
+
+    const stillMissing = await missingFunctions();
+    if (stillMissing.length > 0) {
+      applied = undefined;
+      throw new Error(
+        `server/sql did not create: ${stillMissing.join(', ')} — ` +
+          'the inlined SQL in server/sql/index.ts is out of date; ' +
+          'run `npm run gen:server-sql`',
+      );
+    }
+
+    applied = Promise.resolve();
+    verifiedAt = Date.now();
+    return;
   }
 
+  verifiedAt = Date.now();
   return applied;
 }
 
 async function apply(): Promise<void> {
-  const pool = servicePool();
+  // Applying changes the schema, so any previous verification is stale.
+  verifiedAt = 0;
+
+  const pool = scopedQueryable();
 
   for (const file of serverSqlFiles()) {
-    const sql = readFileSync(join(SQL_DIR, file), 'utf8');
+    const sql = SERVER_SQL[file];
+    // A missing entry here means the generator was never run after a `.sql`
+    // file was added. Fail loudly rather than silently applying nothing.
+    if (sql === undefined) {
+      throw new Error(
+        `server/sql/index.ts has no inlined text for ${file} — run \`npm run gen:server-sql\``,
+      );
+    }
     await pool.query(sql);
   }
 }

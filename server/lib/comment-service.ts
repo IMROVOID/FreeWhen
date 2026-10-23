@@ -26,7 +26,7 @@ import { COMMENT_MAX_CHARS, COMMENT_MIN_CHARS } from '@/src/types/comment';
 
 import { appendActivity } from './vote-service';
 import { participantIn } from './vote-service';
-import { servicePool, withTransaction } from './supabase';
+import { scopedQueryable, withTransaction } from './supabase';
 import type { Caller } from './supabase';
 
 /** One comment as the wire returns it. */
@@ -67,7 +67,7 @@ export const COMMENT_KEYS = {
 
 /** The proposal exists, with the event it belongs to. `null` when it does not. */
 async function proposalEvent(proposalId: string): Promise<string | null> {
-  const result = await servicePool().query<{ event_id: string }>(
+  const result = await scopedQueryable().query<{ event_id: string }>(
     `select event_id from proposal where id = $1`,
     [proposalId],
   );
@@ -103,7 +103,7 @@ export async function listComments(
   const me = await participantIn(eventId, caller);
   if (!me) return null;
 
-  const result = await servicePool().query<RawCommentRow>(
+  const result = await scopedQueryable().query<RawCommentRow>(
     `select ${COMMENT_COLUMNS}
      from comment c
      join participant p on p.id = c.participant_id
@@ -156,7 +156,7 @@ export async function createComment(
   const me = await participantIn(eventId, caller);
   if (!me) return { status: 'NOT_PARTICIPANT' };
 
-  const inserted = await servicePool().query<{ id: string; created_at: Date }>(
+  const inserted = await scopedQueryable().query<{ id: string; created_at: Date }>(
     `insert into comment (proposal_id, participant_id, body)
      values ($1, $2, $3)
      returning id, created_at`,

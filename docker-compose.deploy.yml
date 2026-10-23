@@ -1,0 +1,142 @@
+# docker-compose.deploy.yml
+#
+# ★ HOST-NEUTRAL BY DESIGN.
+#
+# This file names no hosting provider. It is the backend's deployment shape in
+# the only vocabulary that is portable: an image, a port, an environment, and a
+# health check. Every managed platform can consume it (directly, or by copying
+# the values into its UI), and so can a plain VPS with Docker installed.
+#
+# ★ TWO PROCESSES, ONE DATABASE.
+#
+#   api       — the HTTP API                 (`npm run server`)          port 8787
+#   realtime  — the LISTEN/NOTIFY bridge    (`npm run server:realtime`) port 8788
+#   postgres  — the database
+#
+# PostgREST is deliberately ABSENT: this deployment talks to Postgres through
+# the API's own pool (`server/lib/supabase.ts`). PostgREST exists in
+# `docker-compose.local.yml` for parity with the Supabase backend, so the same
+# client paths can be exercised — not because the deployed app needs it.
+# Adding it here would be a third container with no caller.
+#
+# ★ THE REALTIME BRIDGE IS OPTIONAL — DROP IT IF YOU ARE TIGHT ON RESOURCES.
+#
+# `POLL_INTERVAL_MS = 10_000` in `src/features/voting/services/realtime-engine.ts`
+# means the Decision Status area polls every ten seconds whether or not a socket
+# is subscribed. Without the bridge, votes appear within ten seconds and nothing
+# breaks — the code is explicit that the poll is the floor, not a fallback. The
+# bridge turns "up to 10 s" into "immediate".
+#
+# ★ THE ENVIRONMENT NAMES BELOW ARE THE ONES THE CODE READS.
+#
+# Verified against `server/`: DATABASE_URL, PORT, API_HOST, AUTH_PORT,
+# REALTIME_PORT, APP_ORIGIN, PUBLIC_BASE_URL, SUPABASE_DB_URL,
+# LOCAL_PG_DATABASE_URL. `JWT_SECRET` is read by the token service
+# (`server/auth/`, where a missing or weak value stops start-up). Do not invent
+# a variable here — an unread one is a silent misconfiguration.
+#
+# Usage:
+#   cp .env.example .env      # then fill it in
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#   curl http://localhost:8787/health
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      # ★ The password comes from the environment, never a literal here. A
+      # password written into a Compose file is a credential in the source tree,
+      # which is exactly what `gate:secrets` exists to prevent.
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-freewhen}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    # ★ NOT PUBLISHED.
+    #
+    # The database holds every user's identity and location. Only the API talks
+    # to it, over the Compose network. A host that needs psql gets it via
+    # `docker compose exec postgres psql`, which is not reachable from the
+    # internet.
+    healthcheck:
+      # The API must not start before the database accepts connections — a
+      # server that boots against a missing database exits, and the restart loop
+      # masks the real error.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-freewhen}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Published because this IS the public surface. A platform that assigns a
+      # port sets API_PORT; the container always listens on 8787 internally
+      # because `CMD` runs `npm run server`, whose default port that is.
+      - '${API_PORT:-8787}:8787'
+    environment:
+      NODE_ENV: production
+      PORT: '8787'
+      # ★ The container MUST bind all interfaces. `server/index.ts` defaults to
+      # `127.0.0.1`, which inside a container is unreachable from outside it.
+      API_HOST: 0.0.0.0
+      # ★ `local_pg` selects the plain-Postgres backend (PRD-10 D22). The
+      # default is `supabase`; an unknown value is a startup failure by design,
+      # not a silent fallback.
+      DATABASE_BACKEND: local_pg
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      # Used to build invite links (PRD-01 FR-1.14).
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL must be set}
+      # CORS, and the websocket origin allow-list. Unset = no origin check,
+      # which is right for a laptop and wrong for a public host.
+      APP_ORIGIN: ${APP_ORIGIN:-}
+      # Provider keys are server-side only. Absent = the routing ladder degrades
+      # to straight-line with `confidence: 'low'`, which is a correct answer.
+      NESHAN_MATRIX_API_KEY: ${NESHAN_MATRIX_API_KEY:-}
+      NESHAN_DIRECTION_API_KEY: ${NESHAN_DIRECTION_API_KEY:-}
+      ORS_API_KEY: ${ORS_API_KEY:-}
+    healthcheck:
+      # The Dockerfile defines the same check; this one is what `depends_on`
+      # and `docker compose ps` read.
+      test: ['CMD-SHELL', 'node -e "fetch(''http://127.0.0.1:8787/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  realtime:
+    # Same image, different command — so the bridge can never run a different
+    # commit from the API.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ['npm', 'run', 'server:realtime']
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    ports:
+      - '${REALTIME_PORT:-8788}:8788'
+    environment:
+      NODE_ENV: production
+      DATABASE_BACKEND: local_pg
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      REALTIME_PORT: '8788'
+      # ★ `APP_ORIGIN` IS THE SAME VARIABLE THE API USES FOR CORS.
+      # An empty value means no origin check — right for a LAN demo, wrong for
+      # a public host. Set it to the deployment's own origin there.
+      APP_ORIGIN: ${APP_ORIGIN:-}
+
+volumes:
+  pg-data:

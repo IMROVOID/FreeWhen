@@ -16,7 +16,7 @@
  * direction.
  */
 
-import { servicePool } from './supabase';
+import { scopedQueryable } from './supabase';
 import type { CachedMeasurement, TravelCacheStore } from '@/src/routing/cache';
 import type { TravelMeasurement } from '@/src/routing/types';
 
@@ -97,7 +97,7 @@ export function createDatabaseCacheStore(): TravelCacheStore {
         string, string, string, string, string, string,
       ];
 
-      const result = await servicePool().query<TravelMeasurementRow>(
+      const result = await scopedQueryable().query<TravelMeasurementRow>(
         `select origin_lat, origin_lng, dest_lat, dest_lng, mode, departure_bucket,
                 minutes, minutes_high, distance_m, transfers, walk_minutes,
                 wait_minutes, cost_irr, confidence, source, fetched_at
@@ -133,7 +133,7 @@ export function createDatabaseCacheStore(): TravelCacheStore {
       // must remain reversible in the correct direction.
       const range = measurement.minutesRange;
 
-      await servicePool().query(
+      await scopedQueryable().query(
         `insert into travel_measurement
            (origin_lat, origin_lng, dest_lat, dest_lng, mode, departure_bucket,
             minutes, minutes_high, distance_m, transfers, walk_minutes,

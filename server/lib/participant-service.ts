@@ -19,14 +19,14 @@ import {
   type StartPointInput,
 } from '@/src/types/event';
 
-import { servicePool, type Caller } from './supabase';
+import { scopedQueryable, type Caller } from './supabase';
 
 /** The caller's participant row for one event, or `null` when they are not in it. */
 async function participantFor(
   caller: Caller,
   eventId: string,
 ): Promise<{ id: string } | null> {
-  const result = await servicePool().query<{ id: string }>(
+  const result = await scopedQueryable().query<{ id: string }>(
     `select id from participant where event_id = $1 and auth_user_id = $2`,
     [eventId, caller.userId],
   );
@@ -57,7 +57,7 @@ export async function setStartPoint(
 
   const parsed = StartPointSchema.parse(input);
 
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     lat_rounded: string;
     lng_rounded: string;
     accuracy_m: number;
@@ -112,7 +112,7 @@ export async function deleteStartPoint(
   const member = await participantFor(caller, eventId);
   if (!member) return { ok: false, reason: 'NOT_PARTICIPANT' };
 
-  await servicePool().query(`delete from start_point where participant_id = $1`, [member.id]);
+  await scopedQueryable().query(`delete from start_point where participant_id = $1`, [member.id]);
 
   return { ok: true };
 }
@@ -135,7 +135,7 @@ export async function patchParticipant(
 
   const parsed = ParticipantPatchSchema.parse(input);
 
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     id: string;
     event_id: string;
     display_name: string;
@@ -225,7 +225,7 @@ export async function listParticipantsFor(
   const member = await participantFor(caller, eventId);
   if (!member) return null;
 
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     id: string;
     display_name: string;
     role: ParticipantSummary['role'];
@@ -268,7 +268,7 @@ export async function startPointAudience(
   const member = await participantFor(caller, eventId);
   if (!member) return null;
 
-  const result = await servicePool().query<{ participant_count: string; date_window_end: Date }>(
+  const result = await scopedQueryable().query<{ participant_count: string; date_window_end: Date }>(
     `select
        (select count(*) from participant where event_id = $1) as participant_count,
        date_window_end

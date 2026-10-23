@@ -32,7 +32,7 @@
  * «به‌طور خودکار تأیید شد.» rather than implying an organizer acted.
  */
 
-import { servicePool } from '../lib/supabase';
+import { scopedQueryable } from '../lib/supabase';
 import { confirmDecision, eventParticipants, liveDecision } from '../lib/vote-service';
 import { logSafe } from '../../src/lib/redact';
 import type { JobResult } from './retention';
@@ -92,7 +92,7 @@ export interface AutoLockResult extends JobResult {
  * parser avoids by taking `now` as a parameter. `now()` is one clock.
  */
 async function dueEvents(limit = 50): Promise<string[]> {
-  const result = await servicePool().query<{ id: string }>(
+  const result = await scopedQueryable().query<{ id: string }>(
     `select e.id
      from event e
      where e.voting_deadline is not null
@@ -112,7 +112,7 @@ async function dueEvents(limit = 50): Promise<string[]> {
 
 /** The organizer's auth user id, which `confirmDecision` takes as its caller. */
 async function organizerOf(eventId: string): Promise<string | null> {
-  const result = await servicePool().query<{ created_by: string }>(
+  const result = await scopedQueryable().query<{ created_by: string }>(
     `select created_by from event where id = $1`,
     [eventId],
   );
@@ -122,7 +122,7 @@ async function organizerOf(eventId: string): Promise<string | null> {
 
 /** Whether any open proposal exists to lead. */
 async function hasOpenProposal(eventId: string): Promise<boolean> {
-  const result = await servicePool().query<{ exists: boolean }>(
+  const result = await scopedQueryable().query<{ exists: boolean }>(
     `select exists (
        select 1 from proposal
        where event_id = $1 and status in ('OPEN', 'REOPENED')
@@ -242,7 +242,7 @@ export const AUTO_LOCK_MESSAGE_KEY = 'autoLock.autoLocked';
 export async function outstandingAtConfirmation(eventId: string): Promise<string[]> {
   const participants = await eventParticipants(eventId);
 
-  const voted = await servicePool().query<{ participant_id: string }>(
+  const voted = await scopedQueryable().query<{ participant_id: string }>(
     `select distinct v.participant_id
      from vote v
      join proposal pr on pr.id = v.proposal_id

@@ -36,7 +36,7 @@ import type {
 import type { Proposal } from '@/src/types/proposal';
 
 import { PROPOSAL_COLUMNS, PROPOSAL_FROM, iso, toProposal, type ProposalRow } from './proposal-row';
-import { servicePool, withTransaction, type Caller, type Queryable } from './supabase';
+import { scopedQueryable, withTransaction, type Caller, type Queryable } from './supabase';
 
 /** A participant in the event, as the tally needs them. */
 export interface EventParticipant {
@@ -66,7 +66,7 @@ export async function eventForParticipant(
   caller: Caller,
   eventId: string,
 ): Promise<EventContext | null> {
-  const result = await servicePool().query<EventContext>(
+  const result = await scopedQueryable().query<EventContext>(
     `select e.id, e.status, e.home_tz, e.date_window_start, e.date_window_end, e.voting_deadline
      from event e
      join participant me on me.event_id = e.id and me.auth_user_id = $2
@@ -81,7 +81,7 @@ export async function eventForParticipant(
 export async function participantIn(
   eventId: string,
   caller: Caller,
-  query: Queryable = servicePool(),
+  query: Queryable = scopedQueryable(),
 ): Promise<EventParticipant | null> {
   const result = await query.query<EventParticipant>(
     `select id, display_name, role
@@ -95,7 +95,7 @@ export async function participantIn(
 
 /** Everyone eligible to vote in an event, in join order. */
 export async function eventParticipants(eventId: string): Promise<EventParticipant[]> {
-  const result = await servicePool().query<EventParticipant>(
+  const result = await scopedQueryable().query<EventParticipant>(
     `select id, display_name, role
      from participant
      where event_id = $1
@@ -108,7 +108,7 @@ export async function eventParticipants(eventId: string): Promise<EventParticipa
 
 /** Every vote in an event, across all of its proposals. */
 async function eventVotes(eventId: string): Promise<Vote[]> {
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     proposal_id: string;
     participant_id: string;
     display_name: string;
@@ -241,7 +241,7 @@ export async function castVote(
 export async function proposalGuard(
   proposalId: string,
 ): Promise<{ eventId: string; status: string; eventStatus: string } | null> {
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     event_id: string;
     status: string;
     event_status: string;
@@ -295,7 +295,7 @@ export async function appendActivity(
 
 /** The event's activity, newest first. */
 export async function listActivity(eventId: string, limit = 100): Promise<ActivityEntry[]> {
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     id: string;
     action: ActivityEntry['action'];
     actor_name: string | null;
@@ -327,7 +327,7 @@ export async function listActivity(eventId: string, limit = 100): Promise<Activi
 
 /** The caller's own votes in an event, keyed by proposal id. */
 async function myVotes(eventId: string, participantId: string): Promise<Record<string, VoteValue>> {
-  const result = await servicePool().query<{ proposal_id: string; value: VoteValue }>(
+  const result = await scopedQueryable().query<{ proposal_id: string; value: VoteValue }>(
     `select v.proposal_id, v.value
      from vote v
      join proposal pr on pr.id = v.proposal_id
@@ -348,7 +348,7 @@ async function myVotes(eventId: string, participantId: string): Promise<Record<s
  * the two reads.
  */
 async function myMutePreference(eventId: string, caller: Caller): Promise<boolean> {
-  const result = await servicePool().query<{ notifications_muted: boolean }>(
+  const result = await scopedQueryable().query<{ notifications_muted: boolean }>(
     `select notifications_muted
        from participant
       where event_id = $1 and auth_user_id = $2`,
@@ -374,7 +374,7 @@ async function myMutePreference(eventId: string, caller: Caller): Promise<boolea
  * as-is and the UI is the thing that keeps them consistent.
  */
 async function myDealbreakers(eventId: string, participantId: string): Promise<string[]> {
-  const result = await servicePool().query<{ proposal_id: string }>(
+  const result = await scopedQueryable().query<{ proposal_id: string }>(
     `select v.proposal_id
      from vote v
      join proposal pr on pr.id = v.proposal_id
@@ -403,7 +403,7 @@ export async function liveDecision(
   eventId: string,
   axis: DecisionAxis,
 ): Promise<DecisionRow | null> {
-  const result = await servicePool().query<DecisionRow>(
+  const result = await scopedQueryable().query<DecisionRow>(
     `select id, event_id, axis, proposal_id, lens, reason_template, reason_params,
             confirmed_by, confirmed_at
      from decision
@@ -417,7 +417,7 @@ export async function liveDecision(
 
 /** The event's proposals, in creation order (FR-2.4). */
 export async function eventProposals(eventId: string): Promise<Proposal[]> {
-  const result = await servicePool().query<ProposalRow>(
+  const result = await scopedQueryable().query<ProposalRow>(
     `select ${PROPOSAL_COLUMNS}
      ${PROPOSAL_FROM}
      where pr.event_id = $1
@@ -431,7 +431,7 @@ export async function eventProposals(eventId: string): Promise<Proposal[]> {
 
 /** One proposal, or `null`. */
 export async function proposalById(proposalId: string): Promise<Proposal | null> {
-  const result = await servicePool().query<ProposalRow>(
+  const result = await scopedQueryable().query<ProposalRow>(
     `select ${PROPOSAL_COLUMNS} ${PROPOSAL_FROM} where pr.id = $1`,
     [proposalId],
   );

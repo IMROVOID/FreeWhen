@@ -23,6 +23,8 @@
 
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 
+import { currentQueryable } from './db-scope';
+
 let pool: Pool | undefined;
 
 /** The configured connection string, or a named failure. */
@@ -54,6 +56,28 @@ export async function closeServicePool(): Promise<void> {
   }
 }
 
+/**
+ * The database handle for the current request — the entry point every caller uses.
+ *
+ * ★ THIS IS THE WHOLE PORT.
+ *
+ * On Node nothing is ever bound, so this returns the shared `servicePool()` and
+ * behaviour is byte-identical to before the Workers port existed. On Workers the
+ * adapter binds a per-request `pg.Client` around `handleRequest`, and every call
+ * site in `server/` resolves to it without knowing the difference. A `Pool` and
+ * a `Client` both satisfy `Queryable` structurally, which is why no call site's
+ * type had to change.
+ *
+ * ★ THE LOOKUP IS PER CALL, NEVER CACHED.
+ *
+ * `query: Queryable = scopedQueryable()` is a default parameter evaluated at each
+ * invocation, so it picks up whatever is bound at that moment. Caching the result
+ * at module scope would pin the first request's client for the isolate's lifetime.
+ */
+export function scopedQueryable(): Queryable {
+  return currentQueryable() ?? servicePool();
+}
+
 export interface Queryable {
   query<T extends QueryResultRow = QueryResultRow>(
     text: string,
@@ -61,24 +85,70 @@ export interface Queryable {
   ): Promise<{ rows: T[]; rowCount: number }>;
 }
 
+/** The exclusive unit a transaction can run on: a pooled connection, or a bound client. */
+interface Exclusive extends Queryable {
+  release(): void;
+}
+
 /**
- * Runs `fn` inside one transaction, rolling back on any throw.
+ * Acquires exclusive use of the current handle.
+ *
+ * ★ THIS IS THE ONLY RUNTIME DIFFERENCE IN THE TRANSACTION PATH.
+ *
+ * A `Pool` lends one connection for the duration of the work and takes it back
+ * afterwards, so a transaction cannot interleave with another borrower's. A
+ * per-request `pg.Client` is ALREADY exclusive — the Worker owns it and closes
+ * it at the end of the request — so there is nothing to acquire.
+ *
+ * ★ DISCRIMINATE ON `Pool`, NOT ON THE PRESENCE OF `connect()`.
+ *
+ * This is the bug that made the first Workers request fail with "Client has
+ * already been connected": `pg.Client` HAS a `connect()` method — the adapter
+ * calls it — so duck-typing on `connect` matched the client and then called
+ * `connect()` a second time on it. `instanceof` is unambiguous because both
+ * handles come from the same `pg` module.
+ *
+ * `release` is a no-op on the client path: the Worker's `finally` closes it, and
+ * closing a request's only connection mid-transaction would abort the work the
+ * transaction exists to protect.
+ */
+async function acquireExclusive(): Promise<Exclusive> {
+  const handle = scopedQueryable();
+
+  if (handle instanceof Pool) {
+    const client: PoolClient = await handle.connect();
+    return {
+      async query<T extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]) {
+        // `PoolClient.query` reports `rowCount: number | null`; `Queryable`
+        // promises a number, and every caller here treats it as a count.
+        const outcome = await client.query<T>(text, values ?? []);
+        return { rows: outcome.rows, rowCount: outcome.rowCount ?? 0 };
+      },
+      release: () => client.release(),
+    };
+  }
+
+  return {
+    query: (text, values) => handle.query(text, values),
+    release: () => {
+      // The handle is owned by the request scope; see the comment above.
+    },
+  };
+}
+
+/**
+ * Runs `fn` in a transaction on an exclusive handle, rolling back on any throw.
  *
  * The invite join needs this: the cap check and the insert must commit or fail
  * together, and the row lock taken by `join_event` only means anything for the
  * length of the transaction that holds it.
  */
-export async function withTransaction<T>(fn: (client: Queryable) => Promise<T>): Promise<T> {
-  const client: PoolClient = await servicePool().connect();
+async function withExclusiveTransaction<T>(fn: (client: Queryable) => Promise<T>): Promise<T> {
+  const client = await acquireExclusive();
 
   try {
     await client.query('begin');
-    const result = await fn({
-      async query(text, values = []) {
-        const outcome = await client.query(text, values);
-        return { rows: outcome.rows, rowCount: outcome.rowCount ?? 0 };
-      },
-    });
+    const result = await fn(client);
     await client.query('commit');
     return result;
   } catch (error) {
@@ -93,6 +163,11 @@ export async function withTransaction<T>(fn: (client: Queryable) => Promise<T>):
   }
 }
 
+/** Runs `fn` inside one transaction, rolling back on any throw. */
+export async function withTransaction<T>(fn: (client: Queryable) => Promise<T>): Promise<T> {
+  return withExclusiveTransaction(fn);
+}
+
 /**
  * Mints an anonymous identity and returns its id.
  *
@@ -105,7 +180,7 @@ export async function withTransaction<T>(fn: (client: Queryable) => Promise<T>):
  * backends.
  */
 export async function createAnonymousUser(): Promise<string> {
-  const result = await servicePool().query<{ id: string }>(
+  const result = await scopedQueryable().query<{ id: string }>(
     `insert into auth.users (is_anonymous) values (true) returning id`,
   );
 
@@ -119,7 +194,7 @@ export async function createAnonymousUser(): Promise<string> {
 
 /** Whether an identity exists. Used to reject a forged or stale user id. */
 export async function userExists(userId: string): Promise<boolean> {
-  const result = await servicePool().query<{ id: string }>(
+  const result = await scopedQueryable().query<{ id: string }>(
     `select id from auth.users where id = $1`,
     [userId],
   );
@@ -147,53 +222,37 @@ export async function userExists(userId: string): Promise<boolean> {
  * and every join would fail. A claims-only session with the `authenticated`
  * role would have no permission to call the function. Both are needed.
  *
- * The claims MUST be reset before the client is released: they persist for the
- * life of a pooled connection, and a connection left carrying one caller's
- * identity would let the next borrower's service-role query act as them.
+ * ★ THE ROLE IS PINNED INSIDE THE TRANSACTION, AND THE CLAIMS ARE LOCAL.
+ *
+ * Both are set with transaction scope, on purpose:
+ *
+ * `set local role` must come AFTER `begin`. Issued outside a transaction it
+ * applies to nothing and reverts immediately, which would leave Node passing
+ * (its connection is already a superuser) and Workers failing — the exact class
+ * of bug this port exists to fix. On a superuser connection, `revoke`/`grant`
+ * are ignored entirely, so Hyperdrive would otherwise run every query as the
+ * schema owner with RLS as the only gate. `tests/db/caller-role.test.ts` asserts
+ * `current_user` rather than trusting the order.
+ *
+ * `set_config(..., true)` is transaction-local, so it cannot outlive the
+ * transaction even if the process dies mid-request — strictly safer than the
+ * session-scoped form plus an explicit reset, and it needs no `finally`.
  */
 export async function withCallerTransaction<T>(
   caller: Caller,
   fn: (client: Queryable) => Promise<T>,
 ): Promise<T> {
-  const client = await servicePool().connect();
-
   const claims = JSON.stringify({
     sub: caller.userId,
     role: 'authenticated',
     is_anonymous: caller.isAnonymous,
   });
 
-  try {
-    await client.query(`select set_config('request.jwt.claims', $1, false)`, [claims]);
-    await client.query('begin');
-
-    const result = await fn({
-      async query(text, values = []) {
-        const outcome = await client.query(text, values);
-        return { rows: outcome.rows, rowCount: outcome.rowCount ?? 0 };
-      },
-    });
-
-    await client.query('commit');
-    return result;
-  } catch (error) {
-    try {
-      await client.query('rollback');
-    } catch {
-      // A connection that cannot roll back is discarded on release.
-    }
-    throw error;
-  } finally {
-    // The claims reset runs BEFORE the release: a connection returned to the
-    // pool still carrying one caller's identity is the one leak this helper
-    // exists to prevent.
-    try {
-      await client.query('reset request.jwt.claims');
-    } catch {
-      // A broken connection is discarded by `release` below.
-    }
-    client.release();
-  }
+  return withExclusiveTransaction(async (tx) => {
+    await tx.query('set local role service_role');
+    await tx.query(`select set_config('request.jwt.claims', $1, true)`, [claims]);
+    return fn(tx);
+  });
 }
 
 /**
@@ -211,7 +270,7 @@ export interface Caller {
 export async function resolveCaller(userId: string | null | undefined): Promise<Caller | null> {
   if (!userId) return null;
 
-  const result = await servicePool().query<{ is_anonymous: boolean }>(
+  const result = await scopedQueryable().query<{ is_anonymous: boolean }>(
     `select is_anonymous from auth.users where id = $1`,
     [userId],
   );

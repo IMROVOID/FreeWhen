@@ -1,0 +1,62 @@
+# .dockerignore — keep secrets, the client bundle, and the workspace out of the image.
+#
+# ★ `.env` IS THE POINT.
+#
+# `gate:secrets` scans the repo and `dist/`, and it fails the build when a
+# credential appears in a client artifact. It does not scan a Docker image, so
+# this file is what stops `.env` being baked into a layer. An image is a file
+# someone can pull and inspect — a credential inside one is published, not
+# stored. A leaked service-role key bypasses every RLS policy.
+#
+# The runtime reads its configuration from the environment the platform injects,
+# never from a file on disk.
+
+# --- Secrets and local state ------------------------------------------------
+.env
+.env.*
+!.env.example
+.supabase-version
+*.pem
+*.key
+*.p12
+*.keystore
+*.jks
+
+# --- Not needed by the backend ---------------------------------------------
+# The web export is built on the developer's machine and served separately.
+dist/
+web/
+assets/
+docs/
+
+# --- Mobile client ----------------------------------------------------------
+# The APK is ~95 MB and irrelevant to the server.
+app/
+android/
+ios/
+.expo/
+
+# --- Dependencies and caches ------------------------------------------------
+node_modules/
+.worktrees/
+.expo-shared/
+
+# --- Version control and tooling -------------------------------------------
+.git/
+.gitignore
+.github/
+.mimocode/
+.agents/
+.claude/
+
+# --- Tests, evidence, and CI ------------------------------------------------
+tests/
+docs/
+coverage/
+
+# --- Editor and OS noise ----------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

@@ -33,7 +33,7 @@ import {
   toProposal,
   type ProposalRow,
 } from './proposal-row';
-import { servicePool, withTransaction, type Caller } from './supabase';
+import { scopedQueryable, withTransaction, type Caller } from './supabase';
 
 /**
  * The event, if the caller participates in it. `null` otherwise.
@@ -47,7 +47,7 @@ export async function eventForParticipant(
   caller: Caller,
   eventId: string,
 ): Promise<EventWindow | null> {
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     home_tz: string;
     date_window_start: Date;
     date_window_end: Date;
@@ -91,7 +91,7 @@ async function participantId(
  * proposal arriving now is arriving into a conversation already under way.
  */
 async function votingHasBegun(eventId: string): Promise<boolean> {
-  const result = await servicePool().query<{ begun: boolean }>(
+  const result = await scopedQueryable().query<{ begun: boolean }>(
     `select (
        exists (select 1 from vote v join proposal pr on pr.id = v.proposal_id
                where pr.event_id = $1)
@@ -110,7 +110,7 @@ export async function proposalForEdit(
   caller: Caller,
   proposalId: string,
 ): Promise<{ proposal: Proposal; isOrganizer: boolean; isAuthor: boolean; eventStatus: string } | null> {
-  const result = await servicePool().query<
+  const result = await scopedQueryable().query<
     ProposalRow & { is_organizer: boolean; is_author: boolean; event_status: string }
   >(
     `select ${PROPOSAL_COLUMNS}
@@ -285,7 +285,7 @@ export async function withdrawProposal(proposalId: string): Promise<Proposal> {
 
 /** The event's proposals, in creation order (FR-2.4). */
 export async function listProposals(eventId: string): Promise<Proposal[]> {
-  const result = await servicePool().query<ProposalRow>(
+  const result = await scopedQueryable().query<ProposalRow>(
     `${PROPOSAL_SELECT}
      where pr.event_id = $1
      order by pr.created_at asc, pr.id asc

@@ -39,7 +39,7 @@ import { clearBackoff, isBackedOff, recordRefusal } from '../lib/provider-backof
 import { serverProviderKeys } from '../lib/provider-secrets';
 import { createProviderTransport } from '../lib/provider-transport';
 import { trackRankingDegraded, trackTransitProxyUsed } from '../lib/routing-analytics';
-import { resolveCaller, servicePool } from '../lib/supabase';
+import { resolveCaller, scopedQueryable } from '../lib/supabase';
 import { createDatabaseCacheStore } from '../lib/travel-cache';
 
 /** A participant's location, as the server reads it. */
@@ -700,12 +700,12 @@ function readLens(request: Request): Lens {
 /**
  * The service query, wrapped so the row type is constrained.
  *
- * A thin wrapper rather than a bare `servicePool().query` call, so the
+ * A thin wrapper rather than a bare `scopedQueryable().query` call, so the
  * generic constraint is expressed once.
  */
 async function serviceQuery<T extends Record<string, unknown>>(
   text: string,
   values: unknown[],
 ): Promise<{ rows: T[] }> {
-  return servicePool().query<T>(text, values);
+  return scopedQueryable().query<T>(text, values);
 }

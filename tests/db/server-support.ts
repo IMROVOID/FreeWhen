@@ -113,7 +113,21 @@ export async function call(path: string, options: CallOptions = {}): Promise<Res
   });
 
   const { handleRequest } = await import('@/server/app');
-  return handleRequest(request);
+  const { withRequestQueryable } = await import('@/server/lib/db-scope');
+  const { servicePool } = await import('@/server/lib/supabase');
+
+  // ★ THE HARNESS BINDS THE SCOPE, SO EVERY DB TEST RUNS THE WORKER'S PATH.
+  //
+  // There is no per-request client on Node, so the shared pool is bound
+  // explicitly. That makes `scopedQueryable()` resolve through the same switch
+  // the Worker uses, and it means `withTransaction` / `withCallerTransaction`
+  // exercise the scoped branch in all ~380 tests rather than only in the
+  // handful that drive `createWorkerHandler`.
+  //
+  // The binding must be established HERE, around the whole handler: routes call
+  // service functions that resolve their queryable per call, and a binding made
+  // anywhere looser would be released before those calls run.
+  return withRequestQueryable(servicePool(), () => handleRequest(request));
 }
 
 /** The parsed JSON body, for assertions. */

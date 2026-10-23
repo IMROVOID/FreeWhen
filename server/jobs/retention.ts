@@ -21,7 +21,7 @@
  * Only `start_point` rows go. What was decided is the record the group keeps.
  */
 
-import { servicePool } from '../lib/supabase';
+import { scopedQueryable } from '../lib/supabase';
 import { logSafe } from '../../src/lib/redact';
 
 export interface JobResult {
@@ -39,7 +39,7 @@ export interface JobResult {
  * process hoped it deleted.
  */
 export async function runRetentionJob(): Promise<JobResult> {
-  const result = await servicePool().query<{ run_retention_job: number }>(
+  const result = await scopedQueryable().query<{ run_retention_job: number }>(
     `select run_retention_job() as run_retention_job`,
   );
 

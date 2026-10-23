@@ -20,7 +20,7 @@
  * whole event would go with them.
  */
 
-import { servicePool } from '../lib/supabase';
+import { scopedQueryable } from '../lib/supabase';
 import { logSafe } from '../../src/lib/redact';
 import type { JobResult } from './retention';
 
@@ -35,7 +35,7 @@ export const ANON_RETENTION_DAYS = 30;
 
 /** Runs the anonymous-account sweep. */
 export async function runAnonCleanupJob(): Promise<JobResult> {
-  const result = await servicePool().query<{ run_anon_cleanup_job: number }>(
+  const result = await scopedQueryable().query<{ run_anon_cleanup_job: number }>(
     `select run_anon_cleanup_job() as run_anon_cleanup_job`,
   );
 

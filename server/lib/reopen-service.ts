@@ -30,7 +30,7 @@ import { PROPOSAL_COLUMNS, PROPOSAL_FROM, toProposal, type ProposalRow } from '.
 import { REASON_MAX_CHARS, REASON_MIN_CHARS } from '@/src/types/vote';
 
 import { appendActivity, participantIn } from './vote-service';
-import { servicePool, withTransaction, type Caller } from './supabase';
+import { scopedQueryable, withTransaction, type Caller } from './supabase';
 
 /**
  * The reason's bounds.
@@ -63,7 +63,7 @@ export function normaliseReason(reason: string): string | null {
 
 /** Every axis with a live decision in the event, or `[]`. */
 export async function liveDecisionAxes(eventId: string): Promise<DecisionAxis[]> {
-  const result = await servicePool().query<{ axis: DecisionAxis }>(
+  const result = await scopedQueryable().query<{ axis: DecisionAxis }>(
     `select axis from decision where event_id = $1 and reopened_at is null`,
     [eventId],
   );
@@ -185,7 +185,7 @@ export async function reopenEvent(
 export async function latestReopenReason(
   eventId: string,
 ): Promise<{ reason: string; reopenedAt: string } | null> {
-  const result = await servicePool().query<{ reopen_reason: string | null; reopened_at: Date | null }>(
+  const result = await scopedQueryable().query<{ reopen_reason: string | null; reopened_at: Date | null }>(
     `select reopen_reason, reopened_at
        from decision
       where event_id = $1 and reopened_at is not null

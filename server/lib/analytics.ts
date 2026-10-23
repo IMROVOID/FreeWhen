@@ -27,7 +27,7 @@
 
 import { redactObject } from '@/src/lib/redact';
 
-import { servicePool } from './supabase';
+import { scopedQueryable } from './supabase';
 
 /**
  * The seven funnel steps (PRD-12 §8.1).
@@ -78,7 +78,7 @@ export async function track(
   const safe = redactObject(props);
 
   try {
-    await servicePool().query(
+    await scopedQueryable().query(
       `insert into analytics_event (event_id, name, props) values ($1, $2, $3::jsonb)`,
       [options.eventId ?? null, name, JSON.stringify(safe)],
     );

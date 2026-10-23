@@ -36,7 +36,7 @@ import {
   wireError,
 } from '../lib/http';
 import { limiters } from '../lib/rate-limit';
-import { resolveCaller, servicePool, withTransaction, type Caller } from '../lib/supabase';
+import { resolveCaller, scopedQueryable, withTransaction, type Caller } from '../lib/supabase';
 
 /** The `status-update` actions this endpoint accepts. */
 const ACTIONS = ['running_late', 'cannot_make_it'] as const;
@@ -54,7 +54,7 @@ async function callerFrom(request: Request): Promise<Caller | null> {
 }
 
 async function participantIn(eventId: string, caller: Caller): Promise<ParticipantRow | null> {
-  const result = await servicePool().query<ParticipantRow>(
+  const result = await scopedQueryable().query<ParticipantRow>(
     `select id, display_name, role
      from participant
      where event_id = $1 and auth_user_id = $2`,
@@ -68,7 +68,7 @@ async function participantIn(eventId: string, caller: Caller): Promise<Participa
 async function eventContext(
   eventId: string,
 ): Promise<{ status: string; home_tz: string } | null> {
-  const result = await servicePool().query<{ status: string; home_tz: string }>(
+  const result = await scopedQueryable().query<{ status: string; home_tz: string }>(
     `select status, home_tz from event where id = $1`,
     [eventId],
   );
@@ -78,7 +78,7 @@ async function eventContext(
 
 /** The participants who answered `going`, in join order. */
 async function goingParticipants(eventId: string): Promise<ParticipantRow[]> {
-  const result = await servicePool().query<ParticipantRow>(
+  const result = await scopedQueryable().query<ParticipantRow>(
     `select p.id, p.display_name, p.role
      from participant p
      join rsvp r on r.participant_id = p.id
@@ -117,7 +117,7 @@ export async function visibleRunningLate(
   eventId: string,
   now: Date = new Date(),
 ): Promise<RunningLateEntry[]> {
-  const result = await servicePool().query<{
+  const result = await scopedQueryable().query<{
     subject_id: string | null;
     display_name: string | null;
     detail: { minutes?: number } | null;
@@ -190,7 +190,7 @@ export async function statusUpdateHandler(
   }
 
   if (action === 'cannot_make_it') {
-    await servicePool().query(
+    await scopedQueryable().query(
       `insert into rsvp (participant_id, event_id, value)
        values ($1, $2, 'cannot')
        on conflict (participant_id)

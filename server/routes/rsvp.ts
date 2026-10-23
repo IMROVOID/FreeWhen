@@ -34,7 +34,7 @@ import {
   wireError,
 } from '../lib/http';
 import { limiters } from '../lib/rate-limit';
-import { resolveCaller, servicePool, type Caller } from '../lib/supabase';
+import { resolveCaller, scopedQueryable, type Caller } from '../lib/supabase';
 
 /** Attendance counts plus names, matching `Attendance` in the client service. */
 export interface AttendancePayload {
@@ -56,7 +56,7 @@ async function participantIn(
   eventId: string,
   caller: Caller,
 ): Promise<{ id: string; display_name: string; role: string } | null> {
-  const result = await servicePool().query<{ id: string; display_name: string; role: string }>(
+  const result = await scopedQueryable().query<{ id: string; display_name: string; role: string }>(
     `select id, display_name, role
      from participant
      where event_id = $1 and auth_user_id = $2`,
@@ -68,7 +68,7 @@ async function participantIn(
 
 /** The event's status, or `null` when it does not exist. */
 async function eventStatus(eventId: string): Promise<string | null> {
-  const result = await servicePool().query<{ status: string }>(
+  const result = await scopedQueryable().query<{ status: string }>(
     `select status from event where id = $1`,
     [eventId],
   );
@@ -85,7 +85,7 @@ async function eventStatus(eventId: string): Promise<string | null> {
  * device shares, so two participants see the same names in the same order.
  */
 async function attendanceFor(eventId: string): Promise<AttendancePayload> {
-  const result = await servicePool().query<{ display_name: string; value: RsvpValue | null }>(
+  const result = await scopedQueryable().query<{ display_name: string; value: RsvpValue | null }>(
     `select p.display_name, r.value
      from participant p
      left join rsvp r on r.participant_id = p.id
@@ -132,7 +132,7 @@ export async function getRsvpHandler(
   const me = await participantIn(eventId, caller);
   if (!me) return wireError('NOT_PARTICIPANT');
 
-  const rows = await servicePool().query<{ participant_id: string; value: RsvpValue }>(
+  const rows = await scopedQueryable().query<{ participant_id: string; value: RsvpValue }>(
     `select participant_id, value from rsvp where event_id = $1`,
     [eventId],
   );
@@ -186,7 +186,7 @@ export async function putRsvpHandler(
     return validationFailed([{ path: ['value'], message: RSVP_VALIDATION.eventNotConfirmed }]);
   }
 
-  const written = await servicePool().query<{ updated_at: Date }>(
+  const written = await scopedQueryable().query<{ updated_at: Date }>(
     `insert into rsvp (participant_id, event_id, value)
      values ($1, $2, $3)
      on conflict (participant_id)

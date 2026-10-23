@@ -27,7 +27,7 @@
  */
 
 import { callerIdFrom, isUuid, json, wireError } from '../lib/http';
-import { servicePool } from '../lib/supabase';
+import { scopedQueryable } from '../lib/supabase';
 import { logSafe } from '../../src/lib/redact';
 
 /** What the deletion removed — counts only, never row contents. */
@@ -49,7 +49,7 @@ export async function deleteAccountHandler(request: Request): Promise<Response> 
   const userId = callerIdFrom(request);
   if (!userId || !isUuid(userId)) return wireError('NOT_PARTICIPANT');
 
-  const result = await servicePool().query<{ events_deleted: number }>(
+  const result = await scopedQueryable().query<{ events_deleted: number }>(
     `with owned as (
        select id from event where created_by = $1
      ),
