@@ -26,6 +26,8 @@ import { deleteAccount } from '@/src/features/privacy/services/account';
 import { DeleteAccountAction } from '@/src/features/privacy/components/DeleteAccountAction';
 import { NoticeViewer } from '@/src/features/privacy/components/NoticeViewer';
 import { LanguageToggle } from '@/src/features/settings/components/LanguageToggle';
+import { MuteList } from '@/src/features/follow-through/components/MuteList';
+import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
 import { clearStoredUserId, getStoredUserId } from '@/src/lib/session';
 import type { Language } from '@/src/i18n/types';
@@ -44,6 +46,9 @@ export default function SettingsScreen() {
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteFailed, setDeleteFailed] = useState(false);
   const { isOffline, pendingCount } = useOffline();
+
+  // The mute list needs the caller's events; the flag travels on each summary.
+  const { events, isLoading: eventsLoading } = useMyEvents();
 
   const confirmDeleteAccount = useCallback(async () => {
     setDeletingAccount(true);
@@ -83,6 +88,18 @@ export default function SettingsScreen() {
       {/* Language — persist → flush → confirm restart (Plan 11 Task 6a). */}
       <Section title={t('settings.language')}>
         <LanguageToggle current={language} testID="settings-language" />
+      </Section>
+
+      {/* ★ Notifications (Plan 10 Task 6, FR-6.19).
+          One switch per event, because the preference is stored per
+          participant-in-event. The hint names the N4 exception where the user
+          decides, not in a help page nobody opens. */}
+      <Section title={t('notifications.muteList.section')}>
+        <MuteList
+          events={events}
+          isLoading={eventsLoading}
+          testID="settings-mute-list"
+        />
       </Section>
 
       {/* Privacy and data */}

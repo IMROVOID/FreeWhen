@@ -340,6 +340,24 @@ async function myVotes(eventId: string, participantId: string): Promise<Record<s
   return out;
 }
 
+/**
+ * The caller's stored mute preference for one event (FR-6.19).
+ *
+ * `false` when the caller has no participant row — `loadDecisionStatus` has
+ * already refused that case, so this only guards against a row deleted between
+ * the two reads.
+ */
+async function myMutePreference(eventId: string, caller: Caller): Promise<boolean> {
+  const result = await servicePool().query<{ notifications_muted: boolean }>(
+    `select notifications_muted
+       from participant
+      where event_id = $1 and auth_user_id = $2`,
+    [eventId, caller.userId],
+  );
+
+  return result.rows[0]?.notifications_muted ?? false;
+}
+
 /** The live decision row for an axis, or `null`. */
 export interface DecisionRow {
   id: string;
@@ -412,6 +430,18 @@ export interface DecisionStatusPayload {
   myVotes: Record<string, VoteValue>;
   /** The caller's participant row. */
   me: EventParticipant;
+  /**
+   * The caller's stored mute preference for this event (migration 018).
+   *
+   * ★ NOT ON `me`, DELIBERATELY.
+   *
+   * `me` shares its type with `participants`, the full list every device
+   * receives. A per-caller preference on that type would either leak through the
+   * list or have to be stripped at one call site and remembered at the next. A
+   * separate top-level field is readable only where the caller's own state is
+   * being sent.
+   */
+  notifications_muted: boolean;
   /** The live decisions, keyed by axis. */
   decisions: Partial<Record<DecisionAxis, DecisionRow>>;
   event: {
@@ -432,11 +462,12 @@ export async function loadDecisionStatus(
   const me = await participantIn(eventId, caller);
   if (!me) return null;
 
-  const [participants, votes, proposals, myOwnVotes] = await Promise.all([
+  const [participants, votes, proposals, myOwnVotes, muted] = await Promise.all([
     eventParticipants(eventId),
     eventVotes(eventId),
     eventProposals(eventId),
     myVotes(eventId, me.id),
+    myMutePreference(eventId, caller),
   ]);
 
   const [timeDecision, placeDecision] = await Promise.all([
@@ -460,6 +491,7 @@ export async function loadDecisionStatus(
     participants,
     myVotes: myOwnVotes,
     me,
+    notifications_muted: muted,
     decisions,
     event: {
       id: event.id,

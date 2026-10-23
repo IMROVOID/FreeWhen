@@ -20,10 +20,22 @@ import { StyleSheet, Switch, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/src/components/ui/Text';
-import { ApiFailure, apiRequest } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
+
+import { toggleMute } from '../services/mute';
+
+/**
+ * The transport, loaded on demand.
+ *
+ * See the note in `toggle`: a static import of `src/lib/api` drags
+ * `expo-modules-core` into any process that renders this component, which the
+ * Node test runner cannot satisfy.
+ */
+async function loadTransport() {
+  return import('@/src/lib/api');
+}
 
 export interface MuteToggleProps {
   eventId: string;
@@ -42,35 +54,31 @@ export function MuteToggle({ eventId, muted, onChange, testID }: MuteToggleProps
   const toggle = useCallback(
     async (next: boolean) => {
       setErrorKey(null);
-      // Optimistic: a switch that lags behind the finger feels broken.
-      onChange(next);
       setPending(true);
 
-      try {
-        const userId = await getStoredUserId();
-        await apiRequest(`/api/participants/me`, {
-          method: 'PATCH',
-          userId,
-          platform: 'app',
-          // The event is named so `patchParticipantHandler` can resolve WHICH
-          // participant row to write; `notifications_muted` is the one field
-          // that changes. The old `preferences` envelope matched no schema field
-          // and was rejected on every call.
-          body: {
-            event_id: eventId,
-            notifications_muted: next,
-          },
-        });
-      } catch (error) {
-        // Revert visibly — the switch must not claim a preference was saved when
-        // it was not.
-        onChange(!next);
-        setErrorKey(
-          error instanceof ApiFailure ? error.messageKey : 'notifications.errors.muteFailed',
-        );
-      } finally {
-        setPending(false);
-      }
+      // The optimistic flip and its revert live in `toggleMute`, so the pair is
+      // exercised by the test suite rather than only by this component.
+      //
+      // ★ THE TRANSPORT IS LOADED INSIDE THE HANDLER, NOT IMPORTED AT THE TOP.
+      //
+      // `src/lib/api.ts` imports `expo-constants`, which pulls
+      // `expo-modules-core` — a native module the Node test runner cannot load.
+      // A static import would make this component unrenderable in the UI suite,
+      // and the mounted-render assertions are the ones that catch a switch that
+      // draws correctly and does nothing.
+      const { apiRequest, ApiFailure } = await loadTransport();
+
+      const result = await toggleMute({
+        eventId,
+        userId: await getStoredUserId(),
+        next,
+        onChange,
+        request: apiRequest,
+        messageKeyOf: (error) => (error instanceof ApiFailure ? error.messageKey : null),
+      });
+
+      if (!result.ok) setErrorKey(result.messageKey);
+      setPending(false);
     },
     [eventId, onChange],
   );

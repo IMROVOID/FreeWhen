@@ -246,6 +246,13 @@ export interface EventSummary {
   participant_count: number;
   /** Whether the caller still owes a vote — drives S1's attention badge. */
   has_pending_vote: boolean;
+  /**
+   * The caller's mute preference for THIS event (migration 018, FR-6.19).
+   *
+   * Carried on the summary so the settings screen can render one switch per
+   * event from the list it already fetches, instead of a request per row.
+   */
+  notifications_muted: boolean;
   created_at: string;
 }
 

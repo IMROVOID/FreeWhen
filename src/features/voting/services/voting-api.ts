@@ -60,6 +60,8 @@ export interface DecisionStatusResponse {
   participants: WireParticipant[];
   myVotes: Record<string, VoteValue>;
   me: WireParticipant;
+  /** The caller's stored mute preference for this event (migration 018). */
+  notifications_muted: boolean;
   decisions: Partial<Record<DecisionAxis, WireDecision>>;
   event: {
     id: string;
