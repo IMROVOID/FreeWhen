@@ -54,6 +54,9 @@
   - [Analytics](#analytics)
 - [Contributing](#contributing)
 - [Known Gaps](#known-gaps)
+- [What is deliberately missing](#what-is-deliberately-missing)
+- [How to run](#how-to-run)
+- [How to deploy](#how-to-deploy)
 - [Disclaimer & Legal Notice](#disclaimer--legal-notice)
 - [References & Acknowledgements](#references--acknowledgements)
 - [License](#license)
@@ -709,6 +712,79 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 **G-7 is a design decision, not an oversight.** PRD-18 D18-1 shipped the app as the web artifact precisely so the ranked list, the lens switch and the confirm action work without an install. The 3D map is the one screen that could not come with it, and every fact the map would show — each venue, its reason, its travel estimate, the participant legend — is on `/event/<id>` in the browser. Leaving it unwritten would turn an accepted trade into an apparent defect, which is why it is stated here and on `/start`.
 
 The in-app privacy notice (`assets/privacy/{fa,en}.md`, bundled for offline reading) states these limitations to the user in both languages, so the disclosure does not depend on someone reading this repository.
+
+## What is deliberately missing
+
+The table above is the register. This section is the prose version — the three things a reviewer will notice first, and why each one is a decision rather than an oversight.
+
+- **Transit is an estimate.** No Iranian provider offers transit routing and no Tehran GTFS feed exists (verified during the research phase). Figures are distance-based, shown as **ranges**, and labelled «تخمینی» in Persian and "estimated" in English. This is a permanent, honest answer, not a stopgap waiting on a feed.
+- **Venue accessibility data is thin.** OpenStreetMap has **668 `wheelchair` editors for Iran** versus 135,155 globally. We show «نامشخص» (unknown) rather than guessing, and only a `confirmed_no` attribute excludes a venue. An unknown attribute never counts against a place, and it never gets promoted to "accessible" either.
+- **No block/report (G-2).** A conscious compliance risk, documented above. It becomes mandatory the moment messaging or user profiles are added.
+- **G-1 — a leaked invite link is the accepted primary risk.** Expiry, revocation, rate limiting and coordinate rounding are the mitigations. The link *is* the credential.
+- **G-3 — no screenshot protection.** Structurally impossible to prevent.
+- **G-4 — no age verification** beyond an 18+ declaration.
+- **G-5 — organizer identity is device-scoped.** Losing the device loses organizer control.
+- **iOS is out of scope.** No Apple Developer account is obtainable by Iran residents. The web invite page covers iPhone users for viewing and joining.
+
+**What is claimed, and what is not.** FreeWhen is *fair meeting-point decisions built for Iran* — the locale is the moat: Persian RTL, Jalali dates, Iranian geography, local routing. Cost and accessibility are treated as fairness dimensions, and every figure is labelled with how certain it is. What is **not** claimed is that fairness in group decision-making was invented here: at least one comparable product already publishes an average-time-plus-gap figure, and another explicitly claims a fair meeting point. Anyone who has seen those would discount the product for the claim, correctly.
+
+## How to run
+
+**Prerequisites:** Node.js ≥ 22.13, Java JDK 17, Android Studio (for the emulator). No Expo account and no EAS build are required — the build path is local and deliberately so.
+
+```bash
+npm install
+cp .env.example .env          # fill in the client and server variables
+```
+
+The database and API, in three terminals:
+
+```bash
+npm run db:local:up           # PostgreSQL + PostgREST via docker-compose
+npm run db:migrate            # 18 migrations, idempotent
+npm run db:seed               # seeds the demo event /start resolves to
+npm run server                # the API on 127.0.0.1:8787
+```
+
+The app itself:
+
+```bash
+npx expo start                # then press "a", or:
+npx expo run:android          # a local native build onto a running emulator
+```
+
+To verify the tree before trusting it:
+
+```bash
+npm run typecheck && npm run lint
+npm test                      # unit + component suites
+npm run test:db               # against a live PostgreSQL
+npm run test:engine           # the 18 TC-n assertions by name
+npm run gate:all              # the seven release gates
+```
+
+> **One trap worth knowing.** `npm install` on Windows can leave `app.json` and the manifest out of sync with the native project, and the installed app then tries to load its JavaScript from Metro. If a device shows *"Unable to load script"*, run `adb reverse tcp:8081 tcp:8081` and start Metro — the app is a development build, not a release one.
+
+## How to deploy
+
+The deployment is one host, one operator, no CI. Every step below is a script so the procedure is *repeatable* rather than *remembered* (see [Runbook](#runbook--building-and-deploying) for the reasoning).
+
+1. **Backend.** Run the Supabase stack (default) or the plain PostgreSQL + PostgREST peer via `DATABASE_BACKEND`. Apply migrations with `npm run db:migrate` — they are additive and idempotent.
+2. **Web artifact.** `npm run build:web` runs *source gates → export → `gate:web` → verify*. `EXPO_PUBLIC_*` values are inlined at export time, so the demo token must be in the **build shell**, not only on the host.
+3. **APK.** `npm run build:apk` runs `expo prebuild` then `gradlew assembleRelease`, and copies the artifact to `web/dl/freewhen.apk`. It **fails** rather than producing an unsigned APK when `FREE_WHEN_RELEASE_STORE_FILE` is unset.
+4. **Publish.** Caddy serves `dist/` as the app and `web/` as a separate static root, so the client-side router cannot shadow `/dl/` or `/privacy`. `npm run deploy` runs gates → export → `gate:web` → rsync → migrate → Caddy reload → smoke test.
+5. **Verify `/start`.** Open the deployed URL: the ranked list, the lens switch, a venue's per-person breakdown, the confirm action, and an identical card in a second browser. All of it must load with **no account and no install**.
+
+**Keystore.** Generate once, store it outside the repository, and **record where**:
+
+```bash
+keytool -genkeypair -v -keystore freewhen-release.keystore \
+  -alias freewhen -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Android refuses an update signed by a different key, and the failure gives no useful message. Losing the file means every future build is a *new app* that cannot install over the one already on a participant's phone. Keep more than one copy.
+
+> **Keystore location for this deployment:** `______________________` — fill in when the host is provisioned. It must not be inside the repository and must not be the only copy.
 
 ## Disclaimer & Legal Notice
 

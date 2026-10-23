@@ -59,6 +59,23 @@ export const VOTE_VALIDATION = {
 } as const;
 
 /**
+ * The reopen-reason length bounds, shared by the sheet and the service.
+ *
+ * ★ THEY LIVE HERE, IN CLIENT-SAFE CODE, FOR A BUNDLING REASON.
+ *
+ * `ReopenSheet` is a client component and needs `REASON_MAX_CHARS` for its
+ * counter. It used to import the value from `server/lib/reopen-service`, which
+ * transitively imports the database pool — so Metro pulled `pg` into the
+ * Android bundle, and the app crashed on launch with "Unable to resolve module
+ * events" (a Node built-in `pg` needs and a device does not have).
+ *
+ * Declaring them beside the other vote constants keeps one source of truth and
+ * keeps the server module's import graph out of the app.
+ */
+export const REASON_MIN_CHARS = 3;
+export const REASON_MAX_CHARS = 300;
+
+/**
  * `PUT /api/proposals/:id/vote`.
  *
  * ★ THERE IS NO PARTICIPANT ID IN THIS BODY, AND THAT IS THE POINT.

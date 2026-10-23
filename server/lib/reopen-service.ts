@@ -27,6 +27,8 @@ import type { Proposal } from '@/src/types/proposal';
 import type { DecisionAxis } from '@/src/types/vote';
 
 import { PROPOSAL_COLUMNS, PROPOSAL_FROM, toProposal, type ProposalRow } from './proposal-row';
+import { REASON_MAX_CHARS, REASON_MIN_CHARS } from '@/src/types/vote';
+
 import { appendActivity, participantIn } from './vote-service';
 import { servicePool, withTransaction, type Caller } from './supabase';
 
@@ -35,9 +37,13 @@ import { servicePool, withTransaction, type Caller } from './supabase';
  *
  * Short enough to read in a banner, long enough to be an explanation. The lower
  * bound is what makes AC-2.6.1 meaningful: a single character is not a reason.
+ *
+ * ★ DECLARED IN `src/types/vote.ts` AND RE-EXPORTED HERE. The sheet that
+ * counts the characters is a client component; importing them from this module
+ * dragged the database pool into the app bundle. Re-exporting keeps every
+ * existing server caller pointed at the same value.
  */
-export const REASON_MIN_CHARS = 3;
-export const REASON_MAX_CHARS = 300;
+export { REASON_MAX_CHARS, REASON_MIN_CHARS };
 
 export type ReopenOutcome =
   | { status: 'REOPENED'; decisionId: string; reopenedProposals: Proposal[] }

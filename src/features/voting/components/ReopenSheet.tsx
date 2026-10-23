@@ -25,7 +25,7 @@ import { BottomSheet } from '@/src/components/ui/BottomSheet';
 import { Button } from '@/src/components/ui/Button';
 import { Input } from '@/src/components/ui/Input';
 import { Text } from '@/src/components/ui/Text';
-import { REASON_MAX_CHARS } from '@/server/lib/reopen-service';
+import { REASON_MAX_CHARS } from '@/src/types/vote';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
