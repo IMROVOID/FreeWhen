@@ -98,6 +98,12 @@ describe('auto-lock', { concurrency: false }, () => {
   });
   before(prepareServerSql);
   beforeEach(truncateAll);
+  // ★ NO TRAILING TRUNCATE.
+  //
+  // A second `truncateAll` at the end looks tidy and is harmful: the next file
+  // is already running, and wiping the tables underneath it makes an unrelated
+  // suite fail on rows that vanished. `beforeEach` gives this suite a clean
+  // start, which is all it needs; the next suite does the same for itself.
   after(closePool);
 
 

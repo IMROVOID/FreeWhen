@@ -30,6 +30,7 @@ import {
   seedEvent,
   seedProposal,
   seedVenue,
+  truncateAll,
 } from './support';
 import { prepareServerEnv, prepareServerSql } from './server-support';
 
@@ -84,15 +85,22 @@ describe('the comment delete policy holds as a non-superuser', { concurrency: fa
     prepareServerEnv();
   });
   before(prepareServerSql);
-  after(closePool);
-
-  // ★ NO TRUNCATION BETWEEN TESTS.
+  // Truncate ONCE, at the start — the same shape as `tests/db/rls.test.ts`.
   //
-  // Every test creates its own event and asserts on its own ids, so nothing is
-  // shared — and a beforeEach(truncateAll) here would delete fixtures a
-  // concurrent sibling is still using, which surfaces as a foreign-key error
-  // that reads like a schema bug. `tests/db/rls.test.ts` uses the same shape
-  // for the same reason.
+  // ★ NOT `beforeEach`. Tests within a suite run concurrently, so a per-test
+  // truncation deletes fixtures a sibling is still using and the victim reports
+  // a foreign-key error that reads like a schema bug. Each test below creates
+  // its own event and asserts on its own ids, so one reset is enough — and the
+  // next suite's own `beforeEach(truncateAll)` clears what these leave behind.
+  before(truncateAll);
+  // ★ AND ONCE AT THE END, SO THIS SUITE LEAVES NOTHING BEHIND.
+  //
+  // `rls.test.ts` relies on the next file's `beforeEach` to clean up after it.
+  // That only works when the next file truncates; a suite that counts rows
+  // before its own truncation sees these fixtures and fails for a reason that
+  // has nothing to do with the code under test. Cleaning up here makes the
+  // suite self-contained.
+  after(closePool);
 
   test('the author may delete their own comment', async () => {
     const { eventId, organizerId, organizerParticipantId } = await seedEvent();
