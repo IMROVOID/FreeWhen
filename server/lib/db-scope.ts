@@ -4,8 +4,9 @@
  * ★ THE PROBLEM THIS SOLVES.
  *
  * `servicePool()` returns one process-wide `pg.Pool`. On Node that is correct.
- * On Cloudflare Workers there is no process to hold a pool — Hyperdrive pools at
- * the edge, and each request must build its own short-lived `pg.Client`.
+ * On a request-scoped runtime there is no process to hold a pool — the platform
+ * pools connections in front of the database, and each request must build its own
+ * short-lived `pg.Client`.
  *
  * Threading a connection parameter through every service function would be a
  * large, risky diff that changes nothing on the Node path. So the switch lives

@@ -77,7 +77,28 @@ let applied: Promise<void> | undefined;
  * to prevent. A TTL cannot be correct in every topology, but it degrades to
  * "the old behaviour, occasionally" rather than "never again".
  */
-const EXPECTED_FUNCTIONS = ['join_event'] as const;
+/**
+ * The functions `server/sql/` is expected to have created.
+ *
+ * ★ EVERY `.sql` FILE MUST ADD ITS FUNCTION HERE.
+ *
+ * This array is what the applier verifies. A function that is created by a
+ * `.sql` file but missing from this list is never checked, so a schema wipe
+ * would go unnoticed and every call to it would fail with "function does not
+ * exist" — the failure the check above exists to make loud.
+ *
+ * Plan 40 added the RPCs the PostgREST transport needs (Tasks 6–8). They are
+ * listed here in the same commit as their `.sql` files for exactly the reason
+ * above.
+ */
+const EXPECTED_FUNCTIONS = [
+  'join_event',
+  'cast_vote',
+  'confirm_decision',
+  'reopen_event',
+  'resolve_caller',
+  'create_anonymous_user',
+] as const;
 
 /**
  * How long a passing verification is trusted, in milliseconds.

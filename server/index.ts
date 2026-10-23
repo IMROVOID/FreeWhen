@@ -14,10 +14,50 @@
 import { createServer } from 'node:http';
 
 import { handleRequest } from './app';
+import { resolveBackend } from './lib/db-backend';
 import { ensureServerSql } from './lib/server-sql';
 import { closeServicePool } from './lib/supabase';
 
 const DEFAULT_PORT = 8787;
+
+/**
+ * The database transport, resolved once at boot (Plan 40 T2/T9).
+ *
+ * ★ RESOLVED EAGERLY SO AN UNKNOWN VALUE FAILS AT START-UP, NOT AT THE FIRST QUERY.
+ *
+ * `resolveBackend` throws on a value it does not recognise
+ * (`server/lib/db-backend.ts:76-88`). Resolving it at module scope means a typo
+ * in `DATABASE_BACKEND` stops the process before the listener opens, instead of
+ * serving traffic and failing on whichever request happens to touch the database
+ * first.
+ *
+ * ★ THE THROW IS CAUGHT AND REPORTED, NOT LEFT TO BECOME A STACK TRACE.
+ *
+ * A module-scope throw surfaces as an unhandled rejection with a Node internal
+ * stack, which buries the one line the operator needs. The message names the
+ * variable and every accepted value, so it is reported the same way the existing
+ * start-up failure is — one line on stderr, exit 1.
+ *
+ * ★ THIS ADAPTER IS ALWAYS `pg`.
+ *
+ * The Node listener holds a shared `pg.Pool` (`server/lib/supabase.ts:44-49`),
+ * so `supabase_rest` is not a meaningful choice here — an always-on process has
+ * the socket the REST transport exists to avoid. The value is still read and
+ * logged so the log tells the truth about what the environment says; a
+ * `supabase_rest` deployment uses `server/runtime/rest-fetch.ts`, not this file.
+ */
+function resolveTransportAtBoot(): ReturnType<typeof resolveBackend> {
+  try {
+    return resolveBackend();
+  } catch (error: unknown) {
+    process.stderr.write(
+      `freewhen api could not start: ${error instanceof Error ? error.message : 'unknown error'}\n`,
+    );
+    process.exit(1);
+  }
+}
+
+const transport = resolveTransportAtBoot();
 
 /** Reads the request body into a buffer. Empty for GET and HEAD. */
 async function readBody(stream: AsyncIterable<Uint8Array>): Promise<Buffer> {
@@ -80,7 +120,12 @@ const host = process.env.API_HOST ?? '127.0.0.1';
 void ensureServerSql()
   .then(() => {
     server.listen(port, host, () => {
-      process.stdout.write(`freewhen api listening on http://${host}:${port}\n`);
+      // The transport is reported, not just assumed. An operator who set
+      // `DATABASE_BACKEND=supabase_rest` and deployed this listener needs to see
+      // that they got the `pg` path, because the two are configured differently.
+      process.stdout.write(
+        `freewhen api listening on http://${host}:${port} (database transport: ${transport})\n`,
+      );
     });
   })
   .catch((error: unknown) => {

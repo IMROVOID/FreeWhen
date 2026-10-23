@@ -47,7 +47,7 @@ const header = `/**
  * ★ WHY THIS EXISTS.
  *
  * \`server/lib/server-sql.ts\` used to read these files from disk. A host with no
- * filesystem (Cloudflare Workers) could not start the server at all, for the
+ * filesystem could not start the server at all, for the
  * sake of one constant. The SQL is inlined here so the server bundles without
  * \`node:fs\`, and \`tests/server/server-sql.test.ts\` fails if this copy drifts
  * from the \`.sql\` files.

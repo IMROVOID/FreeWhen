@@ -24,6 +24,25 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 
 import { currentQueryable } from './db-scope';
+import {
+  RestTransactionUnavailableError,
+  isRestQueryable,
+  type RestRpc,
+} from './supabase-rest';
+
+/**
+ * The RPC-backed units. A subset of `RestRpc`: only the names that implement a
+ * transactional unit or an identity read the server needs.
+ */
+export type RestUnitName = Extract<
+  RestRpc,
+  | 'join_event'
+  | 'cast_vote'
+  | 'confirm_decision'
+  | 'reopen_event'
+  | 'resolve_caller'
+  | 'create_anonymous_user'
+>;
 
 let pool: Pool | undefined;
 
@@ -230,8 +249,8 @@ export async function userExists(userId: string): Promise<boolean> {
  * applies to nothing and reverts immediately, which would leave Node passing
  * (its connection is already a superuser) and Workers failing — the exact class
  * of bug this port exists to fix. On a superuser connection, `revoke`/`grant`
- * are ignored entirely, so Hyperdrive would otherwise run every query as the
- * schema owner with RLS as the only gate. `tests/db/caller-role.test.ts` asserts
+ * are ignored entirely, so a pooled edge connection would otherwise run every
+ * query as the schema owner with RLS as the only gate. `tests/db/caller-role.test.ts` asserts
  * `current_user` rather than trusting the order.
  *
  * `set_config(..., true)` is transaction-local, so it cannot outlive the
@@ -264,6 +283,61 @@ export async function withCallerTransaction<T>(
 export interface Caller {
   userId: string;
   isAnonymous: boolean;
+}
+
+/**
+ * Runs a transactional unit, choosing the transport (Plan 40 T8).
+ *
+ * ★ THE WHOLE POINT OF THIS FUNCTION IS THAT BOTH BRANCHES RETURN THE SAME THING.
+ *
+ * On the `pg` transport (`DATABASE_BACKEND` unset, `pg`, `supabase`, `local_pg`)
+ * this is `withCallerTransaction(caller, work)` — literally the same call, so the
+ * Node and Workers paths are byte-identical (`D5`).
+ *
+ * On the `supabase_rest` transport there is no `begin`/`commit` to issue:
+ * PostgREST executes one HTTP request as one transaction, so a sequence of
+ * statements run inside `work` would each be its own transaction and the unit
+ * would silently lose atomicity. Instead the unit is one RPC — the same logic
+ * server-side — and the caller's identity travels as a JWT so `auth.uid()`
+ * resolves exactly as it does under `set_config('request.jwt.claims', ...)`.
+ *
+ * ★ `work` IS NOT RUN ON THE REST PATH, AND THAT IS NOT A COMPROMISE.
+ *
+ * It executes inside the transaction to produce the result; the RPC executes the
+ * same operations and returns the same shape. Running both would double the
+ * write. Which is why `result` is a separate callback: it is the function that
+ * translates either outcome into the caller's type, so the two paths cannot drift
+ * in what they return.
+ *
+ * ★ A UNIT WITH NO RPC FAILS LOUDLY, AT STARTUP.
+ *
+ * See `REST_UNITS` and `assertUnitsCovered` in `supabase-rest.ts` — a unit
+ * missing from the registry is a red test, not a 500 on the join path.
+ */
+export async function withCallerUnit<T>(options: {
+  caller: Caller;
+  /** The RPC name on the REST transport. Must exist in `REST_RPCS`. */
+  unit: RestUnitName;
+  /** The RPC's arguments. The identity is NOT among them — it comes from claims. */
+  args: Readonly<Record<string, unknown>>;
+  /** The `pg`-transport body. Runs inside one real transaction. */
+  work: (client: Queryable) => Promise<T>;
+  /** The REST-transport body. Receives the RPC's raw `jsonb` payload. */
+  fromPayload: (payload: Record<string, unknown>) => T;
+}): Promise<T> {
+  const handle = scopedQueryable();
+
+  if (!isRestQueryable(handle)) {
+    return withCallerTransaction(options.caller, options.work);
+  }
+
+  const payload = await handle.rpc<Record<string, unknown> | null>(options.unit, options.args);
+
+  if (payload === null) {
+    throw new RestTransactionUnavailableError(options.unit);
+  }
+
+  return options.fromPayload(payload);
 }
 
 /** Resolves a bearer-user-id header into a caller, or `null` when unknown. */

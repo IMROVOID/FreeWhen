@@ -43,7 +43,7 @@ except their own implementation files and `*.web.*`.
 
 Haptics and direction differ only in implementation. The map differs in
 **kind**: web has no Mapbox, so `VenueMap.web.tsx` renders a designed
-list-only state rather than a degraded map (PRD-04 §3.2 level 5). Same props,
+list-only state rather than a degraded map. Same props,
 different content — and the `.web.tsx` sibling is what keeps
 `@rnmapbox/maps` out of the export entirely.
 

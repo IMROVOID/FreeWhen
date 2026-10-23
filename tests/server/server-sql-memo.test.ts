@@ -26,7 +26,23 @@ import type { Queryable } from '@/server/lib/supabase';
  * `recovers` models the realistic wipe: the function is gone until the DDL runs
  * again, then it exists. A fake that stays broken after the apply models a
  * malformed `.sql`, which is a different (and separately tested) failure.
+ *
+ * ★ THE PRESENT SET IS THE WHOLE EXPECTED LIST, NOT JUST `join_event`.
+ *
+ * Plan 40 added five RPCs to `EXPECTED_FUNCTIONS`. A fake that reported only
+ * `join_event` as present would model a database where the other five are
+ * always missing — so every call would take the wipe-and-retry path and this
+ * file would fail for a reason that has nothing to do with memoization.
  */
+const EXPECTED_PRESENT = [
+  'join_event',
+  'cast_vote',
+  'confirm_decision',
+  'reopen_event',
+  'resolve_caller',
+  'create_anonymous_user',
+] as const;
+
 function countingQueryable(options: { present?: boolean; recovers?: boolean } = {}) {
   const state = { queries: 0, present: options.present ?? true, applied: 0 };
 
@@ -36,10 +52,8 @@ function countingQueryable(options: { present?: boolean; recovers?: boolean } = 
 
       // The catalogue lookup — answer it according to `present`.
       if (text.includes('from pg_proc')) {
-        return {
-          rows: (state.present ? [{ proname: 'join_event' }] : []) as T[],
-          rowCount: state.present ? 1 : 0,
-        };
+        const rows = state.present ? EXPECTED_PRESENT.map((proname) => ({ proname })) : [];
+        return { rows: rows as T[], rowCount: rows.length };
       }
 
       // The DDL apply — nothing to return.
@@ -94,12 +108,12 @@ describe('ensureServerSql memoizes its verification', () => {
   });
 
   it('re-applies, then fails loudly if the DDL did not create the function', async () => {
-    // The catalogue never reports join_event, even after the DDL runs. That is
-    // a broken .sql, not a transient state, and it must be a named error rather
-    // than an infinite retry or a silent success.
+    // The catalogue never reports the functions, even after the DDL runs. That
+    // is a broken .sql, not a transient state, and it must be a named error
+    // rather than an infinite retry or a silent success.
     const { queryable, state } = countingQueryable({ present: false });
 
-    const { ensureServerSql, resetServerSqlVerification } = await import(
+    const { ensureServerSql, resetServerSqlVerification, serverSqlFiles } = await import(
       '@/server/lib/server-sql'
     );
     resetServerSqlVerification();
@@ -109,9 +123,17 @@ describe('ensureServerSql memoizes its verification', () => {
       /did not create: join_event/,
     );
 
-    // Two catalogue checks (before and after the apply) plus the DDL statement —
-    // and crucially a bounded number, not a loop.
-    assert.ok(state.queries >= 3, 'must check, apply, then check once more');
-    assert.ok(state.queries <= 6, 'the retry must be bounded');
+    // ★ THE BOUND IS EXPRESSED IN APPLIES, NOT RAW QUERIES.
+    //
+    // A raw query count no longer measures "bounded" because one DDL apply is
+    // one query per `.sql` file — six now, one when this test was written. The
+    // property under test is that the function verifies, applies ONCE, verifies
+    // again and then throws: two catalogue checks, one apply. Anything more
+    // would be the unbounded retry this exists to rule out.
+    const oneApply = serverSqlFiles().length;
+    const catalogueChecks = state.queries - state.applied;
+
+    assert.equal(state.applied, oneApply, 'the DDL must run exactly once, not in a loop');
+    assert.equal(catalogueChecks, 2, 'one check before the apply and one after the retry');
   });
 });

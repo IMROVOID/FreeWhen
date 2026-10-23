@@ -25,7 +25,7 @@ import {
   isTokenShaped,
 } from './invite-token';
 import { ensureServerSql } from './server-sql';
-import { scopedQueryable, withCallerTransaction, type Caller } from './supabase';
+import { scopedQueryable, withCallerUnit, type Caller } from './supabase';
 
 /** The two errors an invite route may return. `null` means "no error". */
 export type InviteFailure = 'INVITE_INVALID' | 'EVENT_FULL';
@@ -119,20 +119,32 @@ export async function joinViaInvite(
 
   await ensureServerSql();
 
-  // The function is `security invoker` and reads the identity from
-  // `auth.uid()`, so it runs AS the caller with RLS in force. The row lock
-  // and the cap check still hold — they are inside the function's own
-  // transaction, which is the caller's transaction here.
-  const result = await withCallerTransaction(caller, async (client) => {
-    const outcome = await client.query<{ join_event: ResolvePayload }>(
-      `select join_event($1, $2) as join_event`,
-      [token, displayName],
-    );
+  // ★ THE JOIN IS A NAMED UNIT, NOT A TRANSACTION (Plan 40 T8).
+  //
+  // On `pg` this runs `join_event` inside a real transaction under the caller's
+  // claims — byte-identical to before. On `supabase_rest` it runs the same
+  // `join_event` as ONE RPC, because PostgREST executes one request as one
+  // transaction and a replayed begin/work/commit would lose the row lock that
+  // makes the participant cap a security bound
+  // (`server/sql/join_event.sql:4-10`).
+  //
+  // The two branches share `fromPayload`, so they cannot drift in what they
+  // return.
+  const payload = await withCallerUnit<ResolvePayload | undefined>({
+    caller,
+    unit: 'join_event',
+    args: { p_token: token, p_display_name: displayName },
+    work: async (client) => {
+      const outcome = await client.query<{ join_event: ResolvePayload }>(
+        `select join_event($1, $2) as join_event`,
+        [token, displayName],
+      );
 
-    return outcome.rows[0]?.join_event;
+      return outcome.rows[0]?.join_event;
+    },
+    fromPayload: (rpcPayload) => rpcPayload as ResolvePayload,
   });
 
-  const payload = result;
   if (!payload) return { ok: false, reason: 'INVITE_INVALID' };
   if (payload.error) return { ok: false, reason: payload.error };
 

@@ -770,6 +770,29 @@ describe('row-level security', { concurrency: false }, () => {
         //    area is exposed (FR-8.19);
         //  - at most one demo event can exist (`event_single_demo_idx`), so the
         //    anonymous read cannot be spread across a fleet of them.
+        // ★ PLAN 40's RPCs, ADDED FOR THE POSTGREST TRANSPORT.
+        //
+        // Four transactional units that PostgREST cannot replay as separate
+        // requests (one HTTP request is one transaction), plus the two identity
+        // reads made necessary by `db-schemas=public` — `auth.users` is not
+        // exposed, so the server reaches it through a definer.
+        //
+        // Every one of them is closed by the same three properties P5's
+        // `join_event` established:
+        //  - identity comes from `auth.uid()`, never from a parameter, so there
+        //    is no argument to forge;
+        //  - execute is granted to `service_role` only, so a browser holding the
+        //    publishable key cannot call one directly and skip the route — that
+        //    grant is asserted below by "no Plan 40 RPC is executable by a
+        //    client role";
+        //  - `search_path` is pinned with `pg_temp` last, asserted above.
+        //
+        // The two identity functions write nothing sensitive: `resolve_caller`
+        // reads one boolean for one uuid, `create_anonymous_user` inserts one
+        // `is_anonymous = true` row. Neither takes a caller-supplied identity.
+        'cast_vote',
+        'confirm_decision',
+        'create_anonymous_user',
         'demo_event_summary',
         'enforce_decision_same_event',
         'enforce_participant_cap',
@@ -786,9 +809,50 @@ describe('row-level security', { concurrency: false }, () => {
         // surface is asserted in `tests/db/join.test.ts`.
         'join_event',
         'redeem_invite',
+        'reopen_event',
+        'resolve_caller',
         'run_anon_cleanup_job',
         'run_retention_job',
       ]);
+    });
+
+    test('no Plan 40 RPC is executable by a client role', async () => {
+      // ★ THE GRANT IS THE PRIVILEGE SURFACE, NOT THE DEFINER FLAG.
+      //
+      // The set above proves a definer function exists; it does not prove a
+      // client cannot reach it. Every Plan 40 RPC bypasses its route when called
+      // directly — `join_event` skips the invite rate limiter, `resolve_caller`
+      // becomes a user-id oracle, and the three decision RPCs skip the
+      // validation their routes apply. So `anon` and `authenticated` must have
+      // no execute privilege at all.
+      const rows = await asOwner<{ proname: string; grantee: string }>(
+        `select p.proname, a.grantee
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+           cross join aclexplode(p.proacl) a
+          where n.nspname = 'public'
+            and p.proname = any($1)`,
+        [
+          [
+            'cast_vote',
+            'confirm_decision',
+            'create_anonymous_user',
+            'reopen_event',
+            'resolve_caller',
+            'join_event',
+          ],
+        ],
+      );
+
+      const exposed = rows.rows.filter(
+        (row) => row.grantee === 'anon' || row.grantee === 'authenticated',
+      );
+
+      assert.deepEqual(
+        exposed,
+        [],
+        'a Plan 40 RPC granted to a client role is callable without its route',
+      );
     });
 
     test('the travel cache is excluded from the realtime publication', async () => {
