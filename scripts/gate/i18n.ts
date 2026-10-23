@@ -66,7 +66,10 @@ const PHASE_NAMESPACES: Record<string, string[]> = {
   '07': ['voting', 'decision', 'decisionCard', 'activity'],
   '08': ['ranking', 'lens', 'venue', 'confidence', 'map'],
   '09': ['privacy', 'consent', 'settings', 'retention'],
-  '10': ['notifications', 'rsvp', 'followThrough', 'calendar'],
+  // P10 also owns `chat` — the D23 in-room chat surface, assigned to this phase
+  // by `docs/plans/agent-prompt-1-finish-never-finished.md` §2. P14 owns
+  // `parser`, which parses a pasted message; it does not own the room.
+  '10': ['notifications', 'rsvp', 'followThrough', 'calendar', 'chat'],
   '11': ['states', 'a11y', 'offline', 'permission'],
   // P14 extends `availability` but does not own it — P06 does. The two
   // namespaces below are the chat parser and the reopen flow.

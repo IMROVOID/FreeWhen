@@ -48,6 +48,12 @@ import { nudgeHandler } from './routes/nudge';
 // Phase 14 — the P1 backlog (PRD-07 chat parser, PRD-02 reopening).
 import { parseHandler } from './routes/parse';
 import { reopenHandler } from './routes/reopen';
+// D23 — the in-room chat surface (PRD-06 FR-6.7b).
+import {
+  listMessagesHandler,
+  postMessageHandler,
+  reportMessageHandler,
+} from './routes/messages';
 
 type Handler = (request: Request, params: Record<string, string>) => Promise<Response>;
 
@@ -133,6 +139,11 @@ const ROUTES: Route[] = [
   // reopening restarts a decision while keeping its history (FR-2.22).
   { method: 'POST', segments: ['api', 'events', ':id', 'parse'], handler: parseHandler },
   { method: 'POST', segments: ['api', 'events', ':id', 'reopen'], handler: reopenHandler },
+  // D23 — the in-room chat. Reads and writes are participant-scoped; the report
+  // path exists for Apple §1.2 and is keyed on the message, not the event.
+  { method: 'GET', segments: ['api', 'events', ':id', 'messages'], handler: listMessagesHandler },
+  { method: 'POST', segments: ['api', 'events', ':id', 'messages'], handler: postMessageHandler },
+  { method: 'POST', segments: ['api', 'messages', ':id', 'report'], handler: reportMessageHandler },
 ];
 
 /** Matches one route's segments, returning the captured params. */

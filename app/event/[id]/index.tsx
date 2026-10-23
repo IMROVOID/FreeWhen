@@ -378,6 +378,18 @@ export default function EventHomeScreen() {
         size="medium"
         testID="event-home-activity"
       />
+
+      {/* D23 — the in-room chat. Reaching it from the event shell is what makes
+          the surface discoverable: a chat nobody can find is the same as no
+          chat, and the tables would still be live for nobody. */}
+      <Button
+        label={t('chat.open')}
+        accessibilityLabel={t('chat.title')}
+        onPress={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
+        variant="ghost"
+        size="medium"
+        testID="event-home-chat"
+      />
     </ScrollView>
   );
 }
