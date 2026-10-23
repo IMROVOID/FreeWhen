@@ -39,6 +39,22 @@ export interface UseVoteOptions {
   setStatus: (next: DecisionStatusResponse) => void;
   /** Refetches from the server — the authority after any outcome. */
   reload: () => Promise<void>;
+  /**
+   * Called after a vote the server ACCEPTED, with whether it was the
+   * participant's first vote on that proposal.
+   *
+   * ★ THIS IS THE PUSH-PERMISSION MOMENT (FR-6.14, AC-6.2.1).
+   *
+   * Asking at launch gets a denial, and a denial is expensive: iOS prompts once
+   * and then sends the user to Settings forever. The request therefore hangs off
+   * this callback, which fires only in the success branch — a rejected or
+   * reverted vote must never trigger a prompt.
+   *
+   * `isFirstVote` is `previous === null` from the server, so a CHANGE is
+   * distinguishable from a first answer without the hook guessing from local
+   * state that a refetch could overturn.
+   */
+  onVoted?: (outcome: { proposalId: string; isFirstVote: boolean }) => void;
 }
 
 export interface UseVoteResult {
@@ -108,7 +124,7 @@ export function optimisticVote(
   };
 }
 
-export function useVote({ status, setStatus, reload }: UseVoteOptions): UseVoteResult {
+export function useVote({ status, setStatus, reload, onVoted }: UseVoteOptions): UseVoteResult {
   const [pending, setPending] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState<string | null>(null);
 
@@ -130,7 +146,15 @@ export function useVote({ status, setStatus, reload }: UseVoteOptions): UseVoteR
 
       try {
         const userId = await getStoredUserId();
-        await putVote(proposalId, value, userId);
+        const written = await putVote(proposalId, value, userId);
+
+        // ★ ONLY IN THE SUCCESS BRANCH.
+        //
+        // `previous === null` is the server's own statement that this was the
+        // participant's first answer on this proposal. The callback fires AFTER
+        // the write was accepted and BEFORE the reload, so a prompt can never
+        // appear for a vote that was rejected or reverted below.
+        onVoted?.({ proposalId, isFirstVote: written.previous === null });
 
         // The server's answer is the authority: it is what the other
         // participants already see, and it may carry a tally that moved while
@@ -155,7 +179,7 @@ export function useVote({ status, setStatus, reload }: UseVoteOptions): UseVoteR
         setPending(null);
       }
     },
-    [status, setStatus, reload],
+    [status, setStatus, reload, onVoted],
   );
 
   const clearError = useCallback(() => setErrorKey(null), []);

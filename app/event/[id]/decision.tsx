@@ -47,6 +47,7 @@ import { TallyBar } from '@/src/features/voting/components/TallyBar';
 import { VoteControl } from '@/src/features/voting/components/VoteControl';
 import { useDecisionStatus } from '@/src/features/voting/hooks/useDecisionStatus';
 import { useVote } from '@/src/features/voting/hooks/useVote';
+import { shouldRequestAfterVote, usePushPermission } from '@/src/features/notifications/hooks/usePushPermission';
 import { buildDecisionCard } from '@/src/features/voting/services/decision-card';
 import { confirm, planConfirmation } from '@/src/features/voting/services/confirm';
 import { ReopenSheet } from '@/src/features/voting/components/ReopenSheet';
@@ -77,6 +78,25 @@ export default function DecisionScreen() {
 
   const { status, isLoading, errorKey, connection, reload } = useDecisionStatus({ eventId });
 
+  /**
+   * ★ PUSH PERMISSION IS ASKED AFTER THE FIRST VOTE, NEVER AT LAUNCH (FR-6.14).
+   *
+   * The hook reads the current status on mount and does not prompt; only
+   * `requestAfterFirstVote()` asks, and it is called from `onVoted` — the
+   * success branch of a vote — so the prompt arrives at the moment the user has
+   * just shown the app is worth something. The hook's own `ASKED_KEY` guards a
+   * second prompt, so there is deliberately no second check here.
+   */
+  const { requestAfterFirstVote, hasAsked } = usePushPermission();
+
+  const onVoted = useCallback(
+    ({ isFirstVote }: { proposalId: string; isFirstVote: boolean }) => {
+      if (!shouldRequestAfterVote({ isFirstVote, hasAsked })) return;
+      void requestAfterFirstVote();
+    },
+    [requestAfterFirstVote, hasAsked],
+  );
+
   // A local copy so the optimistic patch has somewhere to land. The hook's own
   // payload stays the source of truth across refetches.
   const [local, setLocal] = useState(status);
@@ -88,6 +108,7 @@ export default function DecisionScreen() {
     status: local,
     setStatus: setLocal,
     reload,
+    onVoted,
   });
 
   const [sheetOpen, setSheetOpen] = useState(false);
