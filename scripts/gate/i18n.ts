@@ -68,9 +68,19 @@ const PHASE_NAMESPACES: Record<string, string[]> = {
   '09': ['privacy', 'consent', 'settings', 'retention'],
   '10': ['notifications', 'rsvp', 'followThrough', 'calendar'],
   '11': ['states', 'a11y', 'offline', 'permission'],
-  // P14 extends `availability` but does not own it — P06 does. The two
-  // namespaces below are the chat parser and the reopen flow.
-  '14': ['parser', 'reopen'],
+  // P14 owns the chat parser, the reopen flow, per-proposal comments, and the
+  // two namespaces its cut P1 items created: the opening-hours advisory and the
+  // dealbreaker veto.
+  //
+  // ★ THE CUT ITEMS DO NOT WRITE INTO P06's or P08's SUBTREES.
+  //
+  // The obvious placement was `slots.*` for the advisory and `ranking.*` for
+  // the veto, and it fails this gate — correctly. Ownership is exclusive ("a
+  // namespace may not be claimed by two phases"), so writing there either
+  // claims a foreign namespace or writes one this phase does not own. New keys
+  // therefore live in new P14 namespaces, which is also what keeps this branch
+  // mergeable with the parallel one editing the same two files.
+  '14': ['parser', 'reopen', 'comments', 'openingHours', 'dealbreaker', 'autoLock'],
   '18': ['server', 'web'],
 };
 

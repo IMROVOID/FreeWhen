@@ -50,6 +50,25 @@ import { useVote } from '@/src/features/voting/hooks/useVote';
 import { buildDecisionCard } from '@/src/features/voting/services/decision-card';
 import { confirm, planConfirmation } from '@/src/features/voting/services/confirm';
 import { ReopenSheet } from '@/src/features/voting/components/ReopenSheet';
+import { resolveDealbreakers } from '@/src/features/voting/services/dealbreakers';
+import type { WireTally } from '@/src/features/voting/services/voting-api';
+
+/**
+ * The tally a row shows when the payload has none yet.
+ *
+ * A dealbroken proposal is still voted on, so its tally must render — an empty
+ * object would crash `TallyBar` and the muted card would take the screen down
+ * with it, which is the opposite of "stays visible".
+ */
+const EMPTY_TALLY: WireTally = {
+  yes: 0,
+  maybe: 0,
+  no: 0,
+  unanswered: 0,
+  total: 0,
+  voters: { yes: [], maybe: [], no: [] },
+  outstanding: [],
+};
 import { reopenDecision } from '@/src/features/voting/services/reopen';
 
 // Phase 10 — follow-through, mounted only on the confirmed branch.
@@ -83,7 +102,7 @@ export default function DecisionScreen() {
     setLocal(status);
   }, [status]);
 
-  const { cast, pending, errorKey: voteError, clearError } = useVote({
+  const { cast, toggleVeto, pending, errorKey: voteError, clearError } = useVote({
     status: local,
     setStatus: setLocal,
     reload,
@@ -119,6 +138,32 @@ export default function DecisionScreen() {
   const wasConfirmed = useRef(false);
 
   const proposals = local?.proposals ?? [];
+
+  // ★ DEALBREAKERS ARE APPLIED HERE, AND THEY MUTE RATHER THAN DROP (P08).
+  //
+  // The engine's hard filter reads `dealbreakers`, and a veto has to reach it or
+  // the veto does nothing. But the card list must not shrink: `resolveDealbreakers`
+  // returns every proposal, flagged, so the muted ones render with their reason
+  // instead of vanishing.
+  const resolved = useMemo(() => {
+    // `proposals` is `?? []`, so it is a fresh array every render and cannot be
+    // the memo's dependency. `local` is the payload it derives from, which is
+    // the value that actually changes.
+    const entries = local?.proposals ?? [];
+    const records = (local?.myDealbreakers ?? []).map((proposalId) => ({
+      proposalId,
+      participantId: local!.me.id,
+      displayName: local!.me.display_name,
+    }));
+
+    return resolveDealbreakers(
+      entries.map((entry) => entry.proposal),
+      records,
+    );
+  }, [local]);
+
+  const tallyFor = (proposalId: string) =>
+    proposals.find((entry) => entry.proposal.id === proposalId)?.tally ?? EMPTY_TALLY;
   const decision = local?.decisions[axis] ?? null;
 
   const chosenEntry = decision?.proposal_id
@@ -423,29 +468,48 @@ export default function DecisionScreen() {
 
         {/* Per-proposal voting, on the screen where the decision is made. */}
         {!isConfirmed &&
-          proposals.map((entry) => {
-            const mine = local.myVotes[entry.proposal.id] ?? null;
-            const withdrawn = entry.proposal.status === 'WITHDRAWN';
+          resolved.map(({ proposal: entry, excluded, exclusion }) => {
+            const mine = local.myVotes[entry.id] ?? null;
+            const withdrawn = entry.status === 'WITHDRAWN';
+            const vetoed = local.myDealbreakers.includes(entry.id);
 
             return (
               <View
-                key={entry.proposal.id}
-                style={styles.proposalRow}
-                testID={`decision-proposal-${entry.proposal.id}`}
+                key={entry.id}
+                style={[styles.proposalRow, excluded ? styles.proposalRowMuted : undefined]}
+                testID={`decision-proposal-${entry.id}`}
               >
-                <Text variant="h3" numberOfLines={2}>
-                  {entry.proposal.title}
+                <Text variant="h3" numberOfLines={2} color={excluded ? theme.textFaint : undefined}>
+                  {entry.title}
                 </Text>
 
-                <TallyBar tally={entry.tally} testID={`decision-tally-${entry.proposal.id}`} />
+                {/* ★ AN EXCLUDED VENUE STAYS VISIBLE, MUTED, WITH A REASON
+                    NAMING THE PERSON (P08 rule). Dropping the card would leave
+                    the group wondering where it went — and nobody would know
+                    somebody had vetoed it. */}
+                {exclusion && (
+                  <Text
+                    variant="caption"
+                    color={theme.textMuted}
+                    testID={`decision-vetoed-${entry.id}`}
+                  >
+                    {t('dealbreaker.vetoedBy', { name: exclusion.participantName })}
+                  </Text>
+                )}
+
+                <TallyBar tally={tallyFor(entry.id)} testID={`decision-tally-${entry.id}`} />
 
                 <VoteControl
                   current={mine}
-                  onVote={(value) => void cast(entry.proposal.id, value)}
+                  onVote={(value) => void cast(entry.id, value)}
                   disabled={withdrawn}
-                  pending={pending === entry.proposal.id}
+                  pending={pending === entry.id}
                   showHelper={mine === null && !withdrawn}
-                  testID={`decision-vote-${entry.proposal.id}`}
+                  veto={vetoed}
+                  onToggleVeto={
+                    withdrawn ? undefined : () => void toggleVeto(entry.id, !vetoed)
+                  }
+                  testID={`decision-vote-${entry.id}`}
                 />
               </View>
             );
@@ -585,6 +649,17 @@ const styles = StyleSheet.create({
   },
   proposalRow: {
     gap: space[3],
+  },
+  /**
+   * The muted treatment for a dealbroken proposal.
+   *
+   * ★ MUTED, NOT HIDDEN (P08 rule). Reduced opacity is the one visual channel
+   * that says "this is set aside" without removing the card from the flow — the
+   * reason line and the tally inside it stay fully readable, because the group
+   * needs to know both what was vetoed and by whom.
+   */
+  proposalRowMuted: {
+    opacity: 0.55,
   },
   followThrough: {
     gap: space[4],

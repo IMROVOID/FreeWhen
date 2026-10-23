@@ -23,10 +23,15 @@ import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/src/components/ui/Card';
 import { Chip } from '@/src/components/ui/Chip';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { formatDate } from '@/src/lib/format';
 import { toPersianDigits } from '@/src/lib/jalali';
 import { trackOpeningHoursWarningShown } from '@/src/features/proposals/services/analytics';
+import {
+  ADVISORY_KEY_BY_VERDICT,
+  openingHoursAdvisory,
+} from '@/src/features/proposals/services/opening-hours';
 import { endsNextDay, formatLocalTime } from '@/src/features/proposals/services/slot-time';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -38,6 +43,10 @@ export interface ProposalCardProps {
   /** The event's home timezone — the slot is rendered in it, not the device's. */
   homeTz: string;
   onPress?: () => void;
+  /** Opens the comment sheet for this proposal. Absent = no affordance. */
+  onOpenComments?: () => void;
+  /** How many comments the proposal carries, when the caller knows. */
+  commentCount?: number;
   testID?: string;
 }
 
@@ -46,7 +55,30 @@ function localiseDigits(value: string, language: string): string {
   return language === 'en' ? value : toPersianDigits(value);
 }
 
-export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCardProps) {
+/**
+ * The instant the hours advisory is computed at.
+ *
+ * A timed proposal is checked at its own start — that is the moment the group
+ * cares about. A place-only proposal has no start, so `now` is the honest
+ * question ("is it open if we went today?"), and `openingHoursAdvisory` treats
+ * an unparseable start the same way.
+ */
+function advisoryInstant(proposal: Proposal): Date {
+  if (proposal.start_utc && Number.isFinite(Date.parse(proposal.start_utc))) {
+    return new Date(proposal.start_utc);
+  }
+
+  return new Date();
+}
+
+export function ProposalCard({
+  proposal,
+  homeTz,
+  onPress,
+  onOpenComments,
+  commentCount,
+  testID,
+}: ProposalCardProps) {
   const { t, i18n } = useTranslation();
   const { t: theme } = useTheme();
 
@@ -66,6 +98,19 @@ export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCard
 
   // Absence of hours is a data-quality signal, so it is measured when shown.
   const hoursUnknown = proposal.venue != null && proposal.venue.opening_hours == null;
+
+  // ★ THE ADVISORY REPORTS; IT NEVER REFUSES (AC-3.3.1).
+  //
+  // Nothing below gates a button, a vote or the card's presence — the verdict
+  // only chooses which line to print and which colour to print it in. A closed
+  // verdict is a warning on a proposal that stays exactly as votable as before.
+  const hoursVerdict =
+    proposal.venue != null
+      ? openingHoursAdvisory(proposal.venue.opening_hours, advisoryInstant(proposal), homeTz)
+          .advisory
+      : null;
+
+  const hoursAdvisory = hoursVerdict ? ADVISORY_KEY_BY_VERDICT[hoursVerdict] : null;
 
   useEffect(() => {
     if (hoursUnknown) trackOpeningHoursWarningShown(false);
@@ -132,10 +177,16 @@ export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCard
               {proposal.venue.address}
             </Text>
           )}
-          {/* ★ ABSENCE OF HOURS IS NOT "CLOSED" (E9). */}
-          {hoursUnknown && (
-            <Text variant="caption" color={theme.textFaint}>
-              {t('proposals.card.hoursUnknown')}
+          {/* ★ ABSENCE OF HOURS IS NOT "CLOSED" (E9).
+              The advisory resolves `null` to «نامشخص» rather than to a blank
+              line, which would read as "open". */}
+          {hoursAdvisory && (
+            <Text
+              variant="caption"
+              color={hoursVerdict === 'closed' ? theme.warning : theme.textFaint}
+              testID={testID ? `${testID}-hours-advisory` : undefined}
+            >
+              {t(hoursAdvisory)}
             </Text>
           )}
         </View>
@@ -168,6 +219,26 @@ export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCard
           <Text variant="caption" color={theme.textFaint}>
             {t('proposals.status.WITHDRAWN')}
           </Text>
+        )}
+
+        {/* ★ COMMENTS ARE AN AFFORDANCE, NOT A GATE.
+            Opening the sheet is optional and never required to vote, propose or
+            see the decision — that is the P14 constraint, and the reason this is
+            a plain button on the card rather than a step in a flow. */}
+        {onOpenComments && (
+          <Pressy
+            onPress={onOpenComments}
+            haptic="light"
+            accessibilityRole="button"
+            accessibilityLabel={t('comments.open')}
+            testID={testID ? `${testID}-comments` : undefined}
+          >
+            <Text variant="caption" color={theme.textMuted}>
+              {typeof commentCount === 'number' && commentCount > 0
+                ? t('comments.count', { count: commentCount })
+                : t('comments.action')}
+            </Text>
+          </Pressy>
         )}
       </View>
     </Card>

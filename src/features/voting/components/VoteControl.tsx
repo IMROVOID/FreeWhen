@@ -41,6 +41,19 @@ export interface VoteControlProps {
   pending?: boolean;
   /** Show the one-time "what maybe means" line. */
   showHelper?: boolean;
+  /**
+   * Whether the caller has vetoed this proposal (FR-2.17).
+   *
+   * ★ A VETO IS A SECOND, DELIBERATE ACT (OQ-2.2).
+   *
+   * Tapping `no` is a preference; vetoing is a hard exclusion that removes the
+   * venue for the whole group. The two are separate controls so that a casual
+   * `no` cannot silently eliminate an option — which is exactly the failure
+   * conflating them produces.
+   */
+  veto?: boolean;
+  /** Toggles the veto. Absent means the affordance is not offered at all. */
+  onToggleVeto?: () => void;
   testID?: string;
 }
 
@@ -50,10 +63,14 @@ export function VoteControl({
   disabled = false,
   pending = false,
   showHelper = false,
+  veto = false,
+  onToggleVeto,
   testID,
 }: VoteControlProps) {
   const { t: theme } = useTheme();
   const { t } = useTranslation();
+
+  const busy = disabled || pending;
 
   return (
     <View testID={testID} style={styles.container}>
@@ -115,6 +132,46 @@ export function VoteControl({
           {t('voting.maybeHelper')}
         </Text>
       )}
+
+      {/* ★ THE VETO IS OFFERED ONLY ONCE `no` IS THE ANSWER (OQ-2.2).
+
+          It is not a fourth vote — it is a property OF the no. Offering it
+          beside "yes" would invite a veto from someone who is happy to go, and
+          the affordance's whole job is to make the exclusion deliberate. */}
+      {onToggleVeto && current === 'no' && (
+        <Pressy
+          onPress={busy ? undefined : onToggleVeto}
+          disabled={busy}
+          haptic={veto ? 'light' : 'medium'}
+          testID={testID ? `${testID}-veto` : undefined}
+          accessibilityRole="switch"
+          accessibilityLabel={t('dealbreaker.veto')}
+          accessibilityHint={t('dealbreaker.vetoHint')}
+          accessibilityState={{ checked: veto, disabled: busy }}
+          style={styles.vetoRow}
+        >
+          <View
+            style={[
+              styles.vetoPill,
+              {
+                backgroundColor: veto ? theme.danger : theme.surface2,
+                borderColor: veto ? theme.text : theme.line,
+              },
+            ]}
+          >
+            <Text variant="caption" color={veto ? theme.onPrimary : theme.text} align="center">
+              {veto ? t('dealbreaker.vetoOn') : t('dealbreaker.veto')}
+            </Text>
+          </View>
+        </Pressy>
+      )}
+
+      {/* Why the veto matters, said once, in the place it can be read. */}
+      {onToggleVeto && current === 'no' && (
+        <Text variant="caption" color={theme.textFaint} testID={testID ? `${testID}-veto-hint` : undefined}>
+          {t('dealbreaker.vetoHint')}
+        </Text>
+      )}
     </View>
   );
 }
@@ -140,6 +197,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: space[3],
+    paddingVertical: space[2],
+  },
+  vetoRow: {
+    alignSelf: 'flex-start',
+  },
+  vetoPill: {
+    minHeight: size.buttonMedium,
+    borderRadius: radius.pill,
+    borderWidth: border.strong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space[4],
     paddingVertical: space[2],
   },
 });

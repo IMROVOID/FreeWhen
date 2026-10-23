@@ -340,6 +340,14 @@
     "deselect": "اضافه نکن",
     "weekdayResolved": "«{{weekday}}» به {{date}} رسید — تأیید کنید",
     "providerDisclosure": "فقط همین متن و بازهٔ رویداد فرستاده می‌شود؛ نام و مکان کسی فرستاده نمی‌شود.",
+    "summary": "{{yes}} نفر موافق، {{no}} نفر مخالف. {{leaderLine}}{{outstandingLine}}{{accessibilityLine}}",
+    "summaryNoLeader": "هنوز پیشنهادی جلو نیست.",
+    "summaryLeader": "پیشنهاد «{{title}}» جلو است.",
+    "summaryOutstanding_one": "{{name}} هنوز رأی نداده است.",
+    "summaryOutstanding_other": "{{name}} هنوز رأی نداده‌اند.",
+    "summaryAccessibility_one": "یک مورد دسترسی تأیید نشده وجود دارد.",
+    "summaryAccessibility_other": "{{count}} مورد دسترسی تأیید نشده وجود دارد.",
+    "summaryTemplateNote": "این خلاصه بدون هوش مصنوعی و از روی اعداد ساخته شده است.",
     "validation": {
       "textTooLong": "متن حداکثر ۴۰۰۰ نویسه است",
       "textRequired": "متنی برای بررسی وارد کنید"
@@ -362,6 +370,52 @@
       "reasonRequired": "دلیل بازگشایی را بنویسید (حداقل ۳ نویسه)",
       "reasonTooLong": "دلیل حداکثر ۳۰۰ نویسه است"
     }
+  },
+  "comments": {
+    "heading": "نظرها",
+    "count": "{{count}} نظر",
+    "empty": "هنوز نظری نیست",
+    "emptyBody": "اگر چیزی هست که باید گفته شود، همین‌جا بگویید.",
+    "action": "نظر",
+    "open": "دیدن نظرها",
+    "placeholder": "نظر شما (حداکثر ۳۰۰ نویسه)",
+    "submit": "ثبت نظر",
+    "submitting": "در حال ثبت…",
+    "delete": "حذف",
+    "deleteConfirmTitle": "این نظر حذف شود؟",
+    "deleteConfirmBody": "حذف برای همه انجام می‌شود و بازگشت‌پذیر نیست.",
+    "deleteConfirmAction": "بله، حذف کن",
+    "cancel": "انصراف",
+    "deleted": "نظر حذف شد.",
+    "loadFailed": "نظرها به‌دست نیامد.",
+    "retry": "تلاش دوباره",
+    "readOnly": "این پیشنهاد لغو شده است؛ نظرها فقط خواندنی است.",
+    "notDecision": "نظرها جای وضعیت تصمیم را نمی‌گیرند؛ وضعیت را بالای همین صفحه ببینید.",
+    "organizerNote": "به‌عنوان برگزارکننده می‌توانید هر نظری را حذف کنید.",
+    "validation": {
+      "bodyRequired": "نظر نمی‌تواند خالی باشد",
+      "bodyTooLong": "نظر حداکثر ۳۰۰ نویسه است",
+      "proposalWithdrawn": "این پیشنهاد لغو شده و نظر تازه نمی‌پذیرد"
+    }
+  },
+  "openingHours": {
+    "advisoryClosed": "این مکان در این ساعت احتمالاً بسته است.",
+    "advisoryUnknown": "نامشخص",
+    "advisoryOpen": "باز است",
+    "advisorySuggested": "پیشنهاد بدهید و همین‌جا بمانید — این هشدار چیزی را مسدود نمی‌کند.",
+    "advisoryClosedRange": "ساعات کاری: {{open}} تا {{close}}"
+  },
+  "dealbreaker": {
+    "veto": "وتوی من",
+    "vetoOn": "وتوی من فعال است",
+    "vetoHint": "با وتو، این گزینه برای همه کنار گذاشته می‌شود — ولی پنهان نمی‌شود.",
+    "vetoedBy": "کنار گذاشته شد — وتوی {{name}}",
+    "vetoed": "وتو شده"
+  },
+  "autoLock": {
+    "autoLocked": "به‌طور خودکار تأیید شد.",
+    "autoLockedBody": "مهلت رأی‌گیری گذشت و پیشنهاد جلو با همین اعداد تأیید شد. اگر درست نیست، برگزارکننده می‌تواند تصمیم را بازگشایی کند.",
+    "autoLockedNoOne": "به‌طور خودکار تأیید شد — هیچ‌کس رأی نداده بود."
   },
   "voting": {
     "yes": "موافقم",

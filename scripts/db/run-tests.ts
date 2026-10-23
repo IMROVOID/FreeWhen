@@ -124,6 +124,23 @@ async function main(): Promise<void> {
     } finally {
       await pool.end();
     }
+  } else {
+    // ★ ALWAYS APPLY PENDING MIGRATIONS, NOT ONLY ON AN EMPTY DATABASE.
+    //
+    // The per-agent database persists across runs, so a database created before
+    // migration 019 existed keeps a schema one migration behind forever — and
+    // the suite then passes against a schema no deployment has. `migrate` is
+    // idempotent (it skips what `schema_migrations` already records), so running
+    // it on every invocation costs one query per migration and closes the gap.
+    const pool = createPool(url);
+    try {
+      const applied = await migrate(pool, { fresh: false });
+      if (applied.length > 0) {
+        console.log(`test:db: applied ${applied.length} pending migration(s)`);
+      }
+    } finally {
+      await pool.end();
+    }
   }
 
   const allFiles = collectTestFiles(TESTS_DIR);
