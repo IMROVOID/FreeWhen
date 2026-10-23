@@ -121,6 +121,7 @@ begin
         'modes', to_jsonb(v_existing.modes),
         'visibility', v_existing.visibility,
         'max_travel_minutes', v_existing.max_travel_minutes,
+        'notifications_muted', v_existing.notifications_muted,
         'has_start_point', exists (
           select 1 from public.start_point where participant_id = v_existing.id
         )
@@ -203,6 +204,7 @@ begin
       'modes', to_jsonb(v_participant.modes),
       'visibility', v_participant.visibility,
       'max_travel_minutes', v_participant.max_travel_minutes,
+      'notifications_muted', v_participant.notifications_muted,
       'has_start_point', false
     ),
     'event', jsonb_build_object(

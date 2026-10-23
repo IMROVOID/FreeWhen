@@ -37,6 +37,7 @@ interface ParticipantRow {
   max_travel_minutes: number;
   modes: string[] | null;
   has_start_point: boolean;
+  notifications_muted: boolean;
 }
 
 /** A timestamp the client can parse. `pg` hands back a `Date`. */
@@ -53,6 +54,7 @@ function toParticipant(row: ParticipantRow): ParticipantSummary {
     max_travel_minutes: row.max_travel_minutes,
     modes: (row.modes ?? []) as ParticipantSummary['modes'],
     visibility: row.visibility,
+    notifications_muted: row.notifications_muted,
   };
 }
 
@@ -148,7 +150,8 @@ export async function createEvent(
          event_id, auth_user_id, display_name, role, is_anonymous
        ) values ($1, $2, $3, 'organizer', $4)
        returning id, event_id, display_name, role, visibility,
-                 max_travel_minutes, modes, false as has_start_point`,
+                 max_travel_minutes, modes, notifications_muted,
+                 false as has_start_point`,
       [eventId, caller.userId, parsed.title.slice(0, 30), caller.isAnonymous],
     );
 

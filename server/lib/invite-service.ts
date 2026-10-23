@@ -55,6 +55,7 @@ interface ResolvePayload {
     visibility: ParticipantSummary['visibility'];
     max_travel_minutes: number;
     has_start_point: boolean;
+    notifications_muted: boolean;
   };
   event?: {
     event_id: string;
@@ -152,6 +153,7 @@ export async function joinViaInvite(
         max_travel_minutes: participant.max_travel_minutes,
         modes: (participant.modes ?? []) as ParticipantSummary['modes'],
         visibility: participant.visibility,
+        notifications_muted: participant.notifications_muted,
       },
       event: {
         event_id: event.event_id,

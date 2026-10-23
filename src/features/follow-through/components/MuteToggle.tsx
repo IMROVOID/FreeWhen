@@ -52,11 +52,13 @@ export function MuteToggle({ eventId, muted, onChange, testID }: MuteToggleProps
           method: 'PATCH',
           userId,
           platform: 'app',
+          // The event is named so `patchParticipantHandler` can resolve WHICH
+          // participant row to write; `notifications_muted` is the one field
+          // that changes. The old `preferences` envelope matched no schema field
+          // and was rejected on every call.
           body: {
-            preferences: {
-              muted_events: next ? 'mute' : 'unmute',
-              event_id: eventId,
-            },
+            event_id: eventId,
+            notifications_muted: next,
           },
         });
       } catch (error) {

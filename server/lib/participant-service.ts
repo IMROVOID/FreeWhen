@@ -144,6 +144,7 @@ export async function patchParticipant(
     max_travel_minutes: number;
     modes: string[] | null;
     has_start_point: boolean;
+    notifications_muted: boolean;
   }>(
     `update participant set
        display_name       = coalesce($2, display_name),
@@ -151,10 +152,11 @@ export async function patchParticipant(
        has_car            = coalesce($4, has_car),
        max_travel_minutes = coalesce($5, max_travel_minutes),
        access_needs       = coalesce($6::jsonb, access_needs),
-       visibility         = coalesce($7, visibility)
+       visibility         = coalesce($7, visibility),
+       notifications_muted = coalesce($8, notifications_muted)
      where id = $1
      returning id, event_id, display_name, role, visibility,
-               max_travel_minutes, modes,
+               max_travel_minutes, modes, notifications_muted,
                exists (select 1 from start_point sp where sp.participant_id = participant.id) as has_start_point`,
     [
       member.id,
@@ -164,6 +166,7 @@ export async function patchParticipant(
       parsed.max_travel_minutes ?? null,
       parsed.access_needs ? JSON.stringify(parsed.access_needs) : null,
       parsed.visibility ?? null,
+      parsed.notifications_muted ?? null,
     ],
   );
 
@@ -181,6 +184,7 @@ export async function patchParticipant(
       max_travel_minutes: row.max_travel_minutes,
       modes: (row.modes ?? []) as ParticipantSummary['modes'],
       visibility: row.visibility,
+      notifications_muted: row.notifications_muted,
     },
   };
 }
