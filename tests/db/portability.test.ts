@@ -35,7 +35,7 @@
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 
@@ -843,7 +843,14 @@ describe('portability', { concurrency: false }, () => {
       // A guard against the path helpers drifting: a migration applied to
       // the wrong tree is the failure mode the whole `paths.ts` module
       // exists to prevent.
-      assert.ok(PROJECT_ROOT.endsWith('FreeWhen'));
+      //
+      // ★ ASSERT THE INVARIANT, NOT THE DIRECTORY'S NAME. The root is
+      // whatever checkout this is — the main clone ends in `FreeWhen`, but a
+      // git worktree ends in its branch (`.worktrees/14-p1-backlog`). What
+      // must hold in both is that the root is the directory that CONTAINS
+      // the migrations and that `paths.ts` derived them from itself.
+      assert.ok(existsSync(join(PROJECT_ROOT, 'package.json')));
+      assert.ok(existsSync(join(PROJECT_ROOT, 'migrations')));
       assert.ok(MIGRATIONS_DIR.startsWith(PROJECT_ROOT));
     });
   });
