@@ -27,6 +27,10 @@ import { Text } from '@/src/components/ui/Text';
 import { formatDate } from '@/src/lib/format';
 import { toPersianDigits } from '@/src/lib/jalali';
 import { trackOpeningHoursWarningShown } from '@/src/features/proposals/services/analytics';
+import {
+  ADVISORY_KEY_BY_VERDICT,
+  openingHoursAdvisory,
+} from '@/src/features/proposals/services/opening-hours';
 import { endsNextDay, formatLocalTime } from '@/src/features/proposals/services/slot-time';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -44,6 +48,22 @@ export interface ProposalCardProps {
 /** The digits rule: Persian numerals in `fa`, Latin in `en` (AC-3.1.1). */
 function localiseDigits(value: string, language: string): string {
   return language === 'en' ? value : toPersianDigits(value);
+}
+
+/**
+ * The instant the hours advisory is computed at.
+ *
+ * A timed proposal is checked at its own start — that is the moment the group
+ * cares about. A place-only proposal has no start, so `now` is the honest
+ * question ("is it open if we went today?"), and `openingHoursAdvisory` treats
+ * an unparseable start the same way.
+ */
+function advisoryInstant(proposal: Proposal): Date {
+  if (proposal.start_utc && Number.isFinite(Date.parse(proposal.start_utc))) {
+    return new Date(proposal.start_utc);
+  }
+
+  return new Date();
 }
 
 export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCardProps) {
@@ -66,6 +86,19 @@ export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCard
 
   // Absence of hours is a data-quality signal, so it is measured when shown.
   const hoursUnknown = proposal.venue != null && proposal.venue.opening_hours == null;
+
+  // ★ THE ADVISORY REPORTS; IT NEVER REFUSES (AC-3.3.1).
+  //
+  // Nothing below gates a button, a vote or the card's presence — the verdict
+  // only chooses which line to print and which colour to print it in. A closed
+  // verdict is a warning on a proposal that stays exactly as votable as before.
+  const hoursVerdict =
+    proposal.venue != null
+      ? openingHoursAdvisory(proposal.venue.opening_hours, advisoryInstant(proposal), homeTz)
+          .advisory
+      : null;
+
+  const hoursAdvisory = hoursVerdict ? ADVISORY_KEY_BY_VERDICT[hoursVerdict] : null;
 
   useEffect(() => {
     if (hoursUnknown) trackOpeningHoursWarningShown(false);
@@ -132,10 +165,16 @@ export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCard
               {proposal.venue.address}
             </Text>
           )}
-          {/* ★ ABSENCE OF HOURS IS NOT "CLOSED" (E9). */}
-          {hoursUnknown && (
-            <Text variant="caption" color={theme.textFaint}>
-              {t('proposals.card.hoursUnknown')}
+          {/* ★ ABSENCE OF HOURS IS NOT "CLOSED" (E9).
+              The advisory resolves `null` to «نامشخص» rather than to a blank
+              line, which would read as "open". */}
+          {hoursAdvisory && (
+            <Text
+              variant="caption"
+              color={hoursVerdict === 'closed' ? theme.warning : theme.textFaint}
+              testID={testID ? `${testID}-hours-advisory` : undefined}
+            >
+              {t(hoursAdvisory)}
             </Text>
           )}
         </View>

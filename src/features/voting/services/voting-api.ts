@@ -59,6 +59,8 @@ export interface DecisionStatusResponse {
   proposals: Array<{ proposal: Proposal; tally: WireTally }>;
   participants: WireParticipant[];
   myVotes: Record<string, VoteValue>;
+  /** The proposal ids the caller has vetoed (FR-2.17), always a subset of `myVotes`. */
+  myDealbreakers: string[];
   me: WireParticipant;
   decisions: Partial<Record<DecisionAxis, WireDecision>>;
   event: {
@@ -97,18 +99,27 @@ export interface CastVoteResponse {
  * which is exactly what the server's upsert does. A `POST` would suggest a
  * second call creates a second vote, and a client that retried on a timeout
  * would be relying on the constraint rather than on the verb.
+ *
+ * ★ THE DEALBREAKER FLAG TRAVELS WITH THE VOTE, AND DEFAULTS TO `false`.
+ *
+ * It is sent explicitly rather than omitted when false, because the server's
+ * upsert writes both columns: an omitted flag means "clear the veto", which is
+ * only correct if the client always says what it means. A caller that changes a
+ * vetoed `no` to `yes` without passing the flag has its veto cleared, and the
+ * server does that instead of keeping a flag that no longer matches the value.
  */
 export async function putVote(
   proposalId: string,
   value: VoteValue,
   userId: string | null,
-  options: { openedAtIso?: string } = {},
+  options: { openedAtIso?: string; isDealbreaker?: boolean } = {},
 ): Promise<CastVoteResponse> {
   const { data } = await apiRequest<CastVoteResponse>(`/api/proposals/${proposalId}/vote`, {
     method: 'PUT',
     userId,
     body: {
       value,
+      is_dealbreaker: options.isDealbreaker ?? false,
       ...(options.openedAtIso ? { opened_at: options.openedAtIso } : {}),
     },
   });

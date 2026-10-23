@@ -309,7 +309,12 @@
     "emptyBody": "Add the first time range.",
     "yourLocalTime": "Your local time",
     "endsNextDay": "Ends the next day",
-    "hoursWarning": "May be closed at this hour"
+    "hoursWarning": "May be closed at this hour",
+    "advisoryClosed": "This place is probably closed at this hour.",
+    "advisoryUnknown": "Unknown",
+    "advisoryOpen": "Open",
+    "advisorySuggested": "Suggest it anyway — this warning does not block anything.",
+    "advisoryClosedRange": "Opening hours: {{open}} to {{close}}"
   },
   "availability": {
     "heading": "Availability",

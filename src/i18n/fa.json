@@ -309,7 +309,12 @@
     "emptyBody": "اولین بازهٔ زمانی را اضافه کنید.",
     "yourLocalTime": "به وقت محلی شما",
     "endsNextDay": "پایان در روز بعد",
-    "hoursWarning": "ممکن است در این ساعت بسته باشد"
+    "hoursWarning": "ممکن است در این ساعت بسته باشد",
+    "advisoryClosed": "این مکان در این ساعت احتمالاً بسته است.",
+    "advisoryUnknown": "نامشخص",
+    "advisoryOpen": "باز است",
+    "advisorySuggested": "پیشنهاد بدهید و همین‌جا بمانید — این هشدار چیزی را مسدود نمی‌کند.",
+    "advisoryClosedRange": "ساعات کاری: {{open}} تا {{close}}"
   },
   "availability": {
     "heading": "دسترس‌پذیری",
