@@ -19,7 +19,7 @@
 
 [English](README.md) • [فارسی](README.fa.md)
 
-[Overview](#what-is-freewhen) • [Features](#key-features) • [Quick Start](#quick-start) • [Scoring Lenses](#decision-engine--scoring-lenses) • [Clients](#client-integration) • [Architecture](#architecture--structure) • [Guides](#advanced-guides) • [Development](#development--testing) • [Reviewer Path](#reviewer-quick-start--one-url-two-minutes) • [Runbook](#runbook--building-and-deploying) • [Contributing](#contributing) • [Disclaimer](#disclaimer--legal-notice) • [References](#references--acknowledgements) • [License](#license)
+[Overview](#what-is-freewhen) • [Features](#key-features) • [Guides](#guides) • [Scoring Lenses](#decision-engine--scoring-lenses) • [Clients](#client-integration) • [Tech Stack](#tech-stack) • [Architecture](#architecture--structure) • [Development](#development--testing) • [Reviewer Path](#reviewer-quick-start--one-url-two-minutes) • [Runbook](#runbook--building-and-deploying) • [Contributing](#contributing) • [Disclaimer](#disclaimer--legal-notice) • [References](#references--acknowledgements) • [License](#license)
 
 </div>
 
@@ -27,13 +27,22 @@
 
 - [What is FreeWhen?](#what-is-freewhen)
 - [Key Features](#key-features)
-- [Quick Start](#quick-start)
-  - [Method 1: Local Mobile Development](#method-1-local-mobile-development)
-  - [Method 2: Static Web Export & Preview](#method-2-static-web-export--preview)
-  - [Method 3: Local Backend Services](#method-3-local-backend-services)
-  - [Method 4: Production Deployment](#method-4-production-deployment)
+- [Guides](#guides)
+  - [Guide 1 — Local Development](#guide-1--local-development)
+  - [Guide 2 — Deployment](#guide-2--deployment)
 - [Decision Engine & Scoring Lenses](#decision-engine--scoring-lenses)
 - [Client Integration](#client-integration)
+- [Tech Stack](#tech-stack)
+  - [Languages](#languages)
+  - [Client](#client)
+  - [Server](#server)
+  - [Data & Infrastructure](#data--infrastructure)
+  - [Internationalisation & Localisation](#internationalisation--localisation)
+  - [Typography](#typography)
+  - [Icons & Visuals](#icons--visuals)
+  - [Maps & Routing Providers](#maps--routing-providers)
+  - [Engineering & Quality](#engineering--quality)
+  - [Transports & Runtimes](#transports--runtimes)
 - [Architecture & Structure](#architecture--structure)
 - [Advanced Guides](#advanced-guides)
   - [Fairness Math & Utility Scoring](#fairness-math--utility-scoring)
@@ -55,8 +64,6 @@
 - [Contributing](#contributing)
 - [Known Gaps](#known-gaps)
 - [What is deliberately missing](#what-is-deliberately-missing)
-- [How to run](#how-to-run)
-- [How to deploy](#how-to-deploy)
 - [Disclaimer & Legal Notice](#disclaimer--legal-notice)
 - [References & Acknowledgements](#references--acknowledgements)
 - [License](#license)
@@ -75,8 +82,6 @@ When a group of friends plans an outing, suggestions get lost in chat history, n
 
 > **Note**: FreeWhen supports both a self-hosted **Supabase** backend and a completely standalone **local PostgreSQL + PostgREST** stack (`docker-compose.local.yml`). Switching requires changing a single environment variable (`DATABASE_BACKEND`), with zero client code alterations.
 
-> **Reference**: Specifications and technical blueprints are documented in [`docs/prd/00-MASTER-OVERVIEW.md`](docs/prd/00-MASTER-OVERVIEW.md) and [`docs/prd/10-TECHNICAL-ARCHITECTURE.md`](docs/prd/10-TECHNICAL-ARCHITECTURE.md).
-
 ## Key Features
 
 - **Four Aggregation Lenses**: Explicit, named decision models (**Balanced**, **Fastest**, **Fairest**, **Cheapest**) rooted in social choice theory and Arrow's theorem.
@@ -87,29 +92,37 @@ When a group of friends plans an outing, suggestions get lost in chat history, n
 - **Enforced Security Gates**: Seven pre-commit and pre-deploy automated validation gates (`npm run gate:all`) that block secret leaks, PII logging, unscaled design tokens, and unreviewed permissions.
 - **Zero-Install Review Path**: Static web bundle export (`npm run export:web`) served instantly to any mobile or desktop browser without requiring an app store download.
 
-## Quick Start
+## Guides
 
-### Method 1: Local Mobile Development
+Two guides, each self-contained: **Local Development** to run everything on your
+machine, **Deployment** to ship it. Everything else in this README explains *how
+FreeWhen works*; these two explain *how to run it*.
 
-#### Step 1: Clone and Install Dependencies
+### Guide 1 — Local Development
+
+Run the whole system locally: database, API, and app. No cloud account, no Expo
+account, no build service.
+
+#### Prerequisites
+
+| Requirement | Version | Needed for |
+|---|---|---|
+| **Node.js** | ≥ 22.13 | Everything |
+| **Docker** | any recent | PostgreSQL + PostgREST via Compose |
+| **Java JDK** | 17 | Android builds |
+| **Android Studio** | any recent | Android emulator |
+| **Xcode** | any recent | iOS builds — macOS only |
+
+#### Step 1 — Install and configure
 
 ```bash
 git clone https://github.com/IMROVOID/FreeWhen.git
 cd FreeWhen
 npm install
-```
-
-Prerequisites: **Node.js ≥ 22.13**, **Java JDK 17**, and **Android Studio** (for local Android emulation).
-
-#### Step 2: Configure Environment
-
-Copy the template configuration:
-
-```bash
 cp .env.example .env
 ```
 
-Set the client-facing variables in `.env`:
+Fill in the client-facing variables in `.env`:
 
 ```ini
 EXPO_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
@@ -117,90 +130,213 @@ EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-anon-key
 EXPO_PUBLIC_APP_BASE_URL=http://127.0.0.1:8081
 ```
 
-#### Step 3: Run the Development Server
+Server-only variables (never bundled) are documented in [Environment Variables](#environment-variables).
 
-Start Expo Metro bundler:
+#### Step 2 — Start the database
 
-```bash
-npm start
-```
-
-Launch directly on an Android emulator or device:
+This brings up PostgreSQL 15 and PostgREST 12 in containers, then applies the
+schema and seeds the demo event that `/start` resolves to.
 
 ```bash
-npm run android
+npm run db:local:up           # PostgreSQL + PostgREST via docker-compose
+npm run db:migrate            # additive and idempotent
+npm run db:seed               # the demo event /start reads
 ```
 
-> **Note**: An Expo account is **not required**. FreeWhen builds locally via `npx expo run:android` and does not depend on cloud build services (PRD-10 D2).
+To use a self-hosted Supabase stack instead of the local stack, set
+`DATABASE_BACKEND=supabase`. The API and the client are unchanged either way — see
+[Dual Backend & Realtime Synchronization](#dual-backend--realtime-synchronization).
 
-### Method 2: Static Web Export & Preview
-
-Serve the full web application locally or review the responsive UI:
-
-#### Step 1: Export Static Web Bundle
+#### Step 3 — Start the API
 
 ```bash
-npm run export:web
+npm run server                # the API on 127.0.0.1:8787
 ```
 
-This compiles a clean, static single-page application into `dist/` with native RTL layout and Persian language metadata pre-configured.
-
-#### Step 2: Verify and Audit Bundle
-
-Run the automated web gate to guarantee no secret tokens or server credentials leaked into the bundle:
+Two optional long-lived services, each in its own terminal, for the local backend:
 
 ```bash
-npm run gate:web
+npm run server:auth           # token signing & anonymous auth (port 8789)
+npm run server:realtime       # WebSocket realtime event bridge (port 8788)
 ```
 
-#### Step 3: Serve the Web App
+The realtime bridge is optional: without it the decision screen falls back to a
+10-second poll, which is what every serverless deployment gets anyway.
+
+#### Step 4 — Start the app
 
 ```bash
-npx serve dist -l 8081
+npm start                     # Expo Metro bundler
+npm run android               # or: launch on an emulator / device
 ```
 
-Access the client at `http://localhost:8081`.
-
-### Method 3: Local Backend Services
-
-Run a self-contained local backend without external cloud dependencies using Docker Compose:
-
-#### Step 1: Start PostgreSQL and PostgREST
+For iOS (macOS only):
 
 ```bash
-npm run db:local:up
+npx expo prebuild --platform ios
+npm run ios
 ```
 
-#### Step 2: Apply Migrations and Seed Data
+> **An Expo account is not required.** FreeWhen builds locally via
+> `npx expo run:android` and does not depend on cloud build services.
+
+#### Step 5 — Run the web app locally
+
+The same app exports to a static bundle:
 
 ```bash
-npm run db:migrate
-npm run db:seed
+npm run export:web            # compiles a static SPA into dist/
+npm run gate:web              # audits dist/ for leaked credentials
+npx serve dist -l 8081        # http://localhost:8081
 ```
 
-#### Step 3: Start Local Auth and Realtime Services
+The bundle ships with native RTL layout, Persian metadata and viewport fitting
+already configured.
 
-In separate terminals:
+#### Verify the tree before trusting it
 
 ```bash
-# Terminal 1: Token signing & anonymous auth service (port 8789)
-npm run server:auth
-
-# Terminal 2: WebSocket realtime event bridge (port 8788)
-npm run server:realtime
+npm run typecheck && npm run lint
+npm test                      # unit + component suites
+npm run test:engine           # the engine fairness assertions by name
+npm run test:db               # against a live PostgreSQL
+npm run gate:all              # the seven release gates
 ```
 
-### Method 4: Production Deployment
+> **One trap worth knowing.** `npm install` on Windows can leave `app.json` and the
+> manifest out of sync with the native project, and the installed app then tries to
+> load its JavaScript from Metro. If a device shows *"Unable to load script"*, run
+> `adb reverse tcp:8081 tcp:8081` and start Metro — the app is a development build,
+> not a release one.
 
-Deploy FreeWhen to a self-hosted cloud server or container:
+### Guide 2 — Deployment
 
-1. **Database**: Spin up PostgreSQL 15+ with `migrations/000_portability.sql` through `015_realtime_notify.sql`.
-2. **Reverse Proxy (Caddy / Nginx)**:
-   - Route `/auth/v1/*` to the auth service on port `8789`.
-   - Route `/realtime/v1/*` to the realtime bridge on port `8788`.
-   - Route `/rest/v1/*` to PostgREST.
-   - Serve the exported static bundle `dist/` at the root `/`.
-3. **Environment**: Ensure `DATABASE_BACKEND=local_pg` (or `supabase`) and production API keys for Neshan are loaded.
+One host, one operator, no CI pipeline and no cloud build service — deliberately.
+Every step below is a script, so the procedure is *repeatable* rather than
+*remembered*. See the [Runbook](#runbook--building-and-deploying) for why each
+step is ordered the way it is.
+
+#### Step 1 — Backend
+
+Run the Supabase stack (default) or the plain PostgreSQL + PostgREST peer, selected
+by `DATABASE_BACKEND`. Apply migrations with `npm run db:migrate` — they are
+additive and idempotent.
+
+The API can run as a long-lived Node process (`npm run server`) or on a
+request/response runtime. `server/runtime/README.md` lists every supported calling
+convention and which entry file to deploy; the database transport is chosen by
+`DATABASE_BACKEND` (`pg` over a socket, or `supabase_rest` over HTTPS with no
+socket at all).
+
+#### Step 2 — Build the web artifact
+
+```bash
+EXPO_PUBLIC_DEMO_TOKEN=freewhen-test-invite-token EXPO_PUBLIC_APP_BASE_URL=https://your-host npm run build:web
+```
+
+`scripts/build/export-web.sh` runs *source gates → export → `gate:web` → verify*,
+in that order. Three things are load-bearing:
+
+- **`--clear` is not optional.** A stale `dist/` keeps the previous build's hashed
+  chunks while the new `index.html` references different ones — the page works
+  locally and 404s on the host.
+- **`EXPO_PUBLIC_*` is inlined at export time, not read at runtime.** The demo token
+  must be in the *build shell*, not only on the host. This is exactly why `gate:web`
+  scans the output rather than the source.
+- **`web/` is not merged into `dist/`.** The app's client-side routing would shadow
+  `/dl/` and `/privacy`; they are separate static roots so the two cannot collide.
+
+#### Step 3 — Build the Android APK
+
+```bash
+export FREE_WHEN_RELEASE_STORE_FILE=/secure/freewhen-release.keystore
+export FREE_WHEN_RELEASE_STORE_PASSWORD=…
+npm run build:apk
+```
+
+`scripts/build/build-apk.sh` runs `npx expo prebuild --platform android` then
+`./gradlew assembleRelease`, and copies the result to `web/dl/freewhen.apk`.
+
+##### The keystore
+
+**Store it, and record where.** Generate it once, outside the repository:
+
+```bash
+keytool -genkeypair -v -keystore freewhen-release.keystore   -alias freewhen -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Android refuses an update signed by a different key, with no error message that
+explains why. Lose the file and every future build is a *new app* that cannot be
+installed over the one already on a participant's phone. The build script **fails**
+when `FREE_WHEN_RELEASE_STORE_FILE` is unset rather than producing an unsigned
+artifact that looks like a success.
+
+> **Keystore location for this deployment:** `______________________` (fill in when the host is provisioned; it must not be inside the repository and must not be the only copy).
+
+#### Step 4 — Publish
+
+Caddy serves `dist/` as the app and `web/` as a separate static root, so the
+client-side router cannot shadow `/dl/` or `/privacy`.
+
+```bash
+DEPLOY_HOST=deploy@your-host DEPLOY_BASE_URL=https://your-host EXPO_PUBLIC_DEMO_TOKEN=freewhen-test-invite-token npm run deploy
+```
+
+`scripts/deploy/deploy.sh` runs *gates → export → `gate:web` → rsync → migrate →
+Caddy reload → smoke test*. **The order is the safety property**: moving the
+`rsync` above `gate:web` publishes an artifact that was never scanned, and that is
+the one edit this script must never receive. A test asserts the line ordering.
+
+The smoke test checks every served path *and* every refused one. A refused path
+returning `200` is the direction that matters most — it means `/studio`, a pruned
+service, or a source map is publicly reachable:
+
+```
+/health  /start  /privacy  /dl/  /dl/freewhen.apk  /api/health   → 200
+/studio  /storage/v1/*  /functions/v1/*  *.map                    → 404
+```
+
+#### Step 5 — Verify `/start`
+
+Open the deployed URL: the ranked list, the lens switch, a venue's per-person
+breakdown, the confirm action, and an identical card in a second browser. All of it
+must load with **no account and no install**.
+
+#### Rollback
+
+| Scenario | Action | Time |
+|---|---|---|
+| App bug shipped | Rebuild the APK, replace `/dl/freewhen.apk` | minutes |
+| **Web bug** | Re-export (`--clear`), rsync `dist/` | **minutes, no review** |
+| Backend bug | Redeploy the previous image; migrations are additive | minutes |
+| Migration damaged data | Restore the nightly `pg_dump` | ~an hour |
+| Host unreachable | The fallback host; installed APKs keep working | — |
+
+The local-build path **is** the rollback strategy: a JavaScript-only fix reaches a
+reviewer the same day, with no APK rebuild.
+
+> **Nightly backup:** `pg_dump` to a second location. The demo data is small; a lost
+> database mid-testing is recoverable in minutes.
+
+#### Analytics
+
+Self-hosted into the `analytics_event` table. **No third-party analytics SaaS** —
+reachability from Iran is unverified, and a monitoring endpoint that blocks a
+request is worse than no monitoring at all.
+
+```bash
+npm run db:query -- "select name, count(*) from analytics_event group by name"
+```
+
+The funnel (`server/lib/analytics.ts`) records seven steps:
+`invite_link_opened` → `guest_joined` → `start_point_set` → `proposal_created` →
+`vote_cast` → `decision_confirmed` → `rsvp_changed`. Steps 2 → 5 are the
+acquisition funnel.
+
+Redaction is two layers, on purpose: `track()` runs every payload through
+`redactObject()`, and a database trigger rejects an INSERT whose props carry a
+coordinate-shaped **key**. One layer holds only as long as every future writer
+remembers it.
 
 ## Decision Engine & Scoring Lenses
 
@@ -286,6 +422,118 @@ FreeWhen registers the custom scheme `freewhen://` and handles universal web lin
 | `freewhen://event/:id` | `app/event/[id].tsx` | Direct navigation to an active event dashboard. |
 
 </details>
+
+## Tech Stack
+
+Everything FreeWhen is built from, with the version this repository pins.
+
+### Languages
+
+| Language | Where | Notes |
+|---|---|---|
+| **TypeScript** 6.0 | App, API, engine, tests | Strict mode; `noUnusedLocals` and `noUnusedParameters` on |
+| **SQL** (PostgreSQL dialect) | `migrations/`, `server/sql/` | Constraints, RLS policies, triggers, `plpgsql` functions |
+| **PL/pgSQL** | `server/sql/*.sql` | The atomic operations — join, vote, confirm, reopen |
+| **Bash** | `scripts/build/`, `scripts/deploy/` | Build and deploy pipelines |
+| **CSS** | Web export theme | React Native Web styles, no separate stylesheet |
+| **Python** | `scripts/docs/` | Documentation consistency checks only |
+| **HTML** | `web/`, exported `dist/` | Static privacy pages and the app shell |
+
+### Client
+
+| Component | Version | Role |
+|---|---|---|
+| **React** | 19.3 | UI runtime |
+| **React Native** | 0.88 | Native Android / iOS renderer |
+| **React Native Web** | 0.21 | The same components in a browser |
+| **Expo** | 58 | Build tooling, native modules, local builds |
+| **Expo Router** | 58 | File-based routing across all three platforms |
+| **Reanimated** | 4.7 | Gesture-driven animation on the UI thread |
+| **Gesture Handler** | 3.3 | Pan, tap and drag interactions |
+| **Shopify Skia** | 2.5 | Canvas rendering for the map and charts |
+| **Shopify FlashList** | 2.3 | Virtualised lists for the ranked venue views |
+| **Gorhom Bottom Sheet** | 5.2 | Native bottom sheets |
+| **TanStack Query** | 5.9 | Server-state caching and invalidation |
+| **Zustand** | 5.0 | Local client state |
+| **React Hook Form** | 7.9 | Form state and validation |
+| **Zod** | 4.6 | Runtime schema validation, shared with the API |
+| **AsyncStorage** | 2.2 | Persisted local settings |
+
+### Server
+
+| Component | Version | Role |
+|---|---|---|
+| **Node.js** | ≥ 22.13 | The long-lived API process |
+| **node:http** | built-in | The API listener — no framework |
+| **pg** | 8.23 | PostgreSQL driver, pooled |
+| **ws** | 8.22 | WebSocket server for the realtime bridge |
+| **tsx** | 4.20 | Runs TypeScript directly in dev and scripts |
+
+### Data & Infrastructure
+
+| Component | Version | Role |
+|---|---|---|
+| **PostgreSQL** | 15 | Primary database — schema, RLS, triggers |
+| **PostgREST** | 12.2 | REST surface over the same schema |
+| **Docker Compose** | any recent | Local and deployable container stacks |
+| **Caddy** | any recent | Reverse proxy and TLS |
+
+### Internationalisation & Localisation
+
+| Component | Version | Role |
+|---|---|---|
+| **i18next** | 26.5 | Translation runtime |
+| **react-i18next** | 17.1 | React bindings |
+| **jalaali-js** | 2.0 | Solar Hijri (Jalali) calendar conversion |
+| **Intl** | built-in | Number, date and relative-time formatting |
+
+### Typography
+
+Two families, bundled locally rather than fetched at runtime:
+
+| Family | Weights | Script |
+|---|---|---|
+| **Plus Jakarta Sans** | 400 / 500 / 600 / 700 / 800 | Latin |
+| **Vazirmatn** | 400 / 500 / 600 / 700 / 800, plus Persian-digit variants | Persian |
+
+One family name is registered per weight and selected through the `weight` prop,
+because Android does not reliably map `fontWeight` to custom fonts.
+
+### Icons & Visuals
+
+| Component | Version | Role |
+|---|---|---|
+| **Phosphor Icons** (`phosphor-react-native`) | 2.3 | The icon set, tree-shaken per icon |
+| **Design tokens** | in-repo | Colours, radii, spacing, durations — enforced by a gate |
+
+### Maps & Routing Providers
+
+| Provider | Role | Fallback order |
+|---|---|---|
+| **Neshan** (Matrix) | Travel-time matrix for Iranian geography | 1 |
+| **Neshan** (Direction) | Point-to-point routing when the matrix fails | 2 |
+| **OpenRouteService** | Open-source routing engine | 3 |
+| **Haversine** | Straight-line distance, computed locally | 4 |
+| **Mapbox** | Base tiles for the native map | — |
+
+### Engineering & Quality
+
+| Component | Version | Role |
+|---|---|---|
+| **Node test runner** (`node:test`) | built-in | Every test suite — no Jest, no Vitest |
+| **ESLint** | 9.36 | Linting |
+| **TypeScript compiler** | 6.0 | Type checking in CI-less gates |
+| **Seven release gates** | in-repo | Secrets, location, engine purity, logs, design tokens, i18n parity, web bundle |
+
+### Transports & Runtimes
+
+The API is a pure `Request => Response` function, so the same code serves every
+target below. Two axes are configuration, not code:
+
+| Axis | Options |
+|---|---|
+| **Database transport** | `pg` over a TCP socket, or PostgREST over HTTPS (no socket) |
+| **Runtime edge** | Long-lived Node listener, or any request/response convention — see [`server/runtime/README.md`](server/runtime/README.md) |
 
 ## Architecture & Structure
 
@@ -387,11 +635,9 @@ FreeWhen/
 │   │   ├── shared.ts             # Gate runner utilities
 │   │   └── web.ts                # Web dist leakage audit gate
 │   ├── db/                       # Database migration and seed runners
-│   ├── docs/                     # Documentation tools & validators
 │   ├── run-engine-tests.ts       # Engine-specific test runner
 │   └── run-tests.ts              # Project test runner (400+ tests)
 ├── tests/                        # Automated test suites
-├── docs/                         # Specification & PRD archive (PRD-00..PRD-18)
 ├── assets/                       # Static app icons, splash images & fonts
 ├── docker-compose.local.yml      # Local Postgres & PostgREST stack
 ├── app.json                      # Expo app configuration
@@ -564,7 +810,7 @@ The last row is a design decision, not a defect: the map degrades on web by desi
 
 ## Runbook — Building and Deploying
 
-Everything below runs on the operator's machine. There is **no CI pipeline and no EAS cloud build**, deliberately (PRD-13 §3, AC-10.1.1): one host, one operator, one deploy per day at most. The scripts exist so a manual step is *repeatable* rather than *remembered*.
+Everything below runs on the operator's machine. There is **no CI pipeline and no cloud build service**, deliberately: one host, one operator, one deploy per day at most. The scripts exist so a manual step is *repeatable* rather than *remembered*.
 
 ### The seven release gates
 
@@ -663,7 +909,7 @@ Self-hosted into the `analytics_event` table (migration `017_analytics.sql`). **
 npm run db:query -- "select name, count(*) from analytics_event group by name"
 ```
 
-The funnel (`server/lib/analytics.ts`) records the seven steps from PRD-12 §8.1: `invite_link_opened` → `guest_joined` → `start_point_set` → `proposal_created` → `vote_cast` → `decision_confirmed` → `rsvp_changed`. Step 2 → 5 is the acquisition funnel.
+The funnel (`server/lib/analytics.ts`) records seven steps: `invite_link_opened` → `guest_joined` → `start_point_set` → `proposal_created` → `vote_cast` → `decision_confirmed` → `rsvp_changed`. Step 2 → 5 is the acquisition funnel.
 
 Redaction is two layers, on purpose: `track()` runs every payload through `redactObject()`, and a database trigger rejects an INSERT whose props carry a coordinate-shaped **key**. One layer holds only as long as every future writer remembers it.
 
@@ -702,14 +948,14 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 | **G-1** | **No identity verification for guests.** The invite link *is* the credential. | Catastrophic if a link goes public | Acceptable for invite-only friend groups; expiry, revocation and rate limiting are the mitigations | Any public or semi-public launch |
 | **G-2** | **No block/report between participants.** Apple §1.2 requires blocking for UGC apps. | **Compliance risk** | No chat or free-text sharing between participants exists at MVP scope. Comments are proposal-scoped plain text with organizer deletion. | **Becomes mandatory the moment chat or user profiles are added** |
 | **G-3** | **No screenshot protection.** | Unpreventable | Structurally impossible to prevent | Documented in the in-app privacy notice |
-| **G-4** | **No age verification.** | Low | A documented decision (PRD-08 §9.1); the listing states 18+ | If the user base skews young |
-| **G-5** | **Organizer identity is device-scoped.** Losing the device loses organizer control. | Event can strand | Ownership continuity (PRD-01 FR-1.31) prevents the worst case | P2 account system |
-| **G-6** | **No CAPTCHA on anonymous sign-in** if shipped before FR-8.39. | DB-size abuse | Time | If abuse is observed |
+| **G-4** | **No age verification.** | Low | A documented decision; the listing states 18+ | If the user base skews young |
+| **G-5** | **Organizer identity is device-scoped.** Losing the device loses organizer control. | Event can strand | Ownership continuity prevents the worst case | Account system |
+| **G-6** | **No CAPTCHA on anonymous sign-in.** | DB-size abuse | Time | If abuse is observed |
 | **G-7** | **The browser has no 3D map.** The ranked list is complete; the map is Android-only. | Low — the list carries the decision | No web build of the native map renderer; a web map is a separate renderer with separate costs (OQ-18.3, deferred to P2) | When a reviewer's confusion is traced to the missing map rather than to the ranking |
 
 **G-2 is the most important entry.** It is a conscious compliance risk that must be revisited before any messaging feature ships.
 
-**G-7 is a design decision, not an oversight.** PRD-18 D18-1 shipped the app as the web artifact precisely so the ranked list, the lens switch and the confirm action work without an install. The 3D map is the one screen that could not come with it, and every fact the map would show — each venue, its reason, its travel estimate, the participant legend — is on `/event/<id>` in the browser. Leaving it unwritten would turn an accepted trade into an apparent defect, which is why it is stated here and on `/start`.
+**G-7 is a design decision, not an oversight.** The app ships as a web artifact precisely so the ranked list, the lens switch and the confirm action work without an install. The 3D map is the one screen that could not come with it, and every fact the map would show — each venue, its reason, its travel estimate, the participant legend — is on `/event/<id>` in the browser. Leaving it unwritten would turn an accepted trade into an apparent defect, which is why it is stated here and on `/start`.
 
 The in-app privacy notice (`assets/privacy/{fa,en}.md`, bundled for offline reading) states these limitations to the user in both languages, so the disclosure does not depend on someone reading this repository.
 
@@ -727,64 +973,6 @@ The table above is the register. This section is the prose version — the three
 - **iOS is out of scope.** No Apple Developer account is obtainable by Iran residents. The web invite page covers iPhone users for viewing and joining.
 
 **What is claimed, and what is not.** FreeWhen is *fair meeting-point decisions built for Iran* — the locale is the moat: Persian RTL, Jalali dates, Iranian geography, local routing. Cost and accessibility are treated as fairness dimensions, and every figure is labelled with how certain it is. What is **not** claimed is that fairness in group decision-making was invented here: at least one comparable product already publishes an average-time-plus-gap figure, and another explicitly claims a fair meeting point. Anyone who has seen those would discount the product for the claim, correctly.
-
-## How to run
-
-**Prerequisites:** Node.js ≥ 22.13, Java JDK 17, Android Studio (for the emulator). No Expo account and no EAS build are required — the build path is local and deliberately so.
-
-```bash
-npm install
-cp .env.example .env          # fill in the client and server variables
-```
-
-The database and API, in three terminals:
-
-```bash
-npm run db:local:up           # PostgreSQL + PostgREST via docker-compose
-npm run db:migrate            # 18 migrations, idempotent
-npm run db:seed               # seeds the demo event /start resolves to
-npm run server                # the API on 127.0.0.1:8787
-```
-
-The app itself:
-
-```bash
-npx expo start                # then press "a", or:
-npx expo run:android          # a local native build onto a running emulator
-```
-
-To verify the tree before trusting it:
-
-```bash
-npm run typecheck && npm run lint
-npm test                      # unit + component suites
-npm run test:db               # against a live PostgreSQL
-npm run test:engine           # the 18 TC-n assertions by name
-npm run gate:all              # the seven release gates
-```
-
-> **One trap worth knowing.** `npm install` on Windows can leave `app.json` and the manifest out of sync with the native project, and the installed app then tries to load its JavaScript from Metro. If a device shows *"Unable to load script"*, run `adb reverse tcp:8081 tcp:8081` and start Metro — the app is a development build, not a release one.
-
-## How to deploy
-
-The deployment is one host, one operator, no CI. Every step below is a script so the procedure is *repeatable* rather than *remembered* (see [Runbook](#runbook--building-and-deploying) for the reasoning).
-
-1. **Backend.** Run the Supabase stack (default) or the plain PostgreSQL + PostgREST peer via `DATABASE_BACKEND`. Apply migrations with `npm run db:migrate` — they are additive and idempotent.
-2. **Web artifact.** `npm run build:web` runs *source gates → export → `gate:web` → verify*. `EXPO_PUBLIC_*` values are inlined at export time, so the demo token must be in the **build shell**, not only on the host.
-3. **APK.** `npm run build:apk` runs `expo prebuild` then `gradlew assembleRelease`, and copies the artifact to `web/dl/freewhen.apk`. It **fails** rather than producing an unsigned APK when `FREE_WHEN_RELEASE_STORE_FILE` is unset.
-4. **Publish.** Caddy serves `dist/` as the app and `web/` as a separate static root, so the client-side router cannot shadow `/dl/` or `/privacy`. `npm run deploy` runs gates → export → `gate:web` → rsync → migrate → Caddy reload → smoke test.
-5. **Verify `/start`.** Open the deployed URL: the ranked list, the lens switch, a venue's per-person breakdown, the confirm action, and an identical card in a second browser. All of it must load with **no account and no install**.
-
-**Keystore.** Generate once, store it outside the repository, and **record where**:
-
-```bash
-keytool -genkeypair -v -keystore freewhen-release.keystore \
-  -alias freewhen -keyalg RSA -keysize 2048 -validity 10000
-```
-
-Android refuses an update signed by a different key, and the failure gives no useful message. Losing the file means every future build is a *new app* that cannot install over the one already on a participant's phone. Keep more than one copy.
-
-> **Keystore location for this deployment:** `______________________` — fill in when the host is provisioned. It must not be inside the repository and must not be the only copy.
 
 ## Disclaimer & Legal Notice
 
