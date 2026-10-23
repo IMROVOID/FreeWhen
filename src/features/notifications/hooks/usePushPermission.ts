@@ -147,6 +147,14 @@ function toStatus(raw: string): PermissionStatus {
 }
 
 /**
+ * Whether a completed vote should now ask for push permission (FR-6.14).
+ *
+ * Defined in `services/push-timing` — no React Native import — so the rule is
+ * testable under Node. Re-exported here so call sites keep one import.
+ */
+export { shouldRequestAfterVote } from '../services/push-timing';
+
+/**
  * Whether the in-app badge should carry the signal.
  *
  * True whenever push cannot be relied on — denied, unavailable, or never asked.

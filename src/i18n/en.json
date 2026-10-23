@@ -728,6 +728,11 @@
     },
     "errors": {
       "muteFailed": "Your notification setting was not saved."
+    },
+    "muteList": {
+      "section": "Notifications",
+      "empty": "You are not in any events yet.",
+      "hint": "Choose which events may notify you."
     }
   },
   "rsvp": {
@@ -874,5 +879,23 @@
       "apkDownload": "Open the download page",
       "backToApp": "Open the app"
     }
+  },
+  "chat": {
+    "title": "In-room chat",
+    "open": "Chat",
+    "placeholder": "Write a message…",
+    "send": "Send",
+    "empty": "No messages yet. Say hello.",
+    "sendFailed": "Your message was not sent.",
+    "loadFailed": "The messages could not be loaded.",
+    "remaining": "{{count}} characters left",
+    "report": "Report",
+    "reportReason": "Explain (optional)",
+    "reportSubmit": "Submit report",
+    "reportDone": "Report submitted. Thank you.",
+    "reportFailed": "The report was not submitted.",
+    "cancel": "Cancel",
+    "notParticipant": "You are not in this event.",
+    "hint": "Messages are visible to everyone in this event."
   }
 }

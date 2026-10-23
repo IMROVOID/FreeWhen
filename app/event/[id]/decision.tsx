@@ -47,6 +47,7 @@ import { TallyBar } from '@/src/features/voting/components/TallyBar';
 import { VoteControl } from '@/src/features/voting/components/VoteControl';
 import { useDecisionStatus } from '@/src/features/voting/hooks/useDecisionStatus';
 import { useVote } from '@/src/features/voting/hooks/useVote';
+import { shouldRequestAfterVote, usePushPermission } from '@/src/features/notifications/hooks/usePushPermission';
 import { buildDecisionCard } from '@/src/features/voting/services/decision-card';
 import { confirm, planConfirmation } from '@/src/features/voting/services/confirm';
 import { ReopenSheet } from '@/src/features/voting/components/ReopenSheet';
@@ -78,6 +79,7 @@ import { RunningLateAction } from '@/src/features/follow-through/components/Runn
 import { CantMakeItAction } from '@/src/features/follow-through/components/CantMakeItAction';
 import { SharePlanButton } from '@/src/features/follow-through/components/SharePlanButton';
 import { AddToCalendarButton } from '@/src/features/follow-through/components/AddToCalendarButton';
+import { MuteToggle } from '@/src/features/follow-through/components/MuteToggle';
 import { fetchRsvps, type RsvpState } from '@/src/features/follow-through/services/rsvp';
 import type { ShareablePlan } from '@/src/features/follow-through/services/share-plan';
 
@@ -95,6 +97,25 @@ export default function DecisionScreen() {
 
   const { status, isLoading, errorKey, connection, reload } = useDecisionStatus({ eventId });
 
+  /**
+   * ★ PUSH PERMISSION IS ASKED AFTER THE FIRST VOTE, NEVER AT LAUNCH (FR-6.14).
+   *
+   * The hook reads the current status on mount and does not prompt; only
+   * `requestAfterFirstVote()` asks, and it is called from `onVoted` — the
+   * success branch of a vote — so the prompt arrives at the moment the user has
+   * just shown the app is worth something. The hook's own `ASKED_KEY` guards a
+   * second prompt, so there is deliberately no second check here.
+   */
+  const { requestAfterFirstVote, hasAsked } = usePushPermission();
+
+  const onVoted = useCallback(
+    ({ isFirstVote }: { proposalId: string; isFirstVote: boolean }) => {
+      if (!shouldRequestAfterVote({ isFirstVote, hasAsked })) return;
+      void requestAfterFirstVote();
+    },
+    [requestAfterFirstVote, hasAsked],
+  );
+
   // A local copy so the optimistic patch has somewhere to land. The hook's own
   // payload stays the source of truth across refetches.
   const [local, setLocal] = useState(status);
@@ -106,6 +127,7 @@ export default function DecisionScreen() {
     status: local,
     setStatus: setLocal,
     reload,
+    onVoted,
   });
 
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -131,6 +153,16 @@ export default function DecisionScreen() {
   // The card's attendee counts read RSVPs by participant id, while the controls
   // work in names. Holding both keeps one fetch serving both consumers.
   const [rsvpsById, setRsvpsById] = useState<Record<string, 'going' | 'maybe' | 'cannot'>>({});
+
+  // ★ THE PER-EVENT MUTE, SEEDED FROM THE SERVER.
+  //
+  // `null` means "not yet known": rendering the switch as off before the payload
+  // arrives would show a muted participant an unmuted switch, and the first tap
+  // would then write a value they never chose.
+  const [mutedHere, setMutedHere] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (local) setMutedHere(local.notifications_muted);
+  }, [local]);
 
   const isConfirmedEvent = local?.event.status === 'CONFIRMED';
 
@@ -445,6 +477,21 @@ export default function DecisionScreen() {
                 onChanged={() => void loadRsvps()}
                 testID="decision-cant-make-it"
               />
+
+              {/* ★ THE PER-EVENT MUTE, OFFERED WHERE THE USER IS IN THE EVENT.
+                  Settings lists every event; here the one they are looking at
+                  is offered where they are already thinking about notifications
+                  — and the hint restates the N4 exception beside the switch.
+                  `mutedHere === null` means the payload has not landed, so the
+                  switch is not rendered rather than rendered as off. */}
+              {mutedHere !== null && (
+                <MuteToggle
+                  eventId={eventId}
+                  muted={mutedHere}
+                  onChange={setMutedHere}
+                  testID="decision-mute"
+                />
+              )}
             </View>
           )}
 

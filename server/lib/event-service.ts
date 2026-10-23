@@ -26,6 +26,7 @@ interface EventRow {
   created_at: Date;
   participant_count: string | number;
   has_pending_vote: boolean;
+  notifications_muted: boolean;
 }
 
 interface ParticipantRow {
@@ -37,6 +38,7 @@ interface ParticipantRow {
   max_travel_minutes: number;
   modes: string[] | null;
   has_start_point: boolean;
+  notifications_muted: boolean;
 }
 
 /** A timestamp the client can parse. `pg` hands back a `Date`. */
@@ -53,6 +55,7 @@ function toParticipant(row: ParticipantRow): ParticipantSummary {
     max_travel_minutes: row.max_travel_minutes,
     modes: (row.modes ?? []) as ParticipantSummary['modes'],
     visibility: row.visibility,
+    notifications_muted: row.notifications_muted,
   };
 }
 
@@ -67,6 +70,7 @@ function toEvent(row: EventRow): EventSummary {
     voting_deadline: iso(row.voting_deadline),
     participant_count: Number(row.participant_count),
     has_pending_vote: row.has_pending_vote,
+    notifications_muted: row.notifications_muted,
     created_at: iso(row.created_at) ?? '',
   };
 }
@@ -100,7 +104,11 @@ const EVENT_SELECT = `
           where v.proposal_id = pr.id
             and v.participant_id = me.id
         )
-    ) as has_pending_vote
+    ) as has_pending_vote,
+    -- The caller's own mute preference (migration 018). Read here so the
+    -- settings screen can render one switch per event without a request each:
+    -- the flag belongs to the (caller, event) pair this row already identifies.
+    me.notifications_muted
   from event e
   join participant me
     on me.event_id = e.id
@@ -148,7 +156,8 @@ export async function createEvent(
          event_id, auth_user_id, display_name, role, is_anonymous
        ) values ($1, $2, $3, 'organizer', $4)
        returning id, event_id, display_name, role, visibility,
-                 max_travel_minutes, modes, false as has_start_point`,
+                 max_travel_minutes, modes, notifications_muted,
+                 false as has_start_point`,
       [eventId, caller.userId, parsed.title.slice(0, 30), caller.isAnonymous],
     );
 

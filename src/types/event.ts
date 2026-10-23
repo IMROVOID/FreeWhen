@@ -214,6 +214,20 @@ export const ParticipantPatchSchema = z
       .optional(),
     access_needs: z.record(z.string(), z.unknown()).optional(),
     visibility: z.enum(VISIBILITIES).optional(),
+    /**
+     * The mute preference (Plan 10 Task 6, FR-6.19).
+     *
+     * ★ A BOOLEAN, NOT THE `preferences` BAG THE CLIENT USED TO SEND.
+     *
+     * `MuteToggle` originally sent
+     * `{ preferences: { muted_events: 'mute' | 'unmute', event_id } }`, which
+     * this schema rejected because no such field existed — so every toggle
+     * silently reverted. The stored form is one participant-scoped flag
+     * (migration 018), and the wire form names it directly: an envelope with a
+     * free-form key inside it invites a second, unvalidated preference behind
+     * the first.
+     */
+    notifications_muted: z.boolean().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: VALIDATION.nameRequired });
 
@@ -232,6 +246,13 @@ export interface EventSummary {
   participant_count: number;
   /** Whether the caller still owes a vote — drives S1's attention badge. */
   has_pending_vote: boolean;
+  /**
+   * The caller's mute preference for THIS event (migration 018, FR-6.19).
+   *
+   * Carried on the summary so the settings screen can render one switch per
+   * event from the list it already fetches, instead of a request per row.
+   */
+  notifications_muted: boolean;
   created_at: string;
 }
 
@@ -244,6 +265,14 @@ export interface ParticipantSummary {
   max_travel_minutes: number;
   modes: TransportModeToken[];
   visibility: 'private' | 'event';
+  /**
+   * The stored mute preference (migration 018, FR-6.19).
+   *
+   * Echoed so a client renders the switch from what was SAVED rather than from
+   * what it hoped: the toggle's optimistic flip is reverted on a rejected write,
+   * and the next read must agree with the server rather than with the tap.
+   */
+  notifications_muted: boolean;
 }
 
 /**

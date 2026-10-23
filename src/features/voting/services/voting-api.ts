@@ -62,6 +62,8 @@ export interface DecisionStatusResponse {
   /** The proposal ids the caller has vetoed (FR-2.17), always a subset of `myVotes`. */
   myDealbreakers: string[];
   me: WireParticipant;
+  /** The caller's stored mute preference for this event (migration 018). */
+  notifications_muted: boolean;
   decisions: Partial<Record<DecisionAxis, WireDecision>>;
   event: {
     id: string;

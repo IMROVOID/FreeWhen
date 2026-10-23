@@ -28,7 +28,7 @@
  */
 
 import { callerIdFrom, isUuid, json, wireError } from '../lib/http';
-import { resolveCaller, type Caller } from '../lib/supabase';
+import { resolveCaller, servicePool, type Caller } from '../lib/supabase';
 
 /** The inventory this phase ships (N1–N6). N7 is Phase 14. */
 export const NOTIFICATION_TYPES = ['N1', 'N2', 'N3', 'N4', 'N5', 'N6'] as const;
@@ -236,8 +236,36 @@ async function callerFrom(request: Request): Promise<Caller | null> {
 
 interface SendBody {
   type?: unknown;
-  muted?: unknown;
   last_sent_at?: unknown;
+}
+
+/**
+ * The caller's stored mute preference for one event.
+ *
+ * ★ THE STORED VALUE WINS, AND THE BODY'S `muted` IS IGNORED.
+ *
+ * This endpoint used to take `muted` as a client-supplied fact
+ * (`body.muted === true`) while nothing stored it. That made the preference a
+ * claim the caller made about itself at send time: a client that never asked,
+ * or one that simply omitted the field, was treated as unmuted regardless of
+ * what the participant had actually chosen — so the toggle appeared to work and
+ * changed nothing.
+ *
+ * `false` when the caller is not a participant, or the event is unknown. Both
+ * are indistinguishable to a caller without the event, and neither may be read
+ * as "this person wants notifications" for anyone else.
+ */
+async function storedMuteFor(
+  caller: Caller,
+  eventId: string,
+): Promise<boolean | null> {
+  const result = await servicePool().query<{ notifications_muted: boolean }>(
+    `select notifications_muted from participant
+      where event_id = $1 and auth_user_id = $2`,
+    [eventId, caller.userId],
+  );
+
+  return result.rows[0]?.notifications_muted ?? null;
 }
 
 /**
@@ -245,10 +273,11 @@ interface SendBody {
  *
  * ★ THE SERVER DECIDES, AND THE DECISION IS DATA.
  *
- * The request carries the facts (mute state, last send); this endpoint applies the
- * gate and answers `send` / `defer` / `skip`. A deferral is reported with the
- * instant it becomes sendable so the client queues it rather than losing it —
- * which is the whole of AC-6.3.1.
+ * The request carries the fact of when this participant was last sent anything;
+ * the mute state is READ FROM THE DATABASE, not taken from the body. This
+ * endpoint applies the gate and answers `send` / `defer` / `skip`. A deferral is
+ * reported with the instant it becomes sendable so the client queues it rather
+ * than losing it — which is the whole of AC-6.3.1.
  */
 export async function notificationsHandler(
   request: Request,
@@ -272,6 +301,11 @@ export async function notificationsHandler(
     return wireError('VALIDATION_FAILED');
   }
 
+  // A caller with no participant row for this event has no preference to honour
+  // and no reason to be told this event's notification state.
+  const muted = await storedMuteFor(caller, eventId);
+  if (muted === null) return wireError('NOT_PARTICIPANT');
+
   const rawLastSent = body.last_sent_at;
   const lastSentAt =
     typeof rawLastSent === 'string' && Number.isFinite(Date.parse(rawLastSent))
@@ -280,7 +314,7 @@ export async function notificationsHandler(
 
   const decision = decideDispatch({
     type: type as NotificationType,
-    muted: body.muted === true,
+    muted,
     lastSentAt,
     nowUtc: new Date(),
   });
