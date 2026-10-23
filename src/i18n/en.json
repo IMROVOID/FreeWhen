@@ -504,7 +504,12 @@
     "wideGeography": "Participants are in different cities; travel comparisons mean different things to each of them.",
     "listOnlyNote": "The map is unavailable. The ranked list is complete and fully usable.",
     "retry": "Try again",
-    "refreshing": "Refreshing…"
+    "refreshing": "Refreshing…",
+    "veto": "My veto",
+    "vetoOn": "My veto is on",
+    "vetoHint": "A veto sets this option aside for everyone — but it stays visible.",
+    "vetoedBy": "Set aside — {{name}}'s veto",
+    "vetoed": "Vetoed"
   },
   "lens": {
     "label": "Comparison view",

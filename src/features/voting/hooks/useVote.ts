@@ -44,6 +44,19 @@ export interface UseVoteOptions {
 export interface UseVoteResult {
   /** Casts or changes a vote on one proposal. */
   cast: (proposalId: string, value: VoteValue) => Promise<void>;
+  /**
+   * Sets or clears the caller's veto on one proposal (FR-2.17).
+   *
+   * ★ A VETO IS WRITTEN AS `no`, ALWAYS.
+   *
+   * There is no "veto without a no": the filter reads the flag and the tally
+   * reads the value, so a veto recorded beside a `yes` would make the two
+   * disagree about what the participant said. Setting a veto therefore writes
+   * `no` + the flag; clearing it keeps the `no` and drops the flag, because the
+   * participant still does not want that venue — they just no longer want to
+   * force the group's hand.
+   */
+  toggleVeto: (proposalId: string, vetoNow: boolean) => Promise<void>;
   /** The proposal currently being written, or `null`. */
   pending: string | null;
   /** A catalogue key for the last failure, cleared on the next attempt. */
@@ -116,40 +129,39 @@ export function useVote({ status, setStatus, reload }: UseVoteOptions): UseVoteR
   // reverts to what the user last SAW, not to the intermediate optimistic state.
   const snapshot = useRef<DecisionStatusResponse | null>(null);
 
-  const cast = useCallback(
-    async (proposalId: string, value: VoteValue) => {
+  /**
+   * The shared write-and-revert body for both mutations.
+   *
+   * Kept in one place so a veto and a vote cannot drift on the two properties
+   * that matter: the optimistic write is applied before the request, and a
+   * failure restores the snapshot AND names itself.
+   */
+  const write = useCallback(
+    async (
+      proposalId: string,
+      value: VoteValue,
+      isDealbreaker: boolean,
+      optimistic: (current: DecisionStatusResponse) => DecisionStatusResponse,
+    ) => {
       setErrorKey(null);
 
-      // ★ SNAPSHOT BEFORE THE OPTIMISTIC WRITE.
       if (status) {
         snapshot.current = status;
-        setStatus(optimisticVote(status, proposalId, value, status.me.display_name));
+        setStatus(optimistic(status));
       }
 
       setPending(proposalId);
 
       try {
         const userId = await getStoredUserId();
-        await putVote(proposalId, value, userId);
+        await putVote(proposalId, value, userId, { isDealbreaker });
 
-        // The server's answer is the authority: it is what the other
-        // participants already see, and it may carry a tally that moved while
-        // this request was in flight.
         await reload();
       } catch (error) {
-        // ★ THE REVERT IS VISIBLE.
-        //
-        // The snapshot goes back first, so the selection the user sees matches
-        // what is stored; the message is the second half of the same promise.
         if (snapshot.current) setStatus(snapshot.current);
 
-        // A specific server refusal names its own reason (a withdrawn
-        // proposal, a confirmed event). A transport failure gets the generic
-        // "reverted, try again", which is true in both cases.
         setErrorKey(
-          error instanceof ApiFailure
-            ? error.messageKey
-            : 'voting.castFailedReverted',
+          error instanceof ApiFailure ? error.messageKey : 'voting.castFailedReverted',
         );
       } finally {
         setPending(null);
@@ -158,7 +170,44 @@ export function useVote({ status, setStatus, reload }: UseVoteOptions): UseVoteR
     [status, setStatus, reload],
   );
 
+  const cast = useCallback(
+    async (proposalId: string, value: VoteValue) => {
+      // ★ CHANGING THE VALUE CLEARS THE VETO.
+      //
+      // A veto only exists on a `no`. Moving the vote to `yes` or `maybe`
+      // without clearing the flag would leave the venue excluded by a
+      // participant who now wants it.
+      await write(proposalId, value, false, (current) => {
+        const patched = optimisticVote(current, proposalId, value, current.me.display_name);
+        return {
+          ...patched,
+          myDealbreakers: patched.myDealbreakers.filter((id) => id !== proposalId),
+        };
+      });
+    },
+    [write],
+  );
+
+  const toggleVeto = useCallback(
+    async (proposalId: string, vetoNow: boolean) => {
+      await write(proposalId, 'no', vetoNow, (current) => {
+        // The vote must be `no` for the flag to mean anything, so this is the
+        // same tally patch a `no` tap makes — expressed through `optimisticVote`
+        // rather than a second copy of it.
+        const patched = optimisticVote(current, proposalId, 'no', current.me.display_name);
+
+        const without = patched.myDealbreakers.filter((id) => id !== proposalId);
+
+        return {
+          ...patched,
+          myDealbreakers: vetoNow ? [...without, proposalId] : without,
+        };
+      });
+    },
+    [write],
+  );
+
   const clearError = useCallback(() => setErrorKey(null), []);
 
-  return { cast, pending, errorKey, clearError };
+  return { cast, toggleVeto, pending, errorKey, clearError };
 }
