@@ -340,6 +340,14 @@
     "deselect": "Leave out",
     "weekdayResolved": "“{{weekday}}” resolved to {{date}} — please confirm",
     "providerDisclosure": "Only this text and the event window are sent; no name and no location.",
+    "summary": "{{yes}} in favour, {{no}} against. {{leaderLine}}{{outstandingLine}}{{accessibilityLine}}",
+    "summaryNoLeader": "No proposal is leading yet.",
+    "summaryLeader": "“{{title}}” is leading.",
+    "summaryOutstanding_one": "{{name}} has not voted yet.",
+    "summaryOutstanding_other": "{{name}} have not voted yet.",
+    "summaryAccessibility_one": "One accessibility check is unconfirmed.",
+    "summaryAccessibility_other": "{{count}} accessibility checks are unconfirmed.",
+    "summaryTemplateNote": "This summary was built from the numbers without any AI.",
     "validation": {
       "textTooLong": "The text is at most 4000 characters",
       "textRequired": "Enter some text to check"
