@@ -309,12 +309,7 @@
     "emptyBody": "Add the first time range.",
     "yourLocalTime": "Your local time",
     "endsNextDay": "Ends the next day",
-    "hoursWarning": "May be closed at this hour",
-    "advisoryClosed": "This place is probably closed at this hour.",
-    "advisoryUnknown": "Unknown",
-    "advisoryOpen": "Open",
-    "advisorySuggested": "Suggest it anyway — this warning does not block anything.",
-    "advisoryClosedRange": "Opening hours: {{open}} to {{close}}"
+    "hoursWarning": "May be closed at this hour"
   },
   "availability": {
     "heading": "Availability",
@@ -367,6 +362,47 @@
       "reasonRequired": "Write the reason for reopening (at least 3 characters)",
       "reasonTooLong": "The reason is at most 300 characters"
     }
+  },
+  "comments": {
+    "heading": "Comments",
+    "count": "{{count}} comments",
+    "empty": "No comments yet",
+    "emptyBody": "If there is something worth saying, say it here.",
+    "action": "Comment",
+    "open": "View comments",
+    "placeholder": "Your comment (up to 300 characters)",
+    "submit": "Post comment",
+    "submitting": "Posting…",
+    "delete": "Delete",
+    "deleteConfirmTitle": "Delete this comment?",
+    "deleteConfirmBody": "It is removed for everyone and cannot be undone.",
+    "deleteConfirmAction": "Yes, delete it",
+    "cancel": "Cancel",
+    "deleted": "Comment deleted.",
+    "loadFailed": "The comments could not be loaded.",
+    "retry": "Try again",
+    "readOnly": "This proposal was withdrawn; its comments are read-only.",
+    "notDecision": "Comments do not replace the decision status — check the top of this screen.",
+    "organizerNote": "As the organizer you can delete any comment.",
+    "validation": {
+      "bodyRequired": "A comment cannot be empty",
+      "bodyTooLong": "A comment is at most 300 characters",
+      "proposalWithdrawn": "This proposal was withdrawn and takes no new comments"
+    }
+  },
+  "openingHours": {
+    "advisoryClosed": "This place is probably closed at this hour.",
+    "advisoryUnknown": "Unknown",
+    "advisoryOpen": "Open",
+    "advisorySuggested": "Suggest it anyway — this warning does not block anything.",
+    "advisoryClosedRange": "Opening hours: {{open}} to {{close}}"
+  },
+  "dealbreaker": {
+    "veto": "My veto",
+    "vetoOn": "My veto is on",
+    "vetoHint": "A veto sets this option aside for everyone — but it stays visible.",
+    "vetoedBy": "Set aside — {{name}}'s veto",
+    "vetoed": "Vetoed"
   },
   "voting": {
     "yes": "I'm in",
@@ -504,12 +540,7 @@
     "wideGeography": "Participants are in different cities; travel comparisons mean different things to each of them.",
     "listOnlyNote": "The map is unavailable. The ranked list is complete and fully usable.",
     "retry": "Try again",
-    "refreshing": "Refreshing…",
-    "veto": "My veto",
-    "vetoOn": "My veto is on",
-    "vetoHint": "A veto sets this option aside for everyone — but it stays visible.",
-    "vetoedBy": "Set aside — {{name}}'s veto",
-    "vetoed": "Vetoed"
+    "refreshing": "Refreshing…"
   },
   "lens": {
     "label": "Comparison view",

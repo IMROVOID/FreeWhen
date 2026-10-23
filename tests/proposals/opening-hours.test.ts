@@ -68,7 +68,7 @@ describe('E9 / TC-7 — absence of hours is unknown, never closed', () => {
   test('the unknown verdict renders the catalogue word, not a blank', () => {
     const key = advisoryKeyForProposal(null, MON_1900_TEHRAN.toISOString(), 'Asia/Tehran');
 
-    assert.equal(key, 'slots.advisoryUnknown');
+    assert.equal(key, 'openingHours.advisoryUnknown');
     // The word itself is asserted in the catalogue test below; here the point
     // is that a key came back at all. A blank string would read as "open".
     assert.ok(key.length > 0);
@@ -102,7 +102,7 @@ describe('AC-3.3.1 — the advisory reports, and never blocks', () => {
     assert.equal(verdict.advisory, 'closed');
     // ★ AC-3.3.1: closed is a STRING TO RENDER, not a refusal. The caller has
     // a catalogue key and no reason to disable anything.
-    assert.equal(ADVISORY_KEY_BY_VERDICT[verdict.advisory], 'slots.advisoryClosed');
+    assert.equal(ADVISORY_KEY_BY_VERDICT[verdict.advisory], 'openingHours.advisoryClosed');
   });
 
   test('a closed verdict carries the hours it checked', () => {
@@ -243,6 +243,6 @@ describe('the catalogue carries the advisory keys', () => {
   test('the unknown word is نامشخص, exactly', () => {
     // AC-3.3.1 / ROADMAP §8.3 name this word. A synonym would be a different
     // product decision, not an implementation detail.
-    assert.equal(fa.slots.advisoryUnknown, 'نامشخص');
+    assert.equal(fa.openingHours.advisoryUnknown, 'نامشخص');
   });
 });

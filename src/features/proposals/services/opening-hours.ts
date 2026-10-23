@@ -47,9 +47,9 @@ export interface HoursVerdict {
 
 /** The catalogue key each verdict renders (both live under `slots.*`). */
 export const ADVISORY_KEY_BY_VERDICT: Record<HoursAdvisory, string> = {
-  open: 'slots.advisoryOpen',
-  closed: 'slots.advisoryClosed',
-  unknown: 'slots.advisoryUnknown',
+  open: 'openingHours.advisoryOpen',
+  closed: 'openingHours.advisoryClosed',
+  unknown: 'openingHours.advisoryUnknown',
 };
 
 /** The seven day keys the stored jsonb uses, in the order a week runs. */
@@ -206,7 +206,7 @@ export function openingHoursAdvisory(
  *
  * ★ `unknown` RESOLVES TO A WORD, NEVER TO A BLANK.
  *
- * `«نامشخص»` (`slots.advisoryUnknown`) is what a proposal with no hours renders.
+ * `«نامشخص»` (`openingHours.advisoryUnknown`) is what a proposal with no hours renders.
  * An empty string here would look like a bug and read like "open", which is the
  * one thing absence of hours must never imply.
  */

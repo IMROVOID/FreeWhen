@@ -145,8 +145,8 @@ export function VoteControl({
           haptic={veto ? 'light' : 'medium'}
           testID={testID ? `${testID}-veto` : undefined}
           accessibilityRole="switch"
-          accessibilityLabel={t('ranking.veto')}
-          accessibilityHint={t('ranking.vetoHint')}
+          accessibilityLabel={t('dealbreaker.veto')}
+          accessibilityHint={t('dealbreaker.vetoHint')}
           accessibilityState={{ checked: veto, disabled: busy }}
           style={styles.vetoRow}
         >
@@ -160,7 +160,7 @@ export function VoteControl({
             ]}
           >
             <Text variant="caption" color={veto ? theme.onPrimary : theme.text} align="center">
-              {veto ? t('ranking.vetoOn') : t('ranking.veto')}
+              {veto ? t('dealbreaker.vetoOn') : t('dealbreaker.veto')}
             </Text>
           </View>
         </Pressy>
@@ -169,7 +169,7 @@ export function VoteControl({
       {/* Why the veto matters, said once, in the place it can be read. */}
       {onToggleVeto && current === 'no' && (
         <Text variant="caption" color={theme.textFaint} testID={testID ? `${testID}-veto-hint` : undefined}>
-          {t('ranking.vetoHint')}
+          {t('dealbreaker.vetoHint')}
         </Text>
       )}
     </View>

@@ -181,6 +181,9 @@ export const ACTIVITY_ACTIONS = [
   'vote_changed',
   'confirmed',
   'reopened',
+  // P14 — deleting a per-proposal comment. The row records that something was
+  // removed and by whom, never the text that was removed.
+  'comment_deleted',
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];

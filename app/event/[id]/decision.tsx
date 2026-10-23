@@ -493,7 +493,7 @@ export default function DecisionScreen() {
                     color={theme.textMuted}
                     testID={`decision-vetoed-${entry.id}`}
                   >
-                    {t('ranking.vetoedBy', { name: exclusion.participantName })}
+                    {t('dealbreaker.vetoedBy', { name: exclusion.participantName })}
                   </Text>
                 )}
 

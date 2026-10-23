@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/src/components/ui/Card';
 import { Chip } from '@/src/components/ui/Chip';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { formatDate } from '@/src/lib/format';
 import { toPersianDigits } from '@/src/lib/jalali';
@@ -42,6 +43,10 @@ export interface ProposalCardProps {
   /** The event's home timezone — the slot is rendered in it, not the device's. */
   homeTz: string;
   onPress?: () => void;
+  /** Opens the comment sheet for this proposal. Absent = no affordance. */
+  onOpenComments?: () => void;
+  /** How many comments the proposal carries, when the caller knows. */
+  commentCount?: number;
   testID?: string;
 }
 
@@ -66,7 +71,14 @@ function advisoryInstant(proposal: Proposal): Date {
   return new Date();
 }
 
-export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCardProps) {
+export function ProposalCard({
+  proposal,
+  homeTz,
+  onPress,
+  onOpenComments,
+  commentCount,
+  testID,
+}: ProposalCardProps) {
   const { t, i18n } = useTranslation();
   const { t: theme } = useTheme();
 
@@ -207,6 +219,26 @@ export function ProposalCard({ proposal, homeTz, onPress, testID }: ProposalCard
           <Text variant="caption" color={theme.textFaint}>
             {t('proposals.status.WITHDRAWN')}
           </Text>
+        )}
+
+        {/* ★ COMMENTS ARE AN AFFORDANCE, NOT A GATE.
+            Opening the sheet is optional and never required to vote, propose or
+            see the decision — that is the P14 constraint, and the reason this is
+            a plain button on the card rather than a step in a flow. */}
+        {onOpenComments && (
+          <Pressy
+            onPress={onOpenComments}
+            haptic="light"
+            accessibilityRole="button"
+            accessibilityLabel={t('comments.open')}
+            testID={testID ? `${testID}-comments` : undefined}
+          >
+            <Text variant="caption" color={theme.textMuted}>
+              {typeof commentCount === 'number' && commentCount > 0
+                ? t('comments.count', { count: commentCount })
+                : t('comments.action')}
+            </Text>
+          </Pressy>
         )}
       </View>
     </Card>
