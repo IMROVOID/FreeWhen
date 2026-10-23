@@ -80,7 +80,7 @@ const PHASE_NAMESPACES: Record<string, string[]> = {
   // claims a foreign namespace or writes one this phase does not own. New keys
   // therefore live in new P14 namespaces, which is also what keeps this branch
   // mergeable with the parallel one editing the same two files.
-  '14': ['parser', 'reopen', 'comments', 'openingHours', 'dealbreaker'],
+  '14': ['parser', 'reopen', 'comments', 'openingHours', 'dealbreaker', 'autoLock'],
   '18': ['server', 'web'],
 };
 

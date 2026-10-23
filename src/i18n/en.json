@@ -412,6 +412,11 @@
     "vetoedBy": "Set aside — {{name}}'s veto",
     "vetoed": "Vetoed"
   },
+  "autoLock": {
+    "autoLocked": "Confirmed automatically.",
+    "autoLockedBody": "The voting deadline passed and the leading option was confirmed with these numbers. If that is wrong, the organizer can reopen the decision.",
+    "autoLockedNoOne": "Confirmed automatically — nobody had voted."
+  },
   "voting": {
     "yes": "I'm in",
     "maybe": "Maybe",

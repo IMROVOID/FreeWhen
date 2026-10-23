@@ -14,6 +14,7 @@
 
 import { loadDotEnv } from '../db/client';
 import { runAnonCleanupJob } from '../../server/jobs/anon-cleanup';
+import { runAutoLockJob } from '../../server/jobs/auto-lock';
 import { runRetentionJob } from '../../server/jobs/retention';
 import { closeServicePool } from '../../server/lib/supabase';
 import type { JobResult } from '../../server/jobs/retention';
@@ -21,6 +22,8 @@ import type { JobResult } from '../../server/jobs/retention';
 const JOBS: Record<string, () => Promise<JobResult>> = {
   retention: runRetentionJob,
   'anon-cleanup': runAnonCleanupJob,
+  // Phase 14 — off unless AUTO_LOCK_ENABLED is explicitly set (OQ-2.4).
+  'auto-lock': runAutoLockJob,
 };
 
 async function main(): Promise<void> {
