@@ -32,7 +32,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -184,6 +184,22 @@ export default function EventHomeScreen() {
       },
     });
   }, [event, router]);
+
+  const handleShare = useCallback(async () => {
+    const baseUrl = (process.env.EXPO_PUBLIC_APP_BASE_URL ?? '').replace(/\/$/, '');
+    const url = `${baseUrl}/event/${eventId}`;
+    const shareTitle = event?.title ? `${event.title} — FreeWhen` : 'FreeWhen';
+    const message = `${shareTitle}\n${url}`;
+    try {
+      await Share.share({
+        title: shareTitle,
+        message,
+        url,
+      });
+    } catch {
+      // Share cancelled or dismissed
+    }
+  }, [event?.title, eventId]);
 
   // ★ LOADING IS A SKELETON, NOT A CENTRED SPINNER (§6).
   if (isLoadingEvent) {
@@ -379,8 +395,8 @@ export default function EventHomeScreen() {
         </Pressy>
 
         <Pressy
-          onPress={() => router.push('/')}
-          testID="event-home-back"
+          onPress={() => void handleShare()}
+          testID="event-home-share"
           accessibilityRole="button"
           accessibilityLabel={t('invite.share')}
           style={styles.actionTile}

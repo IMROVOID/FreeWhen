@@ -10,9 +10,9 @@
  */
 
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { CalendarBlank, CaretLeft, CaretRight } from 'phosphor-react-native';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
@@ -38,9 +38,6 @@ export interface DateSelectionComponentProps {
   onChange: (isoDate: string) => void;
   testID?: string;
 }
-
-const DAY_MS = 86_400_000;
-const CAROUSEL_DAYS_COUNT = 60; // 60 days ahead
 
 /** Returns today's date formatted as YYYY-MM-DD in local time */
 function getTodayIsoDate(): string {
@@ -85,23 +82,6 @@ export function DateSelectionComponent({
   // Calendar month view state (year & month currently viewed)
   const [viewYear, setViewYear] = useState<number>(selectedJalali.jy);
   const [viewMonth, setViewMonth] = useState<number>(selectedJalali.jm);
-  const [showMonthGrid, setShowMonthGrid] = useState<boolean>(false);
-
-  // Generate 60 upcoming days from today for horizontal carousel
-  const upcomingDays = useMemo(() => {
-    const list: string[] = [];
-    const base = new Date();
-    base.setHours(12, 0, 0, 0); // avoid DST jitter
-
-    for (let i = 0; i < CAROUSEL_DAYS_COUNT; i++) {
-      const d = new Date(base.getTime() + i * DAY_MS);
-      const yr = d.getFullYear();
-      const mo = String(d.getMonth() + 1).padStart(2, '0');
-      const da = String(d.getDate()).padStart(2, '0');
-      list.push(`${yr}-${mo}-${da}`);
-    }
-    return list;
-  }, []);
 
   // Format header banner label
   const headerDateLabel = useMemo(() => {
@@ -118,31 +98,6 @@ export function DateSelectionComponent({
       return selectedDateOnly;
     }
   }, [selectedDateOnly, locale, isFa]);
-
-  const canGoPrev = selectedDateOnly > todayIso;
-
-  const handlePrevDay = () => {
-    if (!canGoPrev) return;
-    const cur = new Date(`${selectedDateOnly}T12:00:00Z`);
-    const prev = new Date(cur.getTime() - DAY_MS);
-    const yr = prev.getFullYear();
-    const mo = String(prev.getMonth() + 1).padStart(2, '0');
-    const da = String(prev.getDate()).padStart(2, '0');
-    const iso = `${yr}-${mo}-${da}`;
-    if (iso >= todayIso) {
-      onChange(new Date(`${iso}T12:00:00Z`).toISOString());
-    }
-  };
-
-  const handleNextDay = () => {
-    const cur = new Date(`${selectedDateOnly}T12:00:00Z`);
-    const next = new Date(cur.getTime() + DAY_MS);
-    const yr = next.getFullYear();
-    const mo = String(next.getMonth() + 1).padStart(2, '0');
-    const da = String(next.getDate()).padStart(2, '0');
-    const iso = `${yr}-${mo}-${da}`;
-    onChange(new Date(`${iso}T12:00:00Z`).toISOString());
-  };
 
   // Month navigation for Calendar grid
   const handlePrevMonth = () => {
@@ -212,20 +167,8 @@ export function DateSelectionComponent({
 
   return (
     <View style={styles.container} testID={testID}>
-      {/* 1. Header with Stepper Buttons and Calendar Toggle */}
+      {/* 1. Header with Selected Date label */}
       <View style={[styles.headerCard, { backgroundColor: theme.surface2 }]}>
-        <Pressy
-          onPress={handlePrevDay}
-          disabled={!canGoPrev}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.previous', 'روز قبلی')}
-          style={styles.navButton}
-        >
-          <View style={[styles.navIcon, !canGoPrev && styles.disabled]}>
-            <CaretRight size={20} color={!canGoPrev ? theme.textFaint : theme.text} />
-          </View>
-        </Pressy>
-
         <View style={styles.headerTitle}>
           <Text variant="caption" color={theme.textMuted} align="center">
             {t('slots.chosenDate', 'تاریخ انتخابی')}
@@ -234,179 +177,71 @@ export function DateSelectionComponent({
             {headerDateLabel}
           </Text>
         </View>
-
-        <View style={styles.headerActions}>
-          <Pressy
-            onPress={() => setShowMonthGrid((prev) => !prev)}
-            accessibilityRole="button"
-            accessibilityLabel={t('common.calendar', 'تقویم')}
-            style={styles.calendarToggle}
-          >
-            <View
-              style={[
-                styles.calendarIconWrapper,
-                { backgroundColor: showMonthGrid ? theme.primary : theme.surface3 },
-              ]}
-            >
-              <CalendarBlank
-                size={18}
-                color={showMonthGrid ? theme.onPrimary : theme.text}
-                weight={showMonthGrid ? 'fill' : 'regular'}
-              />
-            </View>
-          </Pressy>
-
-          <Pressy
-            onPress={handleNextDay}
-            accessibilityRole="button"
-            accessibilityLabel={t('common.next', 'روز بعدی')}
-            style={styles.navButton}
-          >
-            <View style={styles.navIcon}>
-              <CaretLeft size={20} color={theme.text} />
-            </View>
-          </Pressy>
-        </View>
       </View>
 
-      {/* 2. Interactive Month Calendar Grid (Toggled) */}
-      {showMonthGrid && (
-        <View style={[styles.calendarGridContainer, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-          {/* Month Header with Steppers */}
-          <View style={styles.monthHeader}>
-            <Pressy onPress={handlePrevMonth} style={styles.monthNavBtn}>
-              <CaretRight size={18} color={theme.text} />
-            </Pressy>
-            <Text variant="h3" color={theme.text} align="center" numeric>
-              {`${viewMonthName} ${viewYearDisplay}`}
-            </Text>
-            <Pressy onPress={handleNextMonth} style={styles.monthNavBtn}>
-              <CaretLeft size={18} color={theme.text} />
-            </Pressy>
-          </View>
-
-          {/* Weekday Abbreviations */}
-          <View style={styles.weekdaysRow}>
-            {(isFa ? ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S']).map((wd, i) => (
-              <Text key={`wd-${i}`} variant="caption" color={theme.textMuted} align="center" style={styles.weekdayCell}>
-                {wd}
-              </Text>
-            ))}
-          </View>
-
-          {/* Days Grid */}
-          <View style={styles.daysGrid}>
-            {monthGridDays.map((cell) => {
-              if (!cell.isDay) {
-                return <View key={cell.key} style={styles.gridCell} />;
-              }
-
-              const numDisplay = isFa ? toPersianDigits(String(cell.dayNumber)) : String(cell.dayNumber);
-
-              return (
-                <Pressy
-                  key={cell.key}
-                  disabled={cell.isPast}
-                  onPress={() => {
-                    onChange(new Date(`${cell.isoDate}T12:00:00Z`).toISOString());
-                    setShowMonthGrid(false);
-                  }}
-                  style={styles.gridCell}
-                >
-                  <View
-                    style={[
-                      styles.cellInner,
-                      cell.isSelected && { backgroundColor: theme.primary },
-                      cell.isPast && styles.disabled,
-                      cell.isInWindow && !cell.isSelected && styles.windowIndicator,
-                    ]}
-                  >
-                    <Text
-                      variant="caption"
-                      color={cell.isSelected ? theme.onPrimary : cell.isPast ? theme.textFaint : theme.text}
-                      align="center"
-                      numeric
-                    >
-                      {numDisplay}
-                    </Text>
-                  </View>
-                </Pressy>
-              );
-            })}
-          </View>
+      {/* 2. Interactive Month Calendar Grid (Always visible) */}
+      <View style={[styles.calendarGridContainer, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+        {/* Month Header with Steppers */}
+        <View style={styles.monthHeader}>
+          <Pressy onPress={handlePrevMonth} style={styles.monthNavBtn}>
+            <CaretRight size={18} color={theme.text} />
+          </Pressy>
+          <Text variant="h3" color={theme.text} align="center" numeric>
+            {`${viewMonthName} ${viewYearDisplay}`}
+          </Text>
+          <Pressy onPress={handleNextMonth} style={styles.monthNavBtn}>
+            <CaretLeft size={18} color={theme.text} />
+          </Pressy>
         </View>
-      )}
 
-      {/* 3. Horizontal Day Carousel (Always accessible) */}
-      <ScrollView
-        horizontal
-        nestedScrollEnabled={true}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.carousel}
-      >
-        {upcomingDays.map((isoDay, index) => {
-          const isSelected = isoDay === selectedDateOnly;
-          const j = gregorianDayToJalali(isoDay);
-          const wIdx = weekdayIndex(`${isoDay}T12:00:00Z`, locale);
-          const weekday = isFa ? PERSIAN_WEEKDAYS[wIdx] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][wIdx];
-          const monthName = isFa ? PERSIAN_MONTHS[j.jm - 1] : String(j.jm);
-          const dayNumber = isFa ? toPersianDigits(String(j.jd)) : String(j.jd);
+        {/* Weekday Abbreviations */}
+        <View style={styles.weekdaysRow}>
+          {(isFa ? ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S']).map((wd, i) => (
+            <Text key={`wd-${i}`} variant="caption" color={theme.textMuted} align="center" style={styles.weekdayCell}>
+              {wd}
+            </Text>
+          ))}
+        </View>
 
-          const isInWindow = Boolean(
-            windowStart &&
-              windowEnd &&
-              isoDay >= windowStart.slice(0, 10) &&
-              isoDay <= windowEnd.slice(0, 10),
-          );
+        {/* Days Grid */}
+        <View style={styles.daysGrid}>
+          {monthGridDays.map((cell) => {
+            if (!cell.isDay) {
+              return <View key={cell.key} style={styles.gridCell} />;
+            }
 
-          return (
-            <Pressy
-              key={isoDay}
-              onPress={() => onChange(new Date(`${isoDay}T12:00:00Z`).toISOString())}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: isSelected }}
-              testID={testID ? `${testID}-day-${index}` : undefined}
-              style={styles.dayCardPressy}
-            >
-              <View
-                style={[
-                  styles.dayCard,
-                  {
-                    backgroundColor: isSelected ? theme.primary : theme.surface2,
-                    borderColor: isSelected ? theme.primary : theme.line,
-                  },
-                ]}
+            const numDisplay = isFa ? toPersianDigits(String(cell.dayNumber)) : String(cell.dayNumber);
+
+            return (
+              <Pressy
+                key={cell.key}
+                disabled={cell.isPast}
+                onPress={() => {
+                  onChange(new Date(`${cell.isoDate}T12:00:00Z`).toISOString());
+                }}
+                style={styles.gridCell}
               >
-                <Text
-                  variant="caption"
-                  color={isSelected ? theme.onPrimary : theme.textMuted}
-                  align="center"
+                <View
+                  style={[
+                    styles.cellInner,
+                    cell.isSelected && { backgroundColor: theme.primary },
+                    cell.isPast && styles.disabled,
+                  ]}
                 >
-                  {weekday}
-                </Text>
-                <Text
-                  variant="h2"
-                  color={isSelected ? theme.onPrimary : theme.text}
-                  align="center"
-                  numeric
-                >
-                  {dayNumber}
-                </Text>
-                <Text
-                  variant="caption"
-                  color={isSelected ? theme.onPrimary : theme.textFaint}
-                  align="center"
-                >
-                  {monthName}
-                </Text>
-                {isInWindow && !isSelected && (
-                  <View style={[styles.windowDot, { backgroundColor: theme.brand }]} />
-                )}
-              </View>
-            </Pressy>
-          );
-        })}
-      </ScrollView>
+                  <Text
+                    variant="caption"
+                    color={cell.isSelected ? theme.onPrimary : cell.isPast ? theme.textFaint : theme.text}
+                    align="center"
+                    numeric
+                  >
+                    {numDisplay}
+                  </Text>
+                </View>
+              </Pressy>
+            );
+          })}
+        </View>
+      </View>
     </View>
   );
 }
@@ -416,69 +251,18 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   headerCard: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: space[3],
     paddingVertical: space[2],
     borderRadius: radius.md,
   },
   headerTitle: {
-    flex: 1,
     alignItems: 'center',
     gap: space[1],
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[1],
-  },
-  calendarToggle: {
-    padding: space[1],
-  },
-  calendarIconWrapper: {
-    width: size.stepperButton,
-    height: size.stepperButton,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navButton: {
-    padding: space[1],
-  },
-  navIcon: {
-    width: size.stepperButton,
-    height: size.stepperButton,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   disabled: {
     opacity: 0.3,
-  },
-  carousel: {
-    gap: space[2],
-    paddingVertical: space[1],
-  },
-  dayCardPressy: {
-    alignSelf: 'stretch',
-  },
-  dayCard: {
-    width: size.buttonLarge + space[4],
-    paddingVertical: space[2],
-    paddingHorizontal: space[2],
-    borderRadius: radius.md,
-    borderWidth: border.hairline,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space[1],
-    position: 'relative',
-  },
-  windowDot: {
-    width: size.loadingDot,
-    height: size.loadingDot,
-    borderRadius: radius.pill,
-    marginTop: space[1],
   },
   calendarGridContainer: {
     padding: space[3],
@@ -521,8 +305,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  windowIndicator: {
-    borderWidth: border.hairline,
   },
 });

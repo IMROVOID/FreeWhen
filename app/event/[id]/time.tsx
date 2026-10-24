@@ -18,15 +18,17 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { Chip, SegmentedControl } from '@/src/components/ui/Chip';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
@@ -37,7 +39,7 @@ import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { trackTimezoneMismatchShown } from '@/src/features/proposals/services/analytics';
 import { deviceTimezone, timezonesDiffer } from '@/src/features/proposals/services/slot-time';
 import { useOffline } from '@/src/hooks/useOffline';
-import { space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 import type { Proposal } from '@/src/types/proposal';
@@ -149,18 +151,40 @@ export default function TimeSlotsScreen() {
     );
   }
 
+  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({ pathname: '/event/[id]', params: { id: eventId } });
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[10] },
+        { paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[10] },
       ]}
       testID="slots-screen"
     >
       {isOffline && <OfflineBanner pendingCount={pendingCount} testID="slots-offline" />}
 
-      <Text variant="h1">{t('slots.heading')}</Text>
+      <View style={styles.topHeader}>
+        <Pressy
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back', 'بازگشت')}
+          style={styles.backButton}
+        >
+          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+            <BackIcon size={20} color={theme.text} weight="bold" />
+          </View>
+        </Pressy>
+        <Text variant="h1">{t('slots.heading')}</Text>
+      </View>
 
       {/* ★ AC-3.1.4 — P0. */}
       {showsLocalTime && (
@@ -238,11 +262,13 @@ export default function TimeSlotsScreen() {
         </View>
       )}
 
-      <Button
-        label={t('proposals.newProposal')}
-        onPress={() => router.push(`/event/${eventId}/propose`)}
-        testID="slots-new-proposal"
-      />
+      {visible.length > 0 && (
+        <Button
+          label={t('proposals.newProposal')}
+          onPress={() => router.push(`/event/${eventId}/propose`)}
+          testID="slots-new-proposal"
+        />
+      )}
     </ScrollView>
   );
 }
@@ -254,6 +280,22 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: space[5],
     gap: space[3],
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  backButton: {
+    padding: space[1],
+  },
+  backIconCircle: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    borderWidth: border.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   list: {
     gap: space[3],

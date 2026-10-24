@@ -57,6 +57,8 @@ import {
 } from './routes/comments';
 // D23 — the in-room chat surface (PRD-06 FR-6.7b).
 import {
+  deleteMessageHandler,
+  editMessageHandler,
   listMessagesHandler,
   postMessageHandler,
   reportMessageHandler,
@@ -150,6 +152,8 @@ const ROUTES: Route[] = [
   // path exists for Apple §1.2 and is keyed on the message, not the event.
   { method: 'GET', segments: ['api', 'events', ':id', 'messages'], handler: listMessagesHandler },
   { method: 'POST', segments: ['api', 'events', ':id', 'messages'], handler: postMessageHandler },
+  { method: 'PATCH', segments: ['api', 'messages', ':id'], handler: editMessageHandler },
+  { method: 'DELETE', segments: ['api', 'messages', ':id'], handler: deleteMessageHandler },
   { method: 'POST', segments: ['api', 'messages', ':id', 'report'], handler: reportMessageHandler },
   // Phase 14 — per-proposal comments. There is deliberately no
   // `/api/events/:id/comments`.

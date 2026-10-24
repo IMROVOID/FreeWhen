@@ -2,7 +2,7 @@ import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Text } from './Text';
 import { Button } from './Button';
-import { radius, space } from '@/src/theme/tokens';
+import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 export interface EmptyStateProps {
@@ -33,9 +33,6 @@ export function EmptyState({
 
   return (
     <View testID={testID} style={[styles.container, style]}>
-      {/* The Peach Glow behind the content (Style Guide §2.6, §11.10). */}
-      <View style={[styles.glow, { backgroundColor: t.bg }]} pointerEvents="none" />
-
       {prop && <View style={styles.prop}>{prop}</View>}
 
       <Text variant="h2" align="center">
@@ -59,16 +56,6 @@ const styles = StyleSheet.create({
     gap: space[3],
     padding: space[6],
     overflow: 'hidden',
-  },
-  glow: {
-    position: 'absolute',
-    top: 0,
-    start: 0,
-    end: 0,
-    height: '55%',
-    borderBottomLeftRadius: radius.xxl,
-    borderBottomRightRadius: radius.xxl,
-    opacity: 0.5,
   },
   prop: {
     marginBottom: space[2],
