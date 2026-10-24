@@ -919,15 +919,16 @@ Seven, not six, because there are **two shipping artifacts**. The native bundle 
 
 ### GitHub Actions
 
-Three workflows. Names, secrets and flags are in
-[`.github/workflows/README.md`](.github/workflows/README.md); this is what they
-are for.
+Four workflows — three you dispatch, one shared resolver. Names, secrets and
+flags are in [`.github/workflows/README.md`](.github/workflows/README.md); this is
+what they are for.
 
 | Workflow | Trigger | What it guarantees |
 |---|---|---|
 | **CI** | push to `main`, every PR | typecheck, lint, tests, the seven gates **against a real `dist/`**, and migrations applied twice to a throwaway Postgres to prove they are idempotent |
-| **Release APK** | dispatch, or a push whose message says `[fw:apk]` | every ABI plus universal, each verified, published as a **draft** by default |
-| **Deploy** | **dispatch only** | one provider per run, self-provisioning, ending in the same smoke test `deploy.sh` runs |
+| **Release APK** | dispatch, or a push whose message says `[fw:apk]` | every ABI plus universal, each **validated**, published as a **draft** by default |
+| **Deploy** | **dispatch only** | one target per run: migrate → serve → health check → verify |
+| **Resolve config** | called | the precedence chain in one place, with validation |
 
 **Deploy has no push trigger, deliberately.** A commit flag chooses an APK's
 ABIs; it cannot publish a release and it cannot deploy. A bad APK is one
@@ -944,12 +945,43 @@ One name is shared between the two shipping workflows: the deploy writes
 as the origin it inlines. That is what makes "build the app after the server
 exists" automatic instead of a URL copied by hand and eventually copied stale.
 
-**What the automation does not claim.** Of eight deploy targets, six are
-implemented, Vercel is behind `FREEWHEN_VERCEL_ENABLED` and a production
-approval, and Fly.io is listed as planned rather than supported — it needs
-volumes, backups and an operator billing decision. Every request-scoped target
-loses the realtime bridge, so votes arrive on the 10-second poll; the run summary
-says so on every such deploy.
+#### Deploy targets — tested against real accounts
+
+Every credential was exercised against a live account, and two targets came back
+serving the app. The full evidence, including the exact request behind each
+verdict, is in [`docs/reports/41.2-platform-survey-report.md`](docs/reports/41.2-platform-survey-report.md).
+
+| Target | State |
+|---|---|
+| **Vercel** | **deployed and verified** — https://freewhen-review.vercel.app |
+| **Netlify** | **deployed and verified** — https://freewhen-review.netlify.app |
+| **Neon** (database) | **connected and writable** — PostgreSQL 18.6, write + read verified |
+| **Fly** | token valid, org writable, 0 apps |
+| **Cloudflare** | token valid but **no account scope** — Pages/Workers unreachable |
+| **Railway** | supplied value is **not a valid token** of any type |
+| **Render** | token works; `static_site` **requires a connected repo**, so no directory upload |
+| **Supabase** (database) | control plane works; the database password is **not API-readable** |
+| **Daytona** | build/test VM verified (create → start → delete); **no public ingress** |
+| **FreeStyle** | **key rejected** on every route |
+| **Koyeb** | **removed** — deprecated, and the workflow refuses it by name |
+
+Three of ten credentials do not work, and **none of the three is a code
+problem**: one token has no account scope, one is the wrong token type, one is
+rejected outright. That distinction is the point of the survey — "it failed" hides
+which of them a change to the repository could actually fix, and for these three
+the answer is none.
+
+**What the verification actually checks.** Not status codes. A live deploy taught
+this the expensive way: Vercel's first deployment answered `200` for `/start` and
+served the **home page's HTML**, because a catch-all rewrite swallowed the
+per-route file `expo export` had emitted. `verify-deployment.sh` therefore
+compares page bodies, requires the `start-screen` marker, asserts `dir="rtl"` in
+the served markup, rejects a body large enough to be a login wall, and probes the
+refused paths. Four Vercel-specific traps are documented in
+[`.github/workflows/README.md`](.github/workflows/README.md) §5.
+
+Every request-scoped target loses the realtime bridge, so votes arrive on the
+10-second poll; the run summary says so on every such deploy.
 
 ### Build the web artifact
 
@@ -1073,6 +1105,8 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 | **G-7** | **The browser has no 3D map.** The ranked list is complete; the map is Android-only. | Low — the list carries the decision | No web build of the native map renderer; a web map is a separate renderer with separate costs (OQ-18.3, deferred to P2) | When a reviewer's confusion is traced to the missing map rather than to the ranking |
 | **G-8** | **No automated rollback.** The workflows publish; reverting a release or a deploy is still a manual act. | Low — releases are drafts by default and migrations are additive | A rollback action needs a previous-artifact store and a decision about what "the previous good deploy" means per provider | The first time a bad release reaches a reviewer |
 | **G-9** | **No iOS build pipeline.** | Low — the reviewer path is the web export | No Apple credentials, no macOS runner, no signing certificate. `README` has always listed iOS as missing | An Apple developer account |
+| **G-10** | **Only the static half is deployed to a public host.** Both live targets (Vercel, Netlify) serve the web export; no backend is hosted, so `/api/*` and `/start`'s live ranking rely on a server that is not running there. | **Medium** — `/start` renders but its data requests fail until a backend exists | Every backend target needs one thing this survey could not supply: an account token (Railway), account scope (Cloudflare), a connected repo (Render), or an ssh host (VPS). The two static deployments prove the artifact, not the stack | Before any reviewer is given a URL rather than a local checkout |
+| **G-11** | **The APK release path has never run end to end.** The matrix, the keystore decode and `validate-apk.sh` are tested against synthetic APKs, but no real signed release has been produced. | Low — the validator refuses the known-bad shapes | Needs the release keystore and a ~20-minute Gradle run; neither exists in this environment | The first dispatch of **Release APK** |
 
 **G-2 is the most important entry.** It is a conscious compliance risk that must be revisited before any messaging feature ships.
 
