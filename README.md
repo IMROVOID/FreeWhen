@@ -505,6 +505,15 @@ because Android does not reliably map `fontWeight` to custom fonts.
 |---|---|---|
 | **Phosphor Icons** (`phosphor-react-native`) | 2.3 | The icon set, tree-shaken per icon |
 | **Design tokens** | in-repo | Colours, radii, spacing, durations — enforced by a gate |
+| **Brand mark** — "The Focus Nexus" | `design/logo/kit/` | The app icon, favicon, splash and store assets. Vector masters plus `BRAND-GUIDELINES.md` |
+| **Icon generator** (`scripts/generate-icons.py`) | in-repo | Rasterises the kit into every platform size. Re-run it; never hand-edit `assets/images/` |
+
+The mark is never redrawn in code — `scripts/generate-icons.py` rasterises the
+vectors in `design/logo/kit/masters/`, so the app icon, the favicon and the
+store listing cannot drift apart. It emits the iOS light/dark/tinted set, the
+Android adaptive foreground with a monochrome layer for themed icons, the splash,
+and the web favicons into both `public/` (copied into `dist/` on export) and
+`web/icons/` (the hand-written static pages).
 
 ### Maps & Routing Providers
 
