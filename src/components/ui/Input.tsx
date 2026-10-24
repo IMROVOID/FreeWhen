@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { StyleSheet, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 import { Text } from './Text';
+import { fonts, isPersian } from '@/src/theme/fonts';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -37,8 +39,10 @@ export function Input({
   style,
 }: InputProps) {
   const { t } = useTheme();
+  const { i18n } = useTranslation();
   const [isFocused, setIsFocused] = useState(false);
 
+  const isFa = i18n.language === 'fa' || isPersian(value || label);
   const hasError = Boolean(error);
   const isFloating = isFocused || value.length > 0;
 
@@ -63,12 +67,21 @@ export function Input({
           onChangeText={onChangeText}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholder={isFloating ? undefined : label}          placeholderTextColor={t.textFaint}
+          placeholder={isFloating ? undefined : label}
+          placeholderTextColor={t.textFaint}
           secureTextEntry={secureTextEntry}
           multiline={multiline}
           testID={testID}
           accessibilityLabel={label}
-          style={[styles.input, multiline ? styles.inputMultiline : null, { color: t.text }]}
+          style={[
+            styles.input,
+            multiline ? styles.inputMultiline : null,
+            {
+              color: t.text,
+              fontFamily: isFa ? fonts.persian[500] : fonts.latin[500],
+              textAlign: isFa ? 'right' : 'left',
+            },
+          ]}
         />
       </View>
 

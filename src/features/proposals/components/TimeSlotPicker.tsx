@@ -6,7 +6,6 @@
  * - A drum-roll Time Scroll Wheel Picker (Hours, Minutes, AM/PM).
  */
 
-import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
@@ -34,22 +33,6 @@ export interface TimeSlotPickerProps {
   testID?: string;
 }
 
-const DAY_MS = 86_400_000;
-const MAX_DAYS = 31;
-
-function windowDays(windowStart: string, windowEnd: string): string[] {
-  const start = new Date(windowStart).getTime();
-  const end = new Date(windowEnd).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
-
-  const days: string[] = [];
-  for (let cursor = start; cursor <= end && days.length < MAX_DAYS; cursor += DAY_MS) {
-    days.push(new Date(cursor).toISOString());
-  }
-
-  return days;
-}
-
 function localHourOf(instantUtc: string, homeTz: string): number {
   const time = formatLocalTime(instantUtc, homeTz);
   return Number(time.slice(0, 2));
@@ -71,9 +54,7 @@ export function TimeSlotPicker({
   const { t } = useTranslation();
   const { t: theme } = useTheme();
 
-  const days = useMemo(() => windowDays(windowStart, windowEnd), [windowStart, windowEnd]);
-
-  const selectedDay = value ?? days[0] ?? new Date().toISOString();
+  const selectedDay = value ?? new Date().toISOString();
   const selectedHour = value ? localHourOf(value, homeTz) : 19;
   const selectedMinute = value ? localMinuteOf(value, homeTz) : 0;
 

@@ -16,22 +16,24 @@
  */
 
 import { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { Chip } from '@/src/components/ui/Chip';
 import { Input } from '@/src/components/ui/Input';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Stepper } from '@/src/components/ui/Stepper';
 import { Text } from '@/src/components/ui/Text';
 import { createEvent } from '@/src/features/events/services/create-event';
 import { formatDate } from '@/src/lib/format';
 import { getStoredUserId } from '@/src/lib/session';
 import { isApiFailure } from '@/src/lib/api';
-import { radius, space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import { ACTIVITY_TYPES, TITLE_MAX, type ActivityType } from '@/src/types/event';
 import type { Language } from '@/src/i18n/types';
@@ -138,18 +140,40 @@ export default function CreateEventScreen() {
 
   const windowLabel = `${formatDate(start.toISOString(), locale).primary} — ${formatDate(end.toISOString(), locale).primary}`;
 
+  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/');
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[8], paddingBottom: insets.bottom + space[10] },
+        { paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[10] },
       ]}
       testID="create-event"
     >
-      <Text variant="h1" align="start">
-        {t('events.create.heading')}
-      </Text>
+      <View style={styles.topHeader}>
+        <Pressy
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back', 'بازگشت')}
+          style={styles.backButton}
+        >
+          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+            <BackIcon size={20} color={theme.text} weight="bold" />
+          </View>
+        </Pressy>
+        <Text variant="h1" align="start">
+          {t('events.create.heading')}
+        </Text>
+      </View>
       <Text variant="body" color={theme.textMuted} align="start">
         {t('events.create.subheading')}
       </Text>
@@ -256,6 +280,22 @@ export default function CreateEventScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  backButton: {
+    padding: space[1],
+  },
+  backIconCircle: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    borderWidth: border.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   content: {
     paddingHorizontal: space[5],

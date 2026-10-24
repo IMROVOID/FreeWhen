@@ -40,6 +40,7 @@ import {
 } from '@/src/features/venues/services/place-search';
 import { haptics } from '@/src/platform/haptics';
 import { border, radius, size, space } from '@/src/theme/tokens';
+import { fonts } from '@/src/theme/fonts';
 import { useTheme } from '@/src/theme/useTheme';
 import type { VenueRef } from '@/src/types/proposal';
 
@@ -217,7 +218,10 @@ export function LocationMapPicker({
               <View key={`row-${ty}`} style={styles.tileRow}>
                 {tileOffsets.map((ox) => {
                   const tx = (centerTileX + ox + 2 ** zoom) % (2 ** zoom);
-                  const uri = `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png`;
+                  const cartoKey = process.env.EXPO_PUBLIC_CARTO_API_KEY;
+                  const uri = cartoKey
+                    ? `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png?key=${cartoKey}`
+                    : `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png`;
                   return (
                     <Image
                       key={`${zoom}-${tx}-${ty}`}
@@ -429,6 +433,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 14,
+    fontFamily: fonts.persian[500],
     paddingVertical: 0,
     textAlign: 'right',
   },
