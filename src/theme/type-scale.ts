@@ -67,8 +67,9 @@ export interface ResolvedType {
 export function resolveType(
   content: string,
   variant: Variant = 'body',
+  isFaOverride?: boolean,
 ): ResolvedType {
-  const fa = isPersian(content);
+  const fa = isFaOverride !== undefined ? isFaOverride : isPersian(content);
   const base = SCALE[variant];
 
   // Persian sits visually smaller: +1px size and +0.12 line-height ratio (§3.3)

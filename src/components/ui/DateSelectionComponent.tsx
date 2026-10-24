@@ -1,49 +1,54 @@
 /**
- * A modern, accessible Jalali Date Selection Component.
+ * A complete Jalali and Gregorian Date/Calendar Selection Component.
  *
- * Provides a clean day selector with weekday names, Persian day numbers,
- * month badges, and quick-step navigation within the event window.
+ * Requirements:
+ * - Allows selecting ANY non-past date (not restricted to pre-set windows).
+ * - Full interactive Month Calendar grid with month switching and weekday headers.
+ * - Horizontal day carousel for quick browsing of upcoming days.
+ * - Previous/Next day stepper navigation.
+ * - Suggested window indicator badge if within event window bounds.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { CaretLeft, CaretRight } from 'phosphor-react-native';
+import { CalendarBlank, CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
-import { formatDate } from '@/src/lib/format';
+import {
+  gregorianDayToJalali,
+  jalaliMonthLength,
+  jalaliToGregorianDay,
+  PERSIAN_MONTHS,
+  PERSIAN_WEEKDAYS,
+  toPersianDigits,
+  weekdayIndex,
+} from '@/src/lib/jalali';
 import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 
 export interface DateSelectionComponentProps {
-  /** The event date window; selector restricts to these bounds. */
-  windowStart: string;
-  windowEnd: string;
-  /** Currently selected ISO date */
+  /** Optional event window for indicator hints */
+  windowStart?: string;
+  windowEnd?: string;
+  /** Currently selected ISO date (or YYYY-MM-DD string) */
   value: string;
   onChange: (isoDate: string) => void;
   testID?: string;
 }
 
 const DAY_MS = 86_400_000;
-const MAX_DAYS = 60;
+const CAROUSEL_DAYS_COUNT = 60; // 60 days ahead
 
-function generateDays(windowStart: string, windowEnd: string): string[] {
-  const start = new Date(windowStart).getTime();
-  const end = new Date(windowEnd).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
-    // Fallback: 14 days from now
-    const now = Date.now();
-    return Array.from({ length: 14 }, (_, i) => new Date(now + i * DAY_MS).toISOString());
-  }
-
-  const days: string[] = [];
-  for (let cursor = start; cursor <= end && days.length < MAX_DAYS; cursor += DAY_MS) {
-    days.push(new Date(cursor).toISOString());
-  }
-  return days;
+/** Returns today's date formatted as YYYY-MM-DD in local time */
+function getTodayIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function DateSelectionComponent({
@@ -56,89 +61,308 @@ export function DateSelectionComponent({
   const { t, i18n } = useTranslation();
   const { t: theme } = useTheme();
   const locale: Language = i18n.language === 'en' ? 'en' : 'fa';
+  const isFa = locale === 'fa';
 
-  const days = useMemo(() => generateDays(windowStart, windowEnd), [windowStart, windowEnd]);
+  const todayIso = useMemo(() => getTodayIsoDate(), []);
 
-  // Find index of selected day
-  const selectedDayValue = value || days[0] || new Date().toISOString();
-  const selectedDateOnly = selectedDayValue.slice(0, 10);
+  // Normalize selected date to YYYY-MM-DD
+  const selectedDateOnly = useMemo(() => {
+    if (!value) return todayIso;
+    const dateStr = value.slice(0, 10);
+    // Disallow past date if selected is before today
+    return dateStr < todayIso ? todayIso : dateStr;
+  }, [value, todayIso]);
 
-  const selectedIndex = Math.max(
-    0,
-    days.findIndex((d) => d.slice(0, 10) === selectedDateOnly),
-  );
+  // Selected date's Jalali representation
+  const selectedJalali = useMemo(() => {
+    try {
+      return gregorianDayToJalali(selectedDateOnly);
+    } catch {
+      return gregorianDayToJalali(todayIso);
+    }
+  }, [selectedDateOnly, todayIso]);
 
-  const currentFormatted = formatDate(days[selectedIndex] ?? selectedDayValue, locale);
+  // Calendar month view state (year & month currently viewed)
+  const [viewYear, setViewYear] = useState<number>(selectedJalali.jy);
+  const [viewMonth, setViewMonth] = useState<number>(selectedJalali.jm);
+  const [showMonthGrid, setShowMonthGrid] = useState<boolean>(false);
+
+  // Generate 60 upcoming days from today for horizontal carousel
+  const upcomingDays = useMemo(() => {
+    const list: string[] = [];
+    const base = new Date();
+    base.setHours(12, 0, 0, 0); // avoid DST jitter
+
+    for (let i = 0; i < CAROUSEL_DAYS_COUNT; i++) {
+      const d = new Date(base.getTime() + i * DAY_MS);
+      const yr = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      list.push(`${yr}-${mo}-${da}`);
+    }
+    return list;
+  }, []);
+
+  // Format header banner label
+  const headerDateLabel = useMemo(() => {
+    try {
+      const j = gregorianDayToJalali(selectedDateOnly);
+      const wIdx = weekdayIndex(`${selectedDateOnly}T12:00:00Z`, locale);
+      const wName = isFa ? PERSIAN_WEEKDAYS[wIdx] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][wIdx];
+      const mName = isFa ? PERSIAN_MONTHS[j.jm - 1] : String(j.jm);
+      const dNum = isFa ? toPersianDigits(String(j.jd)) : String(j.jd);
+      const yNum = isFa ? toPersianDigits(String(j.jy)) : String(j.jy);
+
+      return isFa ? `${wName}، ${dNum} ${mName} ${yNum}` : `${wName}, ${j.jy}/${j.jm}/${dNum}`;
+    } catch {
+      return selectedDateOnly;
+    }
+  }, [selectedDateOnly, locale, isFa]);
+
+  const canGoPrev = selectedDateOnly > todayIso;
 
   const handlePrevDay = () => {
-    if (selectedIndex > 0) {
-      onChange(days[selectedIndex - 1]!);
+    if (!canGoPrev) return;
+    const cur = new Date(`${selectedDateOnly}T12:00:00Z`);
+    const prev = new Date(cur.getTime() - DAY_MS);
+    const yr = prev.getFullYear();
+    const mo = String(prev.getMonth() + 1).padStart(2, '0');
+    const da = String(prev.getDate()).padStart(2, '0');
+    const iso = `${yr}-${mo}-${da}`;
+    if (iso >= todayIso) {
+      onChange(new Date(`${iso}T12:00:00Z`).toISOString());
     }
   };
 
   const handleNextDay = () => {
-    if (selectedIndex < days.length - 1) {
-      onChange(days[selectedIndex + 1]!);
+    const cur = new Date(`${selectedDateOnly}T12:00:00Z`);
+    const next = new Date(cur.getTime() + DAY_MS);
+    const yr = next.getFullYear();
+    const mo = String(next.getMonth() + 1).padStart(2, '0');
+    const da = String(next.getDate()).padStart(2, '0');
+    const iso = `${yr}-${mo}-${da}`;
+    onChange(new Date(`${iso}T12:00:00Z`).toISOString());
+  };
+
+  // Month navigation for Calendar grid
+  const handlePrevMonth = () => {
+    if (viewMonth === 1) {
+      setViewYear((y) => y - 1);
+      setViewMonth(12);
+    } else {
+      setViewMonth((m) => m - 1);
     }
   };
 
+  const handleNextMonth = () => {
+    if (viewMonth === 12) {
+      setViewYear((y) => y + 1);
+      setViewMonth(1);
+    } else {
+      setViewMonth((m) => m + 1);
+    }
+  };
+
+  // Compute calendar grid days for current (viewYear, viewMonth)
+  const monthGridDays = useMemo(() => {
+    const daysCount = jalaliMonthLength(viewYear, viewMonth);
+    // Find weekday of first day of the month
+    const firstDayGregorian = jalaliToGregorianDay(viewYear, viewMonth, 1);
+    const firstWeekday = weekdayIndex(`${firstDayGregorian}T12:00:00Z`, locale);
+
+    // Padding cells before first day
+    const blanks = Array.from({ length: firstWeekday }, (_, i) => ({
+      key: `blank-${i}`,
+      isDay: false,
+      dayNumber: 0,
+      isoDate: '',
+      isPast: true,
+      isSelected: false,
+      isInWindow: false,
+    }));
+
+    const days = Array.from({ length: daysCount }, (_, i) => {
+      const dayNum = i + 1;
+      const iso = jalaliToGregorianDay(viewYear, viewMonth, dayNum);
+      const isPast = iso < todayIso;
+      const isSelected = iso === selectedDateOnly;
+      const isInWindow = Boolean(
+        windowStart &&
+          windowEnd &&
+          iso >= windowStart.slice(0, 10) &&
+          iso <= windowEnd.slice(0, 10),
+      );
+
+      return {
+        key: `day-${dayNum}`,
+        isDay: true,
+        dayNumber: dayNum,
+        isoDate: iso,
+        isPast,
+        isSelected,
+        isInWindow,
+      };
+    });
+
+    return [...blanks, ...days];
+  }, [viewYear, viewMonth, locale, todayIso, selectedDateOnly, windowStart, windowEnd]);
+
+  const viewMonthName = isFa ? PERSIAN_MONTHS[viewMonth - 1] : `Month ${viewMonth}`;
+  const viewYearDisplay = isFa ? toPersianDigits(String(viewYear)) : String(viewYear);
+
   return (
     <View style={styles.container} testID={testID}>
-      {/* Date Header with Stepper Buttons */}
+      {/* 1. Header with Stepper Buttons and Calendar Toggle */}
       <View style={[styles.headerCard, { backgroundColor: theme.surface2 }]}>
         <Pressy
           onPress={handlePrevDay}
-          disabled={selectedIndex === 0}
+          disabled={!canGoPrev}
           accessibilityRole="button"
-          accessibilityLabel={t('common.previous', 'قبلی')}
+          accessibilityLabel={t('common.previous', 'روز قبلی')}
           style={styles.navButton}
         >
-          <View style={[styles.navIcon, selectedIndex === 0 && styles.disabled]}>
-            <CaretRight size={20} color={selectedIndex === 0 ? theme.textFaint : theme.text} />
+          <View style={[styles.navIcon, !canGoPrev && styles.disabled]}>
+            <CaretRight size={20} color={!canGoPrev ? theme.textFaint : theme.text} />
           </View>
         </Pressy>
 
         <View style={styles.headerTitle}>
           <Text variant="caption" color={theme.textMuted} align="center">
-            {t('slots.chosenDate', 'تاریخ انتخاب‌شده')}
+            {t('slots.chosenDate', 'تاریخ انتخابی')}
           </Text>
           <Text variant="bodyL" color={theme.primary} align="center" numeric>
-            {currentFormatted.primary}
+            {headerDateLabel}
           </Text>
         </View>
 
-        <Pressy
-          onPress={handleNextDay}
-          disabled={selectedIndex === days.length - 1}
-          accessibilityRole="button"
-          accessibilityLabel={t('common.next', 'بعدی')}
-          style={styles.navButton}
-        >
-          <View style={[styles.navIcon, selectedIndex === days.length - 1 && styles.disabled]}>
-            <CaretLeft size={20} color={selectedIndex === days.length - 1 ? theme.textFaint : theme.text} />
-          </View>
-        </Pressy>
+        <View style={styles.headerActions}>
+          <Pressy
+            onPress={() => setShowMonthGrid((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.calendar', 'تقویم')}
+            style={styles.calendarToggle}
+          >
+            <View
+              style={[
+                styles.calendarIconWrapper,
+                { backgroundColor: showMonthGrid ? theme.primary : theme.surface3 },
+              ]}
+            >
+              <CalendarBlank
+                size={18}
+                color={showMonthGrid ? theme.onPrimary : theme.text}
+                weight={showMonthGrid ? 'fill' : 'regular'}
+              />
+            </View>
+          </Pressy>
+
+          <Pressy
+            onPress={handleNextDay}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.next', 'روز بعدی')}
+            style={styles.navButton}
+          >
+            <View style={styles.navIcon}>
+              <CaretLeft size={20} color={theme.text} />
+            </View>
+          </Pressy>
+        </View>
       </View>
 
-      {/* Horizontal Day Carousel */}
+      {/* 2. Interactive Month Calendar Grid (Toggled) */}
+      {showMonthGrid && (
+        <View style={[styles.calendarGridContainer, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+          {/* Month Header with Steppers */}
+          <View style={styles.monthHeader}>
+            <Pressy onPress={handlePrevMonth} style={styles.monthNavBtn}>
+              <CaretRight size={18} color={theme.text} />
+            </Pressy>
+            <Text variant="h3" color={theme.text} align="center" numeric>
+              {`${viewMonthName} ${viewYearDisplay}`}
+            </Text>
+            <Pressy onPress={handleNextMonth} style={styles.monthNavBtn}>
+              <CaretLeft size={18} color={theme.text} />
+            </Pressy>
+          </View>
+
+          {/* Weekday Abbreviations */}
+          <View style={styles.weekdaysRow}>
+            {(isFa ? ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S']).map((wd, i) => (
+              <Text key={`wd-${i}`} variant="caption" color={theme.textMuted} align="center" style={styles.weekdayCell}>
+                {wd}
+              </Text>
+            ))}
+          </View>
+
+          {/* Days Grid */}
+          <View style={styles.daysGrid}>
+            {monthGridDays.map((cell) => {
+              if (!cell.isDay) {
+                return <View key={cell.key} style={styles.gridCell} />;
+              }
+
+              const numDisplay = isFa ? toPersianDigits(String(cell.dayNumber)) : String(cell.dayNumber);
+
+              return (
+                <Pressy
+                  key={cell.key}
+                  disabled={cell.isPast}
+                  onPress={() => {
+                    onChange(new Date(`${cell.isoDate}T12:00:00Z`).toISOString());
+                    setShowMonthGrid(false);
+                  }}
+                  style={styles.gridCell}
+                >
+                  <View
+                    style={[
+                      styles.cellInner,
+                      cell.isSelected && { backgroundColor: theme.primary },
+                      cell.isPast && styles.disabled,
+                      cell.isInWindow && !cell.isSelected && styles.windowIndicator,
+                    ]}
+                  >
+                    <Text
+                      variant="caption"
+                      color={cell.isSelected ? theme.onPrimary : cell.isPast ? theme.textFaint : theme.text}
+                      align="center"
+                      numeric
+                    >
+                      {numDisplay}
+                    </Text>
+                  </View>
+                </Pressy>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {/* 3. Horizontal Day Carousel (Always accessible) */}
       <ScrollView
         horizontal
+        nestedScrollEnabled={true}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.carousel}
       >
-        {days.map((dayIso, index) => {
-          const isSelected = index === selectedIndex;
-          const formatted = formatDate(dayIso, locale);
-          // Split out components for the badge
-          const parts = formatted.primary.split(' ');
-          const weekday = parts[0] ?? '';
-          const dayNumber = parts[1] ?? '';
-          const monthName = parts[2] ?? '';
+        {upcomingDays.map((isoDay, index) => {
+          const isSelected = isoDay === selectedDateOnly;
+          const j = gregorianDayToJalali(isoDay);
+          const wIdx = weekdayIndex(`${isoDay}T12:00:00Z`, locale);
+          const weekday = isFa ? PERSIAN_WEEKDAYS[wIdx] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][wIdx];
+          const monthName = isFa ? PERSIAN_MONTHS[j.jm - 1] : String(j.jm);
+          const dayNumber = isFa ? toPersianDigits(String(j.jd)) : String(j.jd);
+
+          const isInWindow = Boolean(
+            windowStart &&
+              windowEnd &&
+              isoDay >= windowStart.slice(0, 10) &&
+              isoDay <= windowEnd.slice(0, 10),
+          );
 
           return (
             <Pressy
-              key={dayIso}
-              onPress={() => onChange(dayIso)}
+              key={isoDay}
+              onPress={() => onChange(new Date(`${isoDay}T12:00:00Z`).toISOString())}
               accessibilityRole="radio"
               accessibilityState={{ selected: isSelected }}
               testID={testID ? `${testID}-day-${index}` : undefined}
@@ -175,6 +399,9 @@ export function DateSelectionComponent({
                 >
                   {monthName}
                 </Text>
+                {isInWindow && !isSelected && (
+                  <View style={[styles.windowDot, { backgroundColor: theme.brand }]} />
+                )}
               </View>
             </Pressy>
           );
@@ -201,6 +428,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space[1],
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1],
+  },
+  calendarToggle: {
+    padding: space[1],
+  },
+  calendarIconWrapper: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   navButton: {
     padding: space[1],
   },
@@ -222,7 +464,7 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   dayCard: {
-    width: size.buttonLarge + space[3],
+    width: size.buttonLarge + space[4],
     paddingVertical: space[2],
     paddingHorizontal: space[2],
     borderRadius: radius.md,
@@ -230,5 +472,57 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: space[1],
+    position: 'relative',
+  },
+  windowDot: {
+    width: size.loadingDot,
+    height: size.loadingDot,
+    borderRadius: radius.pill,
+    marginTop: space[1],
+  },
+  calendarGridContainer: {
+    padding: space[3],
+    borderRadius: radius.lg,
+    borderWidth: border.hairline,
+    gap: space[2],
+  },
+  monthHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space[2],
+  },
+  monthNavBtn: {
+    padding: space[2],
+  },
+  weekdaysRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: space[1],
+  },
+  weekdayCell: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  gridCell: {
+    width: '14.28%',
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: space[1] / 2,
+  },
+  cellInner: {
+    width: size.segment,
+    height: size.segment,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  windowIndicator: {
+    borderWidth: border.hairline,
   },
 });

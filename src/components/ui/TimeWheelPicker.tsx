@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -79,6 +80,7 @@ function WheelColumn<T>({
     <View style={styles.column} testID={testID}>
       <ScrollView
         ref={scrollRef}
+        nestedScrollEnabled={true}
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
@@ -90,9 +92,19 @@ function WheelColumn<T>({
         {items.map((item, index) => {
           const isSelected = index === selectedIndex;
           return (
-            <View key={String(index)} style={styles.itemWrapper}>
+            <Pressable
+              key={String(index)}
+              style={styles.itemWrapper}
+              onPress={() => {
+                if (index !== selectedIndex) {
+                  onSelect(index);
+                  scrollRef.current?.scrollTo({ y: index * ITEM_HEIGHT, animated: true });
+                  haptics.impact('light');
+                }
+              }}
+            >
               {renderItem(item, isSelected)}
-            </View>
+            </Pressable>
           );
         })}
         <View style={styles.spacer} />

@@ -26,7 +26,7 @@ import { trackDuplicateResolution } from '@/src/features/proposals/services/anal
 import { LocationMapPicker } from '@/src/components/ui/LocationMapPicker';
 import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
-import { space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { DuplicateHint, ProposalType, VenueRef } from '@/src/types/proposal';
 
@@ -159,11 +159,14 @@ export default function ProposeScreen() {
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[10] },
+        { paddingTop: space[3], paddingBottom: insets.bottom + space[10] },
       ]}
+      nestedScrollEnabled={true}
       testID="propose-screen"
     >
-      <Text variant="h1">{t('proposals.newProposal')}</Text>
+      <View style={styles.topHeader}>
+        <Text variant="h1">{t('proposals.newProposal')}</Text>
+      </View>
 
       {/* Proposal Title */}
       <Input
@@ -298,6 +301,23 @@ export default function ProposeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    marginBottom: space[1],
+  },
+  backButton: {
+    padding: space[1],
+  },
+  backIconCircle: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    borderWidth: border.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   content: {
     paddingHorizontal: space[5],

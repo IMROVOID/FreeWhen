@@ -1,7 +1,7 @@
 import { Text as RNText, type TextProps as RNTextProps } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-import { fonts } from '@/src/theme/fonts';
+import { fonts, isPersian } from '@/src/theme/fonts';
 import { useTheme } from '@/src/theme/useTheme';
 import {
   digitLocale,
@@ -46,9 +46,14 @@ export function Text({
   const content = String(children ?? '');
 
   // The content decides the FONT; the locale decides the digits.
-  const type = resolveType(content, variant);
+  const isFa =
+    i18n.language === 'fa'
+      ? (numeric || isPersian(content) || !/[a-zA-Z]/.test(content))
+      : isPersian(content);
+
+  const type = resolveType(content, variant, isFa);
   const resolvedWeight = resolveWeight(variant, weight);
-  const family = type.isPersian
+  const family = isFa
     ? fonts.persian[resolvedWeight]
     : fonts.latin[resolvedWeight];
 
