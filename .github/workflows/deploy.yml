@@ -1,0 +1,313 @@
+name: Deploy
+
+# ★ ONE PROVIDER PER RUN, AND YOU HAVE TO SAY WHICH.
+#
+# Deploying two providers from one run means one of them is not the deployment
+# anyone is looking at, and the second silently becomes the truth. So `target`
+# is a required choice, exactly one provider workflow is called, and the rest
+# report as deliberately not run.
+#
+# ★ DISPATCH ONLY. NEVER ON PUSH.
+#
+# A commit flag chooses an APK's ABIs; it cannot publish a release, and it
+# cannot deploy. That asymmetry is deliberate: the blast radius of a bad APK is
+# one bad download, and the blast radius of a bad deploy is the live product.
+# Deploying is a decision a person makes, with a target, in a run they can see.
+#
+# ★ THIS WORKFLOW ALSO WRITES FREEWHEN_SERVER_URL.
+#
+# That repository variable is what the APK pipeline reads as the origin it
+# inlines at build time. Writing it here is what makes "build the app after the
+# server exists" automatic — without it, an operator copies a URL by hand and
+# eventually copies a stale one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'The one provider to deploy to.'
+        required: true
+        type: choice
+        options:
+          - vps
+          - railway
+          - koyeb
+          - cloudflare
+          - netlify
+          - deno
+          - vercel
+      mode:
+        description: 'production (gated by an approval environment) or preview.'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
+      web:
+        description: 'Deploy the static web export.'
+        required: false
+        default: true
+        type: boolean
+      api:
+        description: 'Deploy the backend API.'
+        required: false
+        default: true
+        type: boolean
+      run_migrations:
+        description: 'Apply migrations to the target database.'
+        required: false
+        default: true
+        type: boolean
+      external_db:
+        description: 'The target uses an external DATABASE_URL instead of its own Postgres.'
+        required: false
+        default: false
+        type: boolean
+      ref:
+        description: 'Branch or tag to deploy. Blank = the branch this ran from.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy per target at a time. Two concurrent deploys to the same host is
+  # two `rsync --delete` runs racing over one directory.
+  group: deploy-${{ inputs.target }}-${{ inputs.mode }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Refuse to start a deploy that cannot finish ───────────────────────────
+  validate:
+    name: Validate ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      target: ${{ inputs.target }}
+      notes: ${{ steps.check.outputs.notes }}
+    steps:
+      - name: Check the configuration for the chosen target
+        id: check
+        env:
+          TARGET: ${{ inputs.target }}
+          MODE: ${{ inputs.mode }}
+          WANT_API: ${{ inputs.api }}
+          EXTERNAL_DB: ${{ inputs.external_db }}
+          HAS_SSH_HOST: ${{ secrets.SSH_HOST != '' }}
+          HAS_SSH_KEY: ${{ secrets.SSH_KEY != '' }}
+          HAS_RAILWAY: ${{ secrets.RAILWAY_TOKEN != '' }}
+          HAS_KOYEB: ${{ secrets.KOYEB_TOKEN != '' }}
+          HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAS_NETLIFY: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
+          HAS_DENO: ${{ secrets.DENO_DEPLOY_TOKEN != '' }}
+          HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
+          HAS_SUPABASE_URL: ${{ secrets.SUPABASE_URL != '' }}
+          HAS_SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY != '' }}
+          DATABASE_BACKEND: ${{ vars.FREEWHEN_DATABASE_BACKEND }}
+          SERVER_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          VERCEL_ENABLED: ${{ vars.FREEWHEN_VERCEL_ENABLED }}
+          # ★ `secrets` CANNOT BE READ IN A STEP-LEVEL `if:`, BUT IT CAN BE
+          # READ HERE. The booleans above exist so the shell decides, not the
+          # expression language. `github.event.inputs` is avoided for the same
+          # reason `inputs` is preferred: `inputs` is typed.
+        run: |
+          set -euo pipefail
+          missing=()
+
+          case "$TARGET" in
+            vps)
+              [[ "$HAS_SSH_HOST" == "true" ]] || missing+=("SSH_HOST (secret)")
+              [[ "$HAS_SSH_KEY"  == "true" ]] || missing+=("SSH_KEY (secret)")
+              ;;
+            railway)
+              [[ "$HAS_RAILWAY" == "true" ]] || missing+=("RAILWAY_TOKEN (secret)")
+              ;;
+            koyeb)
+              [[ "$HAS_KOYEB" == "true" ]] || missing+=("KOYEB_TOKEN (secret)")
+              ;;
+            cloudflare)
+              [[ "$HAS_CLOUDFLARE" == "true" ]] || missing+=("CLOUDFLARE_API_TOKEN (secret)")
+              # ★ A WORKERS RUNTIME HAS NO TCP SOCKET.
+              #
+              # `server/runtime/README.md:133-139` says so: the only database
+              # transport a Worker can use is PostgREST over HTTPS. Deploying
+              # the `pg` transport there produces a Worker that 500s on its
+              # first database request — after a successful deploy.
+              if [[ "$WANT_API" == "true" ]]; then
+                if [[ "$DATABASE_BACKEND" != "supabase_rest" ]]; then
+                  echo "::error::target=cloudflare with api=true requires vars.FREEWHEN_DATABASE_BACKEND=supabase_rest."
+                  echo "A Workers runtime cannot open a TCP Postgres socket. The 'pg' transport"
+                  echo "deploys successfully and then fails on the first database request."
+                  echo "See server/runtime/README.md §What does not run on a request-scoped runtime."
+                  exit 1
+                fi
+                [[ "$HAS_SUPABASE_URL" == "true" ]] || missing+=("SUPABASE_URL (secret)")
+                [[ "$HAS_SUPABASE_KEY" == "true" ]] || missing+=("SUPABASE_SECRET_KEY (secret)")
+              fi
+              ;;
+            netlify)
+              [[ "$HAS_NETLIFY" == "true" ]] || missing+=("NETLIFY_AUTH_TOKEN (secret)")
+              ;;
+            deno)
+              [[ "$HAS_DENO" == "true" ]] || missing+=("DENO_DEPLOY_TOKEN (secret)")
+              ;;
+            vercel)
+              [[ "$HAS_VERCEL" == "true" ]] || missing+=("VERCEL_TOKEN (secret)")
+              # ★ AN UNSUPPORTED TARGET FAILS HERE, NOT IN A GREEN SKIP.
+              #
+              # `deploy-vercel.yml` also guards itself, but a skipped job reports
+              # as success — and a deploy that "succeeded" while publishing
+              # nothing is the failure `README.md` §Runbook warns about when
+              # `gate:web` prints SKIPPED.
+              if [[ "$VERCEL_ENABLED" != "true" ]]; then
+                echo "::error::Vercel deploys are disabled. Set repository variable FREEWHEN_VERCEL_ENABLED=true to enable them."
+                echo "Vercel is behind this switch because it needs an account-level token AND a"
+                echo "billing decision that belongs to the operator, not to the workflow."
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::unknown target '$TARGET'"
+              exit 1
+              ;;
+          esac
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::target=$TARGET is missing required configuration:"
+            for item in "${missing[@]}"; do echo "::error::  - $item"; done
+            echo ""
+            echo "Set these in Settings → Secrets and variables → Actions, then re-run."
+            echo "The full matrix is in .github/workflows/README.md §2."
+            exit 1
+          fi
+
+          # The APK pipeline inlines this origin at build time, so a deploy that
+          # changes it must update the variable in the same run.
+          NOTES=""
+          if [[ -n "$SERVER_URL" ]]; then
+            NOTES="public origin: $SERVER_URL"
+          else
+            NOTES="FREEWHEN_SERVER_URL is unset — the APK pipeline has no origin to inline"
+          fi
+          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+          echo "$NOTES"
+
+      - name: Summary
+        env:
+          TARGET: ${{ inputs.target }}
+          MODE: ${{ inputs.mode }}
+          WANT_WEB: ${{ inputs.web }}
+          WANT_API: ${{ inputs.api }}
+          EXTERNAL_DB: ${{ inputs.external_db }}
+          NOTES: ${{ steps.check.outputs.notes }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deploy: \`$TARGET\` ($MODE)"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| static web | $WANT_WEB |"
+            echo "| backend API | $WANT_API |"
+            echo "| external database | $EXTERNAL_DB |"
+            echo "| $NOTES | |"
+            echo ""
+            echo "Exactly one provider runs per invocation; the others report as"
+            echo "deliberately not run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── One provider, chosen by the target ────────────────────────────────────
+  # ★ A REUSABLE WORKFLOW CANNOT BE CALLED CONDITIONALLY INSIDE A JOB.
+  #
+  # So each provider is its own job with an `if:`. A skipped job reports as
+  # success, which is why `validate` already refused an unconfigured target —
+  # the skip that follows is always the skip that was asked for.
+  vps:
+    needs: validate
+    if: inputs.target == 'vps'
+    uses: ./.github/workflows/deploy-vps.yml
+    with:
+      mode: ${{ inputs.mode }}
+      web: ${{ inputs.web }}
+      api: ${{ inputs.api }}
+      run_migrations: ${{ inputs.run_migrations }}
+      external_db: ${{ inputs.external_db }}
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+
+  railway:
+    needs: validate
+    if: inputs.target == 'railway'
+    uses: ./.github/workflows/deploy-compose.yml
+    with:
+      target: railway
+      mode: ${{ inputs.mode }}
+      web: ${{ inputs.web }}
+      api: ${{ inputs.api }}
+      run_migrations: ${{ inputs.run_migrations }}
+      external_db: ${{ inputs.external_db }}
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+
+  koyeb:
+    needs: validate
+    if: inputs.target == 'koyeb'
+    uses: ./.github/workflows/deploy-compose.yml
+    with:
+      target: koyeb
+      mode: ${{ inputs.mode }}
+      web: ${{ inputs.web }}
+      api: ${{ inputs.api }}
+      run_migrations: ${{ inputs.run_migrations }}
+      external_db: ${{ inputs.external_db }}
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+
+  cloudflare:
+    needs: validate
+    if: inputs.target == 'cloudflare'
+    uses: ./.github/workflows/deploy-pages.yml
+    with:
+      target: cloudflare
+      mode: ${{ inputs.mode }}
+      web: ${{ inputs.web }}
+      api: ${{ inputs.api }}
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+
+  netlify:
+    needs: validate
+    if: inputs.target == 'netlify'
+    uses: ./.github/workflows/deploy-pages.yml
+    with:
+      target: netlify
+      mode: ${{ inputs.mode }}
+      web: ${{ inputs.web }}
+      api: false
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+
+  deno:
+    needs: validate
+    if: inputs.target == 'deno'
+    uses: ./.github/workflows/deploy-pages.yml
+    with:
+      target: deno
+      mode: ${{ inputs.mode }}
+      web: ${{ inputs.web }}
+      api: ${{ inputs.api }}
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+
+  vercel:
+    needs: validate
+    if: inputs.target == 'vercel'
+    uses: ./.github/workflows/deploy-vercel.yml
+    with:
+      mode: ${{ inputs.mode }}
+      web: ${{ inputs.web }}
+      api: ${{ inputs.api }}
+      ref: ${{ inputs.ref }}
+    secrets: inherit

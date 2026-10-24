@@ -211,10 +211,13 @@ npm run gate:all              # the seven release gates
 
 ### Guide 2 — Deployment
 
-One host, one operator, no CI pipeline and no cloud build service — deliberately.
-Every step below is a script, so the procedure is *repeatable* rather than
-*remembered*. See the [Runbook](#runbook--building-and-deploying) for why each
-step is ordered the way it is.
+One host, one operator, every step a script — so the procedure is *repeatable*
+rather than *remembered*. Two of those script sequences are also wired to GitHub
+Actions ([`.github/workflows/`](.github/workflows/README.md)), which you can use
+or ignore: the manual path below still works end to end and remains the fallback
+if the runner is unavailable. See the
+[Runbook](#runbook--building-and-deploying) for why each step is ordered the way
+it is.
 
 #### Step 1 — Backend
 
@@ -251,11 +254,54 @@ in that order. Three things are load-bearing:
 ```bash
 export FREE_WHEN_RELEASE_STORE_FILE=/secure/freewhen-release.keystore
 export FREE_WHEN_RELEASE_STORE_PASSWORD=…
-npm run build:apk
+npm run build:apk                       # every ABI, one artifact
+APK_ARCHS=arm64-v8a npm run build:apk   # one ABI only
 ```
 
 `scripts/build/build-apk.sh` runs `npx expo prebuild --platform android` then
 `./gradlew assembleRelease`, and copies the result to `web/dl/freewhen.apk`.
+
+**One ABI, or all of them.** `android/gradle.properties` declares four
+architectures, and Gradle emits an `app-<abi>-release.apk` for each *plus* an
+un-suffixed `app-release.apk` containing all of them. `APK_ARCHS` selects the
+per-ABI output; leaving it unset produces the universal one. The script reads
+only the artifact its own mode should have produced, and lists the output
+directory when the expected file is missing — because "the build succeeded with
+a name nobody predicted" is how the wrong artifact ships.
+
+##### Building every ABI and publishing a release
+
+[`release-apk.yml`](.github/workflows/release-apk.yml) does this in one dispatch:
+
+```
+FreeWhen-v1.0.0-armeabi-v7a.apk
+FreeWhen-v1.0.0-arm64-v8a.apk
+FreeWhen-v1.0.0-x86.apk
+FreeWhen-v1.0.0-x86_64.apk
+FreeWhen-v1.0.0-universal.apk
+SHA256SUMS.txt
+```
+
+Three properties are load-bearing and none of them existed before:
+
+- **A draft is the default.** `release_mode=publish` is a separate, deliberate
+  choice. Overwriting an existing published tag needs
+  `FREEWHEN_OVERWRITE_RELEASE=true` as well, so re-publishing cannot happen by
+  accident.
+- **Every APK is verified before it is uploaded.** `verify-apk` checks the file
+  is an archive, that a per-ABI build carries *exactly* its own `lib/` payload
+  (a universal build must carry more than one), that the signer is the release
+  certificate and **not** the debug key, that the package id and `versionName`
+  match, and that no `SUPABASE_SECRET_KEY`/`service_role`/`sk.` string reached the
+  bundled JavaScript. Then it writes the checksum.
+- **A production build refuses to start blind.** It requires
+  `FREEWHEN_SERVER_URL`, calls `<origin>/health`, and aborts unless the body
+  says `"db":"up"`. The API origin is inlined at build time, so an APK built
+  against a dead host is an app that opens to a spinner and cannot be fixed
+  without shipping another APK.
+
+Variable and secret names are in
+[`.github/workflows/README.md`](.github/workflows/README.md).
 
 ##### The keystore
 
@@ -720,6 +766,27 @@ FreeWhen strictly distinguishes between client-inlined variables and server-only
 | `ANON_SIGNIN_LIMIT_PER_HOUR` | No | Server | Rate limit for anonymous sign-ins per IP | `30` |
 | `ANON_TOKEN_TTL_SECONDS` | No | Server | Lifetime of issued anonymous token (seconds) | `3600` |
 
+#### 3. GitHub Actions variables and secrets
+
+The workflows read their configuration from **repository variables** and
+**secrets**, not from a committed `.env`. The full matrix — every name, which
+target needs it, and what breaks without it — is in
+[`.github/workflows/README.md`](.github/workflows/README.md) §2 and §3.
+
+The two that matter most, because they are the ones whose absence is invisible:
+
+| Name | Kind | Why |
+|---|---|---|
+| `FREEWHEN_SERVER_URL` | variable | the origin the APK inlines at build time; written by the deploy workflow, read by the APK one |
+| `ANDROID_KEYSTORE_SHA256` | secret | the release certificate digest `verify-apk` compares against — without it a signature is verified but not matched to a known key |
+
+> **`.github/` is outside every gate's scan set.** `scripts/gate/secrets.ts` walks
+> `src/`, `app/` and `server/`, and it never will walk workflows: a workflow
+> legitimately contains `${{ secrets.JWT_SECRET }}`, which a name-based rule
+> flags on every line. `tests/docs/ci-workflows.test.ts` is the substitute — it
+> asserts the job orderings, the refusals, and that no credential *shape* reached
+> a workflow file.
+
 ## Development & Testing
 
 ### Quality & Release Gates
@@ -810,7 +877,25 @@ The last row is a design decision, not a defect: the map degrades on web by desi
 
 ## Runbook — Building and Deploying
 
-Everything below runs on the operator's machine. There is **no CI pipeline and no cloud build service**, deliberately: one host, one operator, one deploy per day at most. The scripts exist so a manual step is *repeatable* rather than *remembered*.
+Everything below runs on the operator's machine, and every step is a script. That
+was the whole design for a long time: one host, one operator, one deploy per day
+at most, and a manual step is *repeatable* rather than *remembered*.
+
+Two of those script sequences — the APK build and the deploy — are now also
+reachable from GitHub Actions. **The manual path is still the primary one** and
+still works end to end; the workflows exist because three things a person could
+not reliably do by hand turned out to matter:
+
+1. **`build-apk.sh` produced one artifact.** It named `app-release.apk` while
+   `gradle.properties` declared four ABIs, so every release carried the same
+   universal build and the per-ABI outputs were discarded.
+2. **Nothing checked the signature of what was built.** A fresh
+   `expo prebuild` re-signs `release` with the debug key unless
+   `build-apk.sh` rewrites `gradle.properties`, and the result is an artifact
+   that downloads, installs on a developer's machine, and **cannot** be installed
+   over the previous app on a participant's phone.
+3. **`deploy.sh` needs a laptop with the key.** That is fine until the person is
+   away, and it makes the deploy's provenance impossible to audit.
 
 ### The seven release gates
 
@@ -831,6 +916,40 @@ Seven, not six, because there are **two shipping artifacts**. The native bundle 
 | 7 | `gate:web` | The **exported** bundle carries a secret, an `sk.` token, a `.map`, or a third-party script origin |
 
 `gate:all` runs them in that order and stops at the first failure, because the first failure is almost always the cause. `gate:web` needs `dist/` to exist, so it prints a loud **SKIPPED — NOT CHECKED** line when the export has not been built, and exits non-zero. That skip is a developer convenience; the deploy path never sees it.
+
+### GitHub Actions
+
+Three workflows. Names, secrets and flags are in
+[`.github/workflows/README.md`](.github/workflows/README.md); this is what they
+are for.
+
+| Workflow | Trigger | What it guarantees |
+|---|---|---|
+| **CI** | push to `main`, every PR | typecheck, lint, tests, the seven gates **against a real `dist/`**, and migrations applied twice to a throwaway Postgres to prove they are idempotent |
+| **Release APK** | dispatch, or a push whose message says `[fw:apk]` | every ABI plus universal, each verified, published as a **draft** by default |
+| **Deploy** | **dispatch only** | one provider per run, self-provisioning, ending in the same smoke test `deploy.sh` runs |
+
+**Deploy has no push trigger, deliberately.** A commit flag chooses an APK's
+ABIs; it cannot publish a release and it cannot deploy. A bad APK is one
+download replaced in minutes; a bad deploy is the live product.
+
+The CI job is the honest addition rather than a box-tick: until it existed, the
+seven gates ran only when somebody remembered, and `gate:web` had never been run
+against a bundle built with real `EXPO_PUBLIC_*` values. It exports first —
+`gate:web` scans `dist/`, and gating before the export would fail for the wrong
+reason.
+
+One name is shared between the two shipping workflows: the deploy writes
+**`FREEWHEN_SERVER_URL`** as a repository variable, and the APK workflow reads it
+as the origin it inlines. That is what makes "build the app after the server
+exists" automatic instead of a URL copied by hand and eventually copied stale.
+
+**What the automation does not claim.** Of eight deploy targets, six are
+implemented, Vercel is behind `FREEWHEN_VERCEL_ENABLED` and a production
+approval, and Fly.io is listed as planned rather than supported — it needs
+volumes, backups and an operator billing decision. Every request-scoped target
+loses the realtime bridge, so votes arrive on the 10-second poll; the run summary
+says so on every such deploy.
 
 ### Build the web artifact
 
@@ -952,6 +1071,8 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 | **G-5** | **Organizer identity is device-scoped.** Losing the device loses organizer control. | Event can strand | Ownership continuity prevents the worst case | Account system |
 | **G-6** | **No CAPTCHA on anonymous sign-in.** | DB-size abuse | Time | If abuse is observed |
 | **G-7** | **The browser has no 3D map.** The ranked list is complete; the map is Android-only. | Low — the list carries the decision | No web build of the native map renderer; a web map is a separate renderer with separate costs (OQ-18.3, deferred to P2) | When a reviewer's confusion is traced to the missing map rather than to the ranking |
+| **G-8** | **No automated rollback.** The workflows publish; reverting a release or a deploy is still a manual act. | Low — releases are drafts by default and migrations are additive | A rollback action needs a previous-artifact store and a decision about what "the previous good deploy" means per provider | The first time a bad release reaches a reviewer |
+| **G-9** | **No iOS build pipeline.** | Low — the reviewer path is the web export | No Apple credentials, no macOS runner, no signing certificate. `README` has always listed iOS as missing | An Apple developer account |
 
 **G-2 is the most important entry.** It is a conscious compliance risk that must be revisited before any messaging feature ships.
 

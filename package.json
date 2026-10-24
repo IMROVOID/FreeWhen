@@ -43,6 +43,7 @@
     "qa:all": "tsx scripts/qa/all.ts",
     "build:web": "bash scripts/build/export-web.sh",
     "build:apk": "bash scripts/build/build-apk.sh",
+    "flags:parse": "tsx scripts/build/parse-commit-flags.ts",
     "deploy": "bash scripts/deploy/deploy.sh",
     "check:namespace-drift": "python scripts/docs/check_namespace_drift.py",
     "check:docs": "python scripts/docs/validate_docs.py"

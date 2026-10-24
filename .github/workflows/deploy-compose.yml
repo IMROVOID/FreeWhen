@@ -1,0 +1,302 @@
+name: Deploy (container platforms)
+
+# Railway and Koyeb: both build a container from a connected Git repository and
+# expose one HTTPS port. That is exactly what `Dockerfile` provides, so no
+# re-implementation of the backend lives here — the platform builds the same
+# image a VPS runs.
+#
+# ★ WHAT THIS CANNOT DO, STATED PLAINLY.
+#
+# Neither CLI creates a *project* from nothing: a Railway project must exist and
+# have the repo connected, and a Koyeb app must be created once. This workflow
+# links to the existing project, pushes the current commit, and verifies it. An
+# operator who has never done that first step gets an error naming it, not a
+# silent half-deploy.
+#
+# ★ `API_HOST=0.0.0.0` IS THE LINE THAT MAKES A PLATFORM DEPLOY WORK.
+#
+# `server/index.ts` defaults to `127.0.0.1`. Inside a container that makes the
+# port look open while every request times out — the Dockerfile sets it at build
+# time (`:77`) and the environment here repeats it so a platform-side override
+# cannot unset it.
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: 'railway or koyeb.'
+        required: true
+        type: string
+      mode:
+        description: 'production or preview.'
+        required: false
+        type: string
+        default: 'production'
+      web:
+        description: 'Deploy the static web export.'
+        required: false
+        type: boolean
+        default: true
+      api:
+        description: 'Deploy the backend.'
+        required: false
+        type: boolean
+        default: true
+      run_migrations:
+        description: 'Apply migrations against the target database.'
+        required: false
+        type: boolean
+        default: true
+      external_db:
+        description: 'Use an external DATABASE_URL.'
+        required: false
+        type: boolean
+        default: false
+      ref:
+        description: 'Branch or tag to deploy.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Static half ──────────────────────────────────────────────────────
+      # Both platforms serve a static site beside the API, and the export must
+      # be built HERE because `EXPO_PUBLIC_*` is inlined at build time.
+      - name: Build the web export
+        if: inputs.web
+        env:
+          EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL }}
+          EXPO_PUBLIC_API_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+        run: bash scripts/build/export-web.sh
+
+      - name: Publish the web export
+        if: inputs.web
+        env:
+          TARGET: ${{ inputs.target }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          KOYEB_TOKEN: ${{ secrets.KOYEB_TOKEN }}
+        run: |
+          set -euo pipefail
+          case "$TARGET" in
+            railway)
+              # A static site is a Railway service with a build-less deploy.
+              # `railway up` uploads the directory as-is.
+              npm install -g @railway/cli@4
+              railway up --service "${RAILWAY_STATIC_SERVICE:-freewhen-web}" --detach
+              ;;
+            koyeb)
+              npm install -g @koyeb/koyeb-cli@5
+              # A Koyeb "static" service is a container serving a directory; the
+              # simplest correct thing is to let the API's image serve it, which
+              # is what `web/` and `dist/` are rsynced for on a VPS. Koyeb has no
+              # first-class static host, so this step is a no-op with a note.
+              echo "::warning::Koyeb has no static-site primitive — the export was built but not published there."
+              echo "Serve dist/ from the API container's static root, or use Cloudflare/Netlify for the web half." 
+              ;;
+          esac
+
+      # ── Backend ──────────────────────────────────────────────────────────
+      - name: Push the backend
+        if: inputs.api
+        env:
+          TARGET: ${{ inputs.target }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          KOYEB_TOKEN: ${{ secrets.KOYEB_TOKEN }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DATABASE_URL_IN: ${{ secrets.DATABASE_URL }}
+          EXTERNAL_DB: ${{ inputs.external_db }}
+          PUBLIC_BASE_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          APP_ORIGIN: ${{ vars.FREEWHEN_APP_BASE_URL }}
+        run: |
+          set -euo pipefail
+
+          # ★ THE REQUIRED-SECRET CHECK RUNS BEFORE THE PROVIDER IS TOUCHED.
+          #
+          # A platform that receives half its environment starts, then 500s on
+          # the first request that reads the missing value — after a "successful"
+          # deploy.
+          missing=()
+          [[ -n "$JWT_SECRET" ]] || missing+=("JWT_SECRET")
+          [[ -n "$PUBLIC_BASE_URL" ]] || missing+=("vars.FREEWHEN_SERVER_URL")
+          (( ${#missing[@]} == 0 )) || { echo "::error::missing: ${missing[*]}"; exit 1; }
+
+          case "$TARGET" in
+            railway)
+              npm install -g @railway/cli@4
+              # ★ RAILWAY INJECTS `DATABASE_URL` FROM ITS OWN POSTGRES PLUGIN.
+              #
+              # Setting it too makes the service use whichever value won, and the
+              # one that loses is invisible. It is only passed when the operator
+              # explicitly said they brought their own database.
+              VARS=(
+                "NODE_ENV=production"
+                "API_HOST=0.0.0.0"
+                "DATABASE_BACKEND=local_pg"
+                "JWT_SECRET=$JWT_SECRET"
+                "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
+                "APP_ORIGIN=$APP_ORIGIN"
+              )
+              if [[ "$EXTERNAL_DB" == "true" ]]; then
+                VARS+=("DATABASE_URL=$DATABASE_URL_IN")
+              fi
+              for pair in "${VARS[@]}"; do
+                railway variables --set "$pair" --service "${RAILWAY_API_SERVICE:-freewhen-api}"
+              done
+              railway up --service "${RAILWAY_API_SERVICE:-freewhen-api}" --detach
+              ;;
+            koyeb)
+              npm install -g @koyeb/koyeb-cli@5
+              # `PORT` is assigned by Koyeb; `API_HOST` is not, which is why it
+              # is pinned rather than derived from the platform's own variable.
+              koyeb service update "${KOYEB_SERVICE:-freewhen-api}" \
+                --env "NODE_ENV=production" \
+                --env "API_HOST=0.0.0.0" \
+                --env "DATABASE_BACKEND=local_pg" \
+                --env "JWT_SECRET=$JWT_SECRET" \
+                --env "PUBLIC_BASE_URL=$PUBLIC_BASE_URL" \
+                --env "APP_ORIGIN=$APP_ORIGIN" \
+                $([[ "$EXTERNAL_DB" == "true" ]] && echo "--env DATABASE_URL=$DATABASE_URL_IN")
+              ;;
+          esac
+
+      # ── Migrations run from the runner, not the container ────────────────
+      # The image contains `migrations/` and `npm run db:migrate` (Dockerfile
+      # `:59-61`), but running it here keeps the log in the workflow where a
+      # reader can see which migration applied.
+      - name: Apply migrations
+        if: inputs.api && inputs.run_migrations
+        env:
+          DATABASE_URL_IN: ${{ secrets.DATABASE_URL }}
+          EXTERNAL_DB: ${{ inputs.external_db }}
+          TARGET: ${{ inputs.target }}
+          RAILWAY_DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          # ★ MANAGED POSTGRES REQUIRES TLS, AND `pg` DOES NOT NEGOTIATE IT.
+          #
+          # A connection string without `sslmode=require` is refused by most
+          # managed providers, and the error reads as "password authentication
+          # failed" — which sends an operator to rotate a password that was fine.
+          TARGET_URL="${DATABASE_URL_IN:-$RAILWAY_DATABASE_URL}"
+          if [[ -z "$TARGET_URL" ]]; then
+            echo "::error::no DATABASE_URL to migrate against."
+            echo "Set the DATABASE_URL secret, or expose the provider's own connection"
+            echo "string as RAILWAY_DATABASE_URL / KOYEB_DATABASE_URL. Migrations are"
+            echo "additive and idempotent, so re-running after fixing this is safe."
+            exit 1
+          fi
+          if [[ "$TARGET_URL" != *"sslmode="* && "$TARGET_URL" != *"localhost"* && "$TARGET_URL" != *"127.0.0.1"* ]]; then
+            if [[ "$TARGET_URL" == *"?"* ]]; then
+              TARGET_URL="$TARGET_URL&sslmode=require"
+            else
+              TARGET_URL="$TARGET_URL?sslmode=require"
+            fi
+            echo "appended sslmode=require for a managed provider"
+          fi
+          DATABASE_URL="$TARGET_URL" npm run db:migrate
+
+      # ── The contract, from outside ───────────────────────────────────────
+      - name: Smoke test
+        env:
+          BASE_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$BASE_URL" ]]; then
+            echo "::error::vars.FREEWHEN_SERVER_URL is unset — the smoke test has no target."
+            exit 1
+          fi
+          BASE="${BASE_URL%/}"
+          fail=0
+
+          check() {
+            local description="$1" url="$2" want="$3" got
+            got="$(curl -o /dev/null -s -w '%{http_code}' --max-time 20 --retry 3 "$url" || echo 000)"
+            if [[ "$got" == "$want" ]]; then
+              printf '   %-34s %s\n' "$description" "$got"
+            else
+              printf '   %-34s %s (want %s)  <- FAILED\n' "$description" "$got" "$want"
+              fail=1
+            fi
+          }
+
+          # A managed platform is slower to warm than a VPS, so this retries.
+          for attempt in $(seq 1 10); do
+            BODY="$(curl -fsS --max-time 15 "$BASE/health" 2>/dev/null || true)"
+            if echo "$BODY" | grep -q '"db":"up"'; then
+              echo "health: $BODY (after ${attempt} attempt(s))"
+              break
+            fi
+            if [[ "$attempt" == "10" ]]; then
+              echo "::error::/health never reported db:\"up\": ${BODY:-<no response>}"
+              exit 1
+            fi
+            sleep 6
+          done
+
+          check "/start"      "$BASE/start"      200
+          check "/api/health" "$BASE/api/health" 200
+          check "/privacy"    "$BASE/privacy"    200
+
+          if [[ -n "$DEMO_TOKEN" ]]; then
+            check "/e/<demo>" "$BASE/e/$DEMO_TOKEN" 200
+          fi
+
+          if [[ "$fail" -ne 0 ]]; then
+            echo "::error::the smoke test failed on ${{ inputs.target }}."
+            exit 1
+          fi
+          echo "deploy: ${{ inputs.target }} is serving and the contract holds."
+
+      # ★ THE REALTIME BRIDGE NEEDS A LONG-LIVED PROCESS.
+      #
+      # `server/realtime/` holds a session-level `LISTEN`; a request-scoped
+      # runtime cannot. On these platforms the API runs in a container, so the
+      # bridge CAN run — but only if the second service was started. Saying so
+      # in the summary beats letting a reader assume push updates work.
+      - name: Summary
+        env:
+          TARGET: ${{ inputs.target }}
+          WANT_API: ${{ inputs.api }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deployed to \`$TARGET\`"
+            echo ""
+            if [[ "$WANT_API" == "true" ]]; then
+              echo "- API: container from \`Dockerfile\`, \`API_HOST=0.0.0.0\`"
+              echo "- Realtime: the bridge runs only if a second service"
+              echo "  (\`npm run server:realtime\`, port 8788) was started beside the API."
+              echo "  Without it the decision screen falls back to its 10 s poll,"
+              echo "  which is designed behaviour, not a failure."
+            else
+              echo "- Static web only; the backend was left alone."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

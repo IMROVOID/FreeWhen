@@ -1,0 +1,219 @@
+name: Deploy Vercel
+
+# ★ THIS FILE EXISTS SO VERCEL CAN BE SWITCHED OFF VISIBLY.
+#
+# Vercel supports a `Request => Response` function, so `server/runtime/web-fetch.ts`
+# works there — but enabling it needs an account-level token AND a billing
+# decision that belongs to the operator. A workflow that simply fails is better
+# than one that half-works, and a workflow that silently skips is worse than
+# both: a green skipped job reads as "deployed" in the Actions list.
+#
+# So there are two guards:
+#   1. `deploy.yml`'s `validate` job refuses `target=vercel` when
+#      `vars.FREEWHEN_VERCEL_ENABLED != 'true'` — it fails, it does not skip.
+#   2. The job below repeats the check, because a reusable workflow can also be
+#      called directly and this file should not depend on its caller.
+#
+# The same reasoning as `README.md` §Runbook: `gate:all` prints
+# **SKIPPED — NOT CHECKED** and exits non-zero, rather than letting a skipped
+# check look like a passed one.
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'production or preview.'
+        required: false
+        type: string
+        default: 'production'
+      web:
+        description: 'Publish the static export.'
+        required: false
+        type: boolean
+        default: true
+      api:
+        description: 'Deploy the API as a serverless function.'
+        required: false
+        type: boolean
+        default: true
+      ref:
+        description: 'Branch or tag to deploy.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  # Vercel's function convention is a plain `fetch` handler with `process.env`,
+  # which is what `web-fetch.ts` implements.
+  API_ENTRY: server/runtime/web-fetch.ts
+
+jobs:
+  deploy:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # A production deploy waits for a human. This is the one target where the
+    # account-level decision is most likely to have not been made yet.
+    environment: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Refuse if Vercel is not enabled
+        env:
+          VERCEL_ENABLED: ${{ vars.FREEWHEN_VERCEL_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [[ "$VERCEL_ENABLED" != "true" ]]; then
+            echo "::error::Vercel deploys are disabled."
+            echo "Set repository variable FREEWHEN_VERCEL_ENABLED=true to enable them."
+            echo ""
+            echo "Vercel is behind this switch because enabling it is an account and"
+            echo "billing decision, not a technical one. The rest of the deploy"
+            echo "matrix (vps, railway, koyeb, cloudflare, netlify, deno) does not"
+            echo "need it."
+            {
+              echo "### Vercel: NOT DEPLOYED"
+              echo ""
+              echo "\`vars.FREEWHEN_VERCEL_ENABLED\` is not \`true\`. Nothing was published."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the web export
+        if: inputs.web
+        env:
+          EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL }}
+          EXPO_PUBLIC_API_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+        run: bash scripts/build/export-web.sh
+
+      # ★ `vercel.json` IS GENERATED HERE, NOT COMMITTED.
+      #
+      # It carries a rewrite that maps `/api/*` onto the function. Committed, it
+      # would be host configuration in the source tree — and `server/runtime/
+      # README.md:141-146` says that belongs to the operator. Generated, it
+      # costs nothing and `gate:web`/`gate:secrets` never see it.
+      - name: Write the Vercel config
+        if: inputs.api || inputs.web
+        env:
+          PUBLIC_BASE_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          APP_ORIGIN: ${{ vars.FREEWHEN_APP_BASE_URL }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+
+          const config = {
+            // The static export is a directory of pre-rendered HTML plus hashed
+            // assets. `@vercel/static-build` is not needed: the export already
+            // produced its output, so it is served as-is.
+            builds: [{ src: 'dist/**', use: '@vercel/static' }],
+            routes: [
+              // ★ THE PREFIX IS PRESERVED.
+              //
+              // `server/app.ts` matches on path segments and its routes begin
+              // with `api`. A rewrite that stripped the prefix would 404 the
+              // whole surface — the same trap `Caddyfile` documents about
+              // `handle_path` versus `handle`.
+              { src: '/api/(.*)', dest: '/api/index.ts' },
+              { handle: 'filesystem' },
+              { src: '/(.*)', dest: '/index.html' },
+            ],
+          };
+
+          fs.writeFileSync('vercel.json', JSON.stringify(config, null, 2) + '\n');
+          console.log(fs.readFileSync('vercel.json', 'utf8'));
+          NODE
+
+      - name: Pull the Vercel environment
+        if: inputs.api
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          PROD_FLAG=""
+          if [[ "$MODE" == "production" ]]; then PROD_FLAG="--prod"; fi
+          # `--prebuilt` is deliberately absent: nothing built a `.vercel/output`
+          # directory, and passing the flag without one fails.
+          npx --yes vercel@latest deploy $PROD_FLAG --yes --token="$VERCEL_TOKEN" \
+            | tee vercel-deploy.log
+          URL="$(grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' vercel-deploy.log | tail -1)"
+          echo "DEPLOY_URL=${URL:-}" >> "$GITHUB_ENV"
+
+      - name: Smoke test
+        env:
+          BASE_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          WANT_API: ${{ inputs.api }}
+        run: |
+          set -euo pipefail
+          BASE="${BASE_URL%/}"
+          if [[ -z "$BASE" ]]; then
+            echo "::warning::FREEWHEN_SERVER_URL is unset — only the deployment URL is recorded"
+            exit 0
+          fi
+          fail=0
+          check() {
+            local description="$1" url="$2" want="$3" got
+            got="$(curl -o /dev/null -s -w '%{http_code}' --max-time 20 --retry 3 "$url" || echo 000)"
+            if [[ "$got" == "$want" ]]; then
+              printf '   %-30s %s\n' "$description" "$got"
+            else
+              printf '   %-30s %s (want %s)  <- FAILED\n' "$description" "$got" "$want"
+              fail=1
+            fi
+          }
+          if [[ "$WANT_API" == "true" ]]; then
+            BODY="$(curl -fsS --max-time 20 --retry 3 "$BASE/api/health" 2>/dev/null || true)"
+            if echo "$BODY" | grep -q '"db":"up"'; then
+              echo "api health: $BODY"
+            else
+              echo "::error::/api/health did not report db:\"up\": ${BODY:-<no response>}"
+              fail=1
+            fi
+          fi
+          check "/start" "$BASE/start" 200
+          [[ "$fail" -eq 0 ]] || exit 1
+          echo "deploy: Vercel is serving."
+
+      - name: Summary
+        env:
+          DEPLOY_URL: ${{ env.DEPLOY_URL }}
+          WANT_API: ${{ inputs.api }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deployed to Vercel"
+            echo ""
+            echo "- deployment: ${DEPLOY_URL:-see the log above}"
+            echo "- API entry: \`$API_ENTRY\`"
+            if [[ "$WANT_API" == "true" ]]; then
+              echo "- **No realtime bridge.** Vercel functions are request-scoped, so"
+              echo "  the decision screen polls every 10 s. Designed behaviour."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

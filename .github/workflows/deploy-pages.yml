@@ -1,0 +1,305 @@
+name: Deploy (edge runtimes)
+
+# Cloudflare Workers, Netlify, Deno Deploy.
+#
+# ★ THE ENTRY FILE IS CHOSEN FROM `server/runtime/README.md`, NOT INVENTED.
+#
+# That document's table names one file per calling convention. The three
+# runtimes here are all `fetch`-shaped and none of them gives a reliable
+# `process.env`, so they take `server/runtime/edge-no-process-env.ts` — the
+# adapter written for exactly that. Using a `pg`-transport entry here would
+# deploy successfully and then fail on the first database request.
+#
+# ★ A WORKER HAS NO TCP SOCKET. THIS IS THE CONSTraint THAT SHAPES THE FILE.
+#
+# `server/runtime/README.md:133-139` states it: the only database transport an
+# edge runtime can use is PostgREST over HTTPS
+# (`DATABASE_BACKEND=supabase_rest`). `deploy.yml`'s `validate` job refuses
+# `target=cloudflare api=true` without it, and this file refuses again rather
+# than shipping a deployment that 500s on its first query.
+#
+# ★ GENERATED HOST CONFIG GOES TO THE RUNNER, NEVER THE REPOSITORY.
+#
+# `gate:web` fails on a third-party `<script src="http…">` and `gate:secrets`
+# denies credential-shaped lines. A `wrangler.toml` or `vercel.json` carrying a
+# token, committed, would trip the next gate run — and `server/runtime/README.md
+# :141-146` says host configuration belongs to the host anyway.
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: 'cloudflare, netlify or deno.'
+        required: true
+        type: string
+      mode:
+        description: 'production or preview.'
+        required: false
+        type: string
+        default: 'production'
+      web:
+        description: 'Publish the static export.'
+        required: false
+        type: boolean
+        default: true
+      api:
+        description: 'Deploy the API as an edge function.'
+        required: false
+        type: boolean
+        default: true
+      ref:
+        description: 'Branch or tag to deploy.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  # The adapter for these three runtimes, per `server/runtime/README.md`'s table:
+  # a `fetch` handler with no `process.env`.
+  EDGE_ENTRY: server/runtime/edge-no-process-env.ts
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Guard the database transport
+        if: inputs.api
+        env:
+          TARGET: ${{ inputs.target }}
+          DATABASE_BACKEND: ${{ vars.FREEWHEN_DATABASE_BACKEND }}
+          HAS_SUPABASE_URL: ${{ secrets.SUPABASE_URL != '' }}
+          HAS_SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY != '' }}
+        run: |
+          set -euo pipefail
+          # ★ REFUSE RATHER THAN DEPLOY SOMETHING THAT CANNOT QUERY.
+          #
+          # The `pg` transport opens a TCP socket. An edge runtime does not have
+          # one. The deploy still "succeeds" in that case — the bundle builds,
+          # the Worker uploads — and the failure surfaces as a 500 on the first
+          # database request, which is the worst place to learn it.
+          if [[ "$DATABASE_BACKEND" != "supabase_rest" ]]; then
+            echo "::error::$TARGET runs in an edge runtime, which cannot open a TCP Postgres socket."
+            echo "Set vars.FREEWHEN_DATABASE_BACKEND=supabase_rest and provide SUPABASE_URL"
+            echo "and SUPABASE_SECRET_KEY. See server/runtime/README.md and"
+            echo "server/runtime/REST_SETUP.md for the two grants a self-hosted PostgREST needs."
+            exit 1
+          fi
+          [[ "$HAS_SUPABASE_URL" == "true" ]] || { echo "::error::SUPABASE_URL is unset"; exit 1; }
+          [[ "$HAS_SUPABASE_KEY" == "true" ]] || { echo "::error::SUPABASE_SECRET_KEY is unset"; exit 1; }
+
+      - name: Build the web export
+        if: inputs.web
+        env:
+          EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL }}
+          EXPO_PUBLIC_API_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+        run: bash scripts/build/export-web.sh
+
+      # ── Cloudflare ───────────────────────────────────────────────────────
+      - name: Write the Worker config
+        if: inputs.target == 'cloudflare' && inputs.api
+        env:
+          WORKER_NAME: ${{ vars.FREEWHEN_WORKER_NAME }}
+          PUBLIC_BASE_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          APP_ORIGIN: ${{ vars.FREEWHEN_APP_BASE_URL }}
+        run: |
+          set -euo pipefail
+          # Generated here, in the runner's workspace, and never committed.
+          # `wrangler.toml` in the repository would be host configuration in the
+          # source tree — and one carrying a binding name that only one operator
+          # can satisfy.
+          cat > wrangler.toml <<EOF
+          name = "${WORKER_NAME:-freewhen-api}"
+          main = "$EDGE_ENTRY"
+          compatibility_date = "$(date -u +%Y-%m-%d)"
+          compatibility_flags = ["nodejs_compat"]
+
+          [vars]
+          NODE_ENV = "production"
+          DATABASE_BACKEND = "supabase_rest"
+          PUBLIC_BASE_URL = "${PUBLIC_BASE_URL:-}"
+          APP_ORIGIN = "${APP_ORIGIN:-}"
+          EOF
+          echo "--- generated wrangler.toml ---"
+          cat wrangler.toml
+
+      - name: Deploy the Worker
+        if: inputs.target == 'cloudflare' && inputs.api
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          # Secrets are pushed after the deploy so a rotate does not require a
+          # rebuild, and `wrangler secret put` reads them from stdin.
+          secrets: |
+            SUPABASE_URL
+            SUPABASE_SECRET_KEY
+            JWT_SECRET
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+
+      - name: Deploy Pages
+        if: inputs.target == 'cloudflare' && inputs.web
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=${{ vars.FREEWHEN_PAGES_PROJECT }}
+
+      # ── Netlify ──────────────────────────────────────────────────────────
+      - name: Deploy to Netlify
+        if: inputs.target == 'netlify' && inputs.web
+        uses: netlify/actions/cli@master
+        with:
+          args: deploy --dir=dist --prod
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+
+      # ── Deno Deploy ──────────────────────────────────────────────────────
+      - name: Install Deno
+        if: inputs.target == 'deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Deploy to Deno Deploy
+        if: inputs.target == 'deno' && inputs.api
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+          PROJECT: ${{ vars.FREEWHEN_DENO_PROJECT }}
+          PUBLIC_BASE_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          APP_ORIGIN: ${{ vars.FREEWHEN_APP_BASE_URL }}
+        run: |
+          set -euo pipefail
+          # Deno Deploy runs a Workers-shaped `fetch` with `Deno.env` rather than
+          # `process.env`, which is why the edge entry is the right one here too.
+          # `deployctl` is pinned so a new release cannot change the CLI's
+          # argument surface under a deployment.
+          deno run -A jsr:@deno/deployctl@1 deploy "${PROJECT:-freewhen-api}" \
+            --entrypoint="$EDGE_ENTRY" \
+            --prod \
+            --env="NODE_ENV=production" \
+            --env="DATABASE_BACKEND=supabase_rest" \
+            --env="PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}" \
+            --env="APP_ORIGIN=${APP_ORIGIN:-}" \
+            --env="SUPABASE_URL=${{ secrets.SUPABASE_URL }}" \
+            --env="SUPABASE_SECRET_KEY=${{ secrets.SUPABASE_SECRET_KEY }}" \
+            --env="JWT_SECRET=${{ secrets.JWT_SECRET }}"
+        # ★ DENO IS NOT PRECONSTALLED ON `ubuntu-latest`.
+        #
+        # The `denoland/setup-deno` step above installs it; `deployctl` then
+        # comes from JSR at a pinned major. Assuming a preinstalled runtime is
+        # how a workflow reports `deno: command not found` on its first real run.
+
+      # ── Verify from outside ──────────────────────────────────────────────
+      - name: Smoke test
+        env:
+          BASE_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          TARGET: ${{ inputs.target }}
+          WANT_API: ${{ inputs.api }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$BASE_URL" ]]; then
+            echo "::error::vars.FREEWHEN_SERVER_URL is unset — nothing can be verified."
+            exit 1
+          fi
+          BASE="${BASE_URL%/}"
+          fail=0
+
+          check() {
+            local description="$1" url="$2" want="$3" got
+            got="$(curl -o /dev/null -s -w '%{http_code}' --max-time 20 --retry 3 "$url" || echo 000)"
+            if [[ "$got" == "$want" ]]; then
+              printf '   %-34s %s\n' "$description" "$got"
+            else
+              printf '   %-34s %s (want %s)  <- FAILED\n' "$description" "$got" "$want"
+              fail=1
+            fi
+          }
+
+          if [[ "$WANT_API" == "true" ]]; then
+            # ★ `/api/health` IS THE ASSERTION, NOT `/health`.
+            #
+            # A Worker can answer `/health` from a static asset rule while the
+            # function itself never ran. `/api/health` reaches the handler, and
+            # its body must name the database.
+            BODY="$(curl -fsS --max-time 20 --retry 3 "$BASE/api/health" 2>/dev/null || true)"
+            if echo "$BODY" | grep -q '"db":"up"'; then
+              echo "api health: $BODY"
+            else
+              echo "::error::/api/health did not report db:\"up\": ${BODY:-<no response>}"
+              echo "A Worker that cannot reach PostgREST answers 500 here. Check the"
+              echo "SUPABASE_URL / SUPABASE_SECRET_KEY values and the REST grants in"
+              echo "server/runtime/REST_SETUP.md §1 and §2."
+              fail=1
+            fi
+          fi
+
+          check "/start"   "$BASE/start"   200
+          check "/privacy" "$BASE/privacy" 200
+
+          if [[ "$fail" -ne 0 ]]; then
+            echo "::error::the smoke test failed on $TARGET."
+            exit 1
+          fi
+          echo "deploy: $TARGET is serving."
+
+      # ★ WHAT THIS DEPLOYMENT DOES NOT HAVE.
+      #
+      # Every target in this file is request-scoped. The realtime bridge needs a
+      # session-level `LISTEN` and a long-lived WebSocket, which none of them
+      # offers — so the decision screen polls. That is designed behaviour
+      # (`POLL_INTERVAL_MS = 10_000`), but a reader who expects push updates
+      # would call it a bug.
+      - name: Summary
+        env:
+          TARGET: ${{ inputs.target }}
+          WANT_API: ${{ inputs.api }}
+          WANT_WEB: ${{ inputs.web }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Deployed to \`$TARGET\`"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| static web | $WANT_WEB |"
+            echo "| API (edge function) | $WANT_API |"
+            echo "| entry | \`$EDGE_ENTRY\` |"
+            echo "| database transport | \`supabase_rest\` |"
+            echo ""
+            echo "**No realtime bridge.** These runtimes are request-scoped, so the"
+            echo "10-second poll is the floor here. Votes appear within 10 s rather"
+            echo "than immediately — designed behaviour, not a failure."
+            if [[ "$TARGET" == "netlify" ]]; then
+              echo ""
+              echo "**Netlify is static-only in this workflow.** The repo's"
+              echo "Netlify function convention (\`netlify/functions/api.ts\`) is"
+              echo "owned by P40 and is not deployed from here."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

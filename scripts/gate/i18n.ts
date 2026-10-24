@@ -85,6 +85,11 @@ const PHASE_NAMESPACES: Record<string, string[]> = {
   // mergeable with the parallel one editing the same two files.
   '14': ['parser', 'reopen', 'comments', 'openingHours', 'dealbreaker', 'autoLock'],
   '18': ['server', 'web'],
+  // P41 is the CI phase: it adds a workflow set, an APK release pipeline and a
+  // deploy fan-out, and no screen. The empty list is the honest entry — it says
+  // "this phase exists and owns no catalogue keys", which is what lets the drift
+  // check pass without inventing a namespace `gate:i18n` would carry forever.
+  '41': [],
 };
 
 /** Flattens a nested catalogue into dotted key paths. */

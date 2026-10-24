@@ -176,4 +176,23 @@ export default tseslint.config(
       'no-console': 'off',
     },
   },
+  {
+    // ★ THE CI WORKFLOW AIRLOCK.
+    //
+    // `.github/**` is not TypeScript, so it never receives the `no-undef: off`
+    // the TS block above applies — and the one plain-JS file there legitimately
+    // reads `process.stdin`. Declaring the Node globals is the correct fix;
+    // adding `.github/` to `ignores` would silence every real error in it too,
+    // and `.github/` is already outside every release gate's scan set.
+    files: ['.github/**/*.{js,cjs,mjs}'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        require: 'readonly',
+        module: 'writable',
+        __dirname: 'readonly',
+      },
+    },
+  },
 );
