@@ -3,14 +3,14 @@
  *
  * ★ WHY THIS IS A SEPARATE MODULE FROM `api.ts`.
  *
- * `src/lib/api.ts` imports `expo-constants`, which reaches `react-native` —
- * and the Node test runner cannot transform that (it fails with
- * `Unexpected "typeof"`). Anything a unit test needs to import therefore cannot
- * live beside it, or the test cannot run at all.
+ * `src/lib/api.ts` imports `expo-constants` and `react-native` — and the Node
+ * test runner cannot transform that (it fails with `Unexpected "typeof"`).
+ * Anything a unit test needs to import therefore cannot live beside it, or
+ * the test cannot run at all.
  *
- * This module has no imports. `api.ts` reads the environment and the dev-server
- * host and calls in here, so the decision is testable and the transport stays
- * where it is.
+ * This module has no imports. `api.ts` reads the environment, the dev-server
+ * host, and platform, then calls in here, so the decision is testable and the
+ * transport stays where it is.
  */
 
 /** The development API port `server/index.ts` listens on. */
@@ -23,7 +23,7 @@ export interface ApiEnv {
 }
 
 /**
- * The API origin, from the environment and the dev-server host.
+ * The API origin, from the environment, dev-server host, and platform.
  *
  * ★ `EXPO_PUBLIC_APP_BASE_URL` IS THE SECOND RUNG, AND IT IS THE ONE THAT MATTERS.
  *
@@ -40,8 +40,15 @@ export interface ApiEnv {
  *
  * The dev-server host stays as the third rung, because an Android emulator
  * reaching the host machine through `10.0.2.2` has no configured origin at all.
+ *
+ * In a release build or when dev-server host is absent, Android uses `10.0.2.2`
+ * to reach the local development server on the host machine.
  */
-export function resolveBaseUrlFrom(env: ApiEnv, hostUri: string | undefined): string {
+export function resolveBaseUrlFrom(
+  env: ApiEnv,
+  hostUri: string | undefined,
+  platform?: string,
+): string {
   // An empty string is a variable that exists and was left blank — treated as
   // unset rather than as an empty origin, which would produce `/api/events`
   // against the app's own page.
@@ -50,6 +57,8 @@ export function resolveBaseUrlFrom(env: ApiEnv, hostUri: string | undefined): st
 
   const host = hostUri?.split(':')[0];
   if (host) return `http://${host}:${DEV_API_PORT}`;
+
+  if (platform === 'android') return `http://10.0.2.2:${DEV_API_PORT}`;
 
   return `http://127.0.0.1:${DEV_API_PORT}`;
 }

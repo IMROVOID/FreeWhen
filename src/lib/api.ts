@@ -14,6 +14,7 @@
  */
 
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 import { resolveBaseUrlFrom } from './api-base-url';
 import type { ApiErrorCode } from './errors';
@@ -26,7 +27,6 @@ import { REQUEST_PLATFORM, type RequestPlatform } from './platform-tag';
 export { resolveBaseUrlFrom };
 export type { ApiEnv } from './api-base-url';
 
-
 /**
  * The API origin for this bundle.
  *
@@ -35,9 +35,12 @@ export type { ApiEnv } from './api-base-url';
  * to be reachable from the device running the bundle.
  *
  * The decision itself lives in `./api-base-url`, which imports nothing: this
- * module imports `expo-constants`, and the Node test runner cannot transform
- * the React Native module graph it reaches. Keeping the resolver separate is
- * what makes it testable.
+ * module imports `expo-constants` (and `react-native`, for the platform), and
+ * the Node test runner cannot transform that module graph. Keeping the resolver
+ * separate is what makes it testable.
+ *
+ * `Platform.OS` is passed because an Android emulator has no dev-server host in
+ * a release build, and reaches the host machine through `10.0.2.2` instead.
  */
 function resolveBaseUrl(): string {
   return resolveBaseUrlFrom(
@@ -46,6 +49,7 @@ function resolveBaseUrl(): string {
       EXPO_PUBLIC_APP_BASE_URL: process.env.EXPO_PUBLIC_APP_BASE_URL,
     },
     Constants.expoConfig?.hostUri,
+    Platform.OS,
   );
 }
 

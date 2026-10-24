@@ -5,14 +5,15 @@
  *
  * `EXPO_PUBLIC_API_URL` was the only name `src/lib/api.ts` supported, and it
  * appears in no document in this repository. A release APK built from the
- * documented variable set therefore fell through to the dev-host branch and
- * shipped pointing at the phone itself — an app that opens to a spinner, and
- * cannot be fixed without publishing another APK.
+ * documented variable set fell through to the dev-host branch and
+ * shipped pointing at 127.0.0.1:8787 (the phone itself) — an app that opens to
+ * "load failed" on "My Events" because Android blocks cleartext and 127.0.0.1
+ * is not the development host.
  *
  * ★ IMPORTED FROM `api-base-url`, NOT `api`.
  *
- * `api.ts` imports `expo-constants`, which reaches `react-native`, which the
- * Node test runner cannot transform. The resolver lives in its own import-free
+ * `api.ts` imports `expo-constants` and `react-native`, which the Node test
+ * runner cannot transform. The resolver lives in its own import-free
  * module precisely so this file can run.
  */
 
@@ -36,7 +37,7 @@ test('EXPO_PUBLIC_API_URL wins when set', () => {
 });
 
 test('EXPO_PUBLIC_APP_BASE_URL is the fallback, and a trailing slash is stripped', () => {
-  // Arrange — the shape a repo variable typically carries.
+  // Arrange
   const env = { EXPO_PUBLIC_APP_BASE_URL: 'https://freewhen.ir/' };
 
   // Act
@@ -53,34 +54,45 @@ test('the API path is not appended — call sites already prefix it', () => {
   // Act
   const base = resolveBaseUrlFrom(env, undefined);
 
-  // Assert — `/api/api/events` would be the result of appending here.
+  // Assert
   assert.ok(!base.endsWith('/api'), `base ends with /api: ${base}`);
 });
 
 test('the dev-server host is used when no origin is configured', () => {
-  // Arrange — an Android emulator reaching the host machine.
+  // Arrange — dev-server host with port
   const env = {};
 
   // Act
-  const base = resolveBaseUrlFrom(env, '10.0.2.2:8081');
+  const base = resolveBaseUrlFrom(env, '192.168.1.50:8081');
+
+  // Assert
+  assert.equal(base, 'http://192.168.1.50:8787');
+});
+
+test('on Android without configured origin or dev-server host, 10.0.2.2 is used', () => {
+  // Arrange — Android release build running locally against host dev machine
+  const env = {};
+
+  // Act
+  const base = resolveBaseUrlFrom(env, undefined, 'android');
 
   // Assert
   assert.equal(base, 'http://10.0.2.2:8787');
 });
 
-test('127.0.0.1 is the last resort', () => {
+test('127.0.0.1 is the last resort on non-Android platforms', () => {
   // Arrange
   const env = {};
 
   // Act
-  const base = resolveBaseUrlFrom(env, undefined);
+  const base = resolveBaseUrlFrom(env, undefined, 'web');
 
   // Assert
   assert.equal(base, 'http://127.0.0.1:8787');
 });
 
 test('an empty string is treated as unset, not as an empty origin', () => {
-  // Arrange — a repo variable that exists but was left blank.
+  // Arrange
   const env = { EXPO_PUBLIC_API_URL: '', EXPO_PUBLIC_APP_BASE_URL: 'https://freewhen.ir' };
 
   // Act
