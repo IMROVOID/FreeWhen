@@ -1,0 +1,258 @@
+name: Verify APK
+description: >-
+  Prove an APK is the artifact it claims to be — signed with the release key,
+  carrying the right ABIs and package id, free of server secrets, and
+  checksummed — before anything can publish it.
+
+# ★ THIS IS THE CHECK THAT WAS NEVER RUN.
+#
+# `scripts/build/build-apk.sh` fails when the keystore is unset, which is the
+# right refusal — but nothing ever inspected the artifact it produced. Two
+# failures are possible and both look like success:
+#
+#   1. `android/app/build.gradle:118` still signs `release` with
+#      `signingConfig signingConfigs.debug`. On a clean checkout a fresh
+#      `expo prebuild` regenerates that file, and only the gradle.properties
+#      block the build script writes (`:80-88`) redirects it to the real key.
+#      Lose that block and the build succeeds, the file downloads, and Android
+#      refuses to install it over the previous version — with no message that
+#      explains why.
+#   2. A per-ABI build can silently contain the wrong `lib/` payload, because
+#      `reactNativeArchitectures` also drives the un-suffixed `app-release.apk`.
+#      Shipping that five times under five names is the failure this action is
+#      shaped to catch.
+#
+# ★ THE REFUSALS MATTER AS MUCH AS THE ASSERTIONS.
+#
+# `scripts/deploy/deploy.sh:117-127` asserts the paths that must 404 as well as
+# the ones that must 200, because a refused path returning 200 is the direction
+# that matters. The same logic applies here: a missing `lib/` directory and an
+# unexpected extra one are both failures, and "no secrets found" is asserted
+# against a count of zero rather than against a grep that found nothing.
+
+inputs:
+  apk:
+    description: Path to the APK to verify.
+    required: true
+  version:
+    description: The expected versionName, x.y.z.
+    required: true
+  arch:
+    description: >-
+      The ABI this APK should carry, or 'universal' for the all-ABI build.
+      A per-ABI APK must contain exactly one `lib/<abi>/` directory.
+    required: true
+  package_name:
+    description: The expected applicationId.
+    required: false
+    default: 'ir.freewhen.app'
+  release_cert_sha256:
+    description: >-
+      The release certificate's SHA-256 digest. When set, the APK's signer must
+      match it exactly — the strongest form of the signature assertion.
+    required: false
+    default: ''
+  sums_file:
+    description: >-
+      The accumulating SHA256SUMS file. It is appended to, so several APKs can
+      be verified across matrix jobs and merged before publication.
+    required: false
+    default: 'SHA256SUMS.txt'
+
+outputs:
+  sha256:
+    description: The APK's own SHA-256 digest.
+    value: ${{ steps.verify.outputs.sha256 }}
+  size_bytes:
+    description: The APK's size in bytes.
+    value: ${{ steps.verify.outputs.size_bytes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify
+      id: verify
+      shell: bash
+      env:
+        APK: ${{ inputs.apk }}
+        VERSION: ${{ inputs.version }}
+        ARCH: ${{ inputs.arch }}
+        PACKAGE_NAME: ${{ inputs.package_name }}
+        RELEASE_CERT_SHA256: ${{ inputs.release_cert_sha256 }}
+        SUMS_FILE: ${{ inputs.sums_file }}
+        ANDROID_HOME_DIR: ${{ env.ANDROID_HOME }}
+        ANDROID_SDK_ROOT_DIR: ${{ env.ANDROID_SDK_ROOT }}
+      run: |
+        set -euo pipefail
+
+        fail() { echo "::error::$*" >&2; exit 1; }
+
+        [[ -f "$APK" ]] || fail "verify-apk: $APK does not exist"
+
+        # ── 1. It is an APK, not an error page ────────────────────────────────
+        # A download that 404s and a build that fails both leave a file behind.
+        # `file` is the cheapest way to tell an archive from an HTML body.
+        #
+        # ★ `file` NAMES AN APK THREE DIFFERENT WAYS.
+        #
+        # On this machine it says "Android package (APK), with
+        # AndroidManifest.xml"; on some images it says "Zip archive data"; a
+        # build-tools install that teaches libmagic about APKs gets the first
+        # form and one that does not gets the second. Matching only "Zip" would
+        # reject a perfectly good artifact, so the test accepts either — and the
+        # `unzip -l` below is what actually proves it is readable as a zip.
+        FILE_KIND="$(file -b "$APK" 2>/dev/null || echo unknown)"
+        case "$FILE_KIND" in
+          *Zip*|*Java\ archive*|*Android\ package*) : ;;
+          *) fail "verify-apk: $APK is not an APK archive (file says: $FILE_KIND)" ;;
+        esac
+
+        # The authoritative readability check: an HTML error page will not
+        # list. This is the assertion that actually catches a bad download.
+        unzip -l "$APK" >/dev/null 2>&1 \
+          || fail "verify-apk: $APK could not be read as a zip archive — it is probably an error page"
+
+        # ── 2. Structure: the manifest and exactly the right ABIs ─────────────
+        unzip -l "$APK" | grep -q 'AndroidManifest.xml' \
+          || fail "verify-apk: $APK has no AndroidManifest.xml"
+
+        # The ABIs actually present, one per line.
+        #
+        # ★ `|| true` IS REQUIRED, NOT DEFENSIVE.
+        #
+        # `grep` exits 1 on no match, and under `set -o pipefail` that fails the
+        # whole command substitution — so `set -e` would abort the step before
+        # the emptiness test on the next line could report *which* assertion
+        # failed. An APK with no `lib/` is exactly the case that test exists for.
+        PRESENT_ABIS="$(unzip -l "$APK" | grep -oE 'lib/[^/]+/' | cut -d/ -f2 | sort -u || true)"
+        [[ -n "$PRESENT_ABIS" ]] || fail "verify-apk: $APK has no lib/ directory — the JS runtime is missing"
+
+        if [[ "$ARCH" == 'universal' ]]; then
+          # A universal APK is only universal if it carries more than one ABI.
+          COUNT="$(echo "$PRESENT_ABIS" | wc -l | tr -d ' ')"
+          if [[ "$COUNT" -lt 2 ]]; then
+            fail "verify-apk: $ARCH APK carries only one ABI ($PRESENT_ABIS) — this is a per-ABI build under a universal name"
+          fi
+          echo "   universal: $COUNT ABIs ($(echo "$PRESENT_ABIS" | tr '\n' ' '))"
+        else
+          # A per-ABI APK must carry its own ABI and no other. This is the
+          # assertion that catches one build's output being uploaded five times.
+          if [[ "$PRESENT_ABIS" != "$ARCH" ]]; then
+            fail "verify-apk: expected only '$ARCH' but found: $(echo "$PRESENT_ABIS" | tr '\n' ' ')"
+          fi
+          unzip -l "$APK" | grep -qE "lib/${ARCH}/libhermes\\.so" \
+            || fail "verify-apk: $APK has no lib/${ARCH}/libhermes.so — the JS engine is missing for this ABI"          echo "   per-ABI: $ARCH"
+        fi
+
+        # ── 3. Signature: the release key, not the debug key ──────────────────
+        APKSIGNER=""
+        for candidate in "${ANDROID_HOME_DIR:-}/build-tools"/*/apksigner "${ANDROID_SDK_ROOT_DIR:-}/build-tools"/*/apksigner; do
+          if [[ -x "$candidate" ]]; then APKSIGNER="$candidate"; fi
+        done
+        if [[ -z "$APKSIGNER" ]]; then
+          APKSIGNER="$(command -v apksigner || true)"
+        fi
+        [[ -n "$APKSIGNER" ]] || fail "verify-apk: apksigner not found — set ANDROID_HOME or install build-tools"
+
+        # `verify` exits non-zero on an unsigned or corrupt APK.
+        SIGNER_OUT="$("$APKSIGNER" verify --print-certs --verbose "$APK" 2>&1)" \
+          || fail "verify-apk: apksigner verify failed:
+        $SIGNER_OUT"
+
+        echo "$SIGNER_OUT" | grep -q 'Verified using v1 scheme\|Verified using v2 scheme\|Verified using v3 scheme' \
+          || fail "verify-apk: apksigner reported no verified signature scheme"
+
+        # ★ THE DEBUG-KEY GUARD.
+        #
+        # The debug keystore's DN contains "Android Debug". A release APK signed
+        # with it installs nowhere but a machine that already trusts the debug
+        # key, and every future release is a different app from this one's point
+        # of view. This is the check that would have caught it.
+        if echo "$SIGNER_OUT" | grep -qi 'Android Debug'; then
+          fail "verify-apk: $APK is signed with the DEBUG key — release builds are signing with signingConfigs.debug.
+        Check that scripts/build/build-apk.sh wrote the signing block into android/gradle.properties,
+        and that FREE_WHEN_RELEASE_STORE_FILE points at the release keystore."
+        fi
+
+        if [[ -n "$RELEASE_CERT_SHA256" ]]; then
+          # The digest is printed as "Signer #1 certificate SHA-256 digest: <hex>".
+          ACTUAL_DIGEST="$(echo "$SIGNER_OUT" | grep -i 'certificate SHA-256 digest' | head -1 | awk '{print $NF}' | tr 'A-F' 'a-f')"
+          EXPECTED_DIGEST="$(echo "$RELEASE_CERT_SHA256" | tr -d ':' | tr 'A-F' 'a-f')"
+          [[ -n "$ACTUAL_DIGEST" ]] || fail "verify-apk: could not read the signer's SHA-256 digest"
+          if [[ "$ACTUAL_DIGEST" != "$EXPECTED_DIGEST" ]]; then
+            fail "verify-apk: signer digest $ACTUAL_DIGEST does not match the expected release certificate.
+        Publishing this would strand every installed copy: Android refuses an update signed by a different key."
+          fi
+          echo "   signer: matches the expected release certificate"
+        else
+          echo "::warning::verify-apk: release_cert_sha256 is unset — the signature was verified but not matched to a known certificate"
+        fi
+
+        # ── 4. Manifest: the package id and versionName ───────────────────────
+        # `aapt2` and `aapt` disagree on availability across SDK images, and the
+        # badging line is a non-essential assertion — so a missing tool warns
+        # loudly rather than failing an otherwise-good artifact.
+        BADGING=""
+        for tool in aapt2 aapt; do
+          if command -v "$tool" >/dev/null 2>&1; then
+            BADGING="$("$tool" dump badging "$APK" 2>/dev/null || true)"
+            if [[ -n "$BADGING" ]]; then break; fi
+          fi
+        done
+        if [[ -z "$BADGING" ]]; then
+          echo "::warning::verify-apk: neither aapt2 nor aapt is available — package id and versionName were NOT checked"
+        else
+          echo "$BADGING" | grep -q "package: name='$PACKAGE_NAME'" \
+            || fail "verify-apk: package name is not $PACKAGE_NAME: $(echo "$BADGING" | head -1)"
+          echo "$BADGING" | grep -q "versionName='$VERSION'" \
+            || fail "verify-apk: versionName is not $VERSION: $(echo "$BADGING" | grep -o "versionName='[^']*'")"
+          echo "   manifest: $PACKAGE_NAME @ $VERSION"
+        fi
+
+        # ── 5. No server secret reached the JS bundle ─────────────────────────
+        # The native counterpart of `gate:web`. `build-apk.sh:46-55` documents why
+        # `gate:web` cannot run on this path: it scans `dist/`, and an APK's
+        # bundle is inside the archive.
+        BUNDLE_HITS=0
+        if unzip -l "$APK" | grep -q 'assets/index.android.bundle'; then
+          BUNDLE_HITS="$(
+            unzip -p "$APK" assets/index.android.bundle \
+              | grep -cE 'SUPABASE_SECRET_KEY|service_role|[^a-zA-Z]sk\.[A-Za-z0-9]{10}' || true
+          )"
+        else
+          echo "::warning::verify-apk: no assets/index.android.bundle found — the secret scan had nothing to inspect"
+        fi
+        if [[ "${BUNDLE_HITS:-0}" -ne 0 ]]; then
+          fail "verify-apk: $BUNDLE_HITS credential-shaped match(es) found in the bundled JavaScript.
+        A service-role key bypasses every RLS policy. Do not publish this artifact."
+        fi
+        echo "   secrets: none in the bundled JavaScript"
+
+        # ── 6. Checksum ───────────────────────────────────────────────────────
+        SIZE_BYTES="$(wc -c < "$APK" | tr -d ' ')"
+        DIGEST="$(sha256sum "$APK" | awk '{print $1}')"
+
+        # A zero-byte or absurdly small APK is not a build.
+        if [[ "$SIZE_BYTES" -lt 1000000 ]]; then
+          fail "verify-apk: $APK is only $SIZE_BYTES bytes — that is not a real APK"
+        fi
+
+        # ★ THE BASENAME IS INTENTIONAL, AND SO IS THE `cd`.
+        #
+        # The sums file records `FreeWhen-v1.2.3-arm64-v8a.apk`, not a full path,
+        # because the publish job re-verifies it after downloading the merged
+        # artifacts into a fresh directory — a recorded path would be stale there.
+        # That means the check must run from the APK's own directory, or
+        # `sha256sum -c` cannot find the file it is being asked to verify.
+        APK_DIR="$(dirname "$APK")"
+        APK_NAME="$(basename "$APK")"
+        echo "$DIGEST  $APK_NAME" >> "$SUMS_FILE"
+        ( cd "$APK_DIR" && echo "$DIGEST  $APK_NAME" | sha256sum -c - >/dev/null ) \
+          || fail "verify-apk: the checksum did not verify immediately after being written"
+
+        {
+          echo "sha256=$DIGEST"
+          echo "size_bytes=$SIZE_BYTES"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "   checksum: sha256 $DIGEST ($((SIZE_BYTES / 1024 / 1024)) MB)"

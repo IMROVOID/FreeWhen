@@ -1,0 +1,203 @@
+name: CI
+
+# ★ THIS IS THE VERIFICATION THE REPOSITORY HAD NOWHERE.
+#
+# `README.md` §Runbook states plainly that everything runs on the operator's
+# machine and that there is no CI pipeline. That is a defensible choice for one
+# host and one operator — but it means the seven release gates only run when
+# somebody remembers, and a pull request can be green (because nothing checked
+# it) while `typecheck` fails on `main`.
+#
+# Three jobs, each answering a different question:
+#
+#   static      — does the code compile and do the tests pass?
+#   gates       — does the exported bundle leak a secret, and are the seven
+#                 release gates green? `gate:web` needs `dist/`, so this job
+#                 exports first.
+#   migrations  — do the migrations apply cleanly and idempotently against a
+#                 real Postgres, and does the DB suite pass?
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A newer push to the same branch cancels the older run: the older one is
+  # answering a question nobody is still asking.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  static:
+    name: Typecheck, lint, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The three commands `README.md` §Contributing tells a contributor to run
+      # before opening a pull request. Each is a separate step so the failing
+      # one is named in the Actions UI rather than buried in a combined log.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit and component tests
+        run: npm test
+
+      # The engine suite names its cases (AC-12.1.1), so it reports *which*
+      # fairness property broke rather than a count.
+      - name: Engine suite
+        run: npm run test:engine
+
+  gates:
+    name: Release gates (7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ★ THE EXPORT RUNS BEFORE THE GATES, AND THE ORDER IS NOT NEGOTIABLE.
+      #
+      # `gate:web` scans `dist/`. When `dist/` is absent it prints
+      # **SKIPPED — NOT CHECKED** and exits non-zero — which is right (a skipped
+      # check must not look passed) but means `gate:all` fails on a clean tree
+      # for the wrong reason. Exporting first makes the scan real.
+      #
+      # ★ THE PUBLISHABLE VALUES COME FROM SECRETS, AND THE CHECK IS ONLY
+      # MEANINGFUL BECAUSE OF THAT.
+      #
+      # `EXPO_PUBLIC_*` is inlined at export time. Feeding placeholders here
+      # would produce a bundle that passes `gate:web` while proving nothing
+      # about the real one — the scan would be looking for a service-role key in
+      # a bundle that never had a chance to contain one. These are the
+      # publishable values only; a `SUPABASE_SECRET_KEY` must never be here.
+      - name: Build the web export
+        env:
+          EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL || 'https://ci.invalid' }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.FREEWHEN_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.FREEWHEN_SUPABASE_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+        run: npm run export:web
+
+      - name: All seven gates
+        run: npm run gate:all
+
+      # A failure here means a server credential reached the bundle. The log
+      # names the file and the shape, never the value (`scripts/gate/secrets.ts`
+      # reports `looks like a NESHAN_API_KEY`, not the key).
+      - name: Summarise the gates
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release gates"
+            echo ""
+            echo '```'
+            echo "dist/ files: $(find dist -type f 2>/dev/null | wc -l | tr -d ' ')"
+            echo '```'
+            echo ""
+            echo "\`gate:web\` scans the built bundle; a \`SKIPPED — NOT CHECKED\`"
+            echo "line in the log above means \`dist/\` was missing, not that the"
+            echo "bundle was clean."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  migrations:
+    name: Migrations against a real Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: freewhen
+        ports:
+          - 5432:5432
+        # A health check means the steps below start against a database that
+        # accepts connections, rather than racing its first boot.
+        options: >-
+          --health-cmd "pg_isready -U postgres -d freewhen"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # `scripts/db/client.ts` prefers TEST_DATABASE_URL, then DATABASE_URL, then
+      # a localhost default on port 5433. Naming both here keeps the migration
+      # runner and the test suite on the same database.
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/freewhen
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/freewhen
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ★ RUNNING TWICE IS THE ASSERTION.
+      #
+      # Migrations are documented as additive and idempotent. A single run
+      # proves they apply; the second proves that property, and it is the one
+      # that catches a `create table` without `if not exists` before it breaks a
+      # production deploy at 2am.
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Apply them again (idempotence)
+        run: npm run db:migrate
+
+      - name: Seed the fixture
+        run: npm run db:seed
+
+      - name: Verify the fixture
+        run: npm run db:verify-fixture
+
+      # The DB suite asserts RLS as a non-superuser, so it needs a real
+      # connection — which is exactly why `scripts/run-tests.ts` excludes
+      # `tests/db` from `npm test`.
+      - name: Database suite
+        run: npm run test:db
+
+      - name: Summarise
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "### Migrations"
+            echo ""
+            echo "Applied twice against \`postgres:15-alpine\` (idempotence), seeded,"
+            echo "verified, then the RLS suite ran as a non-superuser."
+          } >> "$GITHUB_STEP_SUMMARY"

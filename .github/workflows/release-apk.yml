@@ -1,0 +1,435 @@
+name: Release APK
+
+# Builds every requested ABI plus a universal APK, verifies each one, and
+# publishes a GitHub Release — a DRAFT by default.
+#
+# ★ THIS CALLS `scripts/build/build-apk.sh`, IT DOES NOT REIMPLEMENT IT.
+#
+# The script owns the gates, the `expo prebuild` and the Gradle invocation, and
+# `tests/deploy/gates.test.ts` pins its ordering precisely. This workflow
+# supplies environment and calls it, so there is one definition of "how an APK
+# is built" rather than two that drift.
+#
+# ★ THE CONFIG COMES FROM `_resolve-config.yml`.
+#
+# Every knob resolves through one precedence chain (dispatch input → repo
+# variable → `[fw:…]` commit flag → default) implemented once, with validation.
+# Re-deriving it here would put the order in two places.
+
+on:
+  workflow_dispatch:
+    inputs:
+      archs:
+        description: 'ABIs: all, or a comma list of armeabi-v7a, arm64-v8a, x86, x86_64.'
+        required: false
+        default: ''
+      universal:
+        description: 'Also build the universal APK.'
+        required: false
+        default: ''
+        type: choice
+        options: ['', 'true', 'false']
+      release_mode:
+        description: 'draft (reversible) or publish (public).'
+        required: false
+        default: ''
+        type: choice
+        options: ['', 'draft', 'publish']
+      version:
+        description: 'x.y.z. Blank reads app.json.'
+        required: false
+        default: ''
+      mode:
+        description: 'production validates the server URL before building.'
+        required: false
+        default: ''
+        type: choice
+        options: ['', 'production', 'development']
+      ref:
+        description: 'Branch or tag to build. Blank = this ref.'
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    tags: ['v*']
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  JAVA_VERSION: '17'
+
+jobs:
+  # ── 0. Does this push build? ──────────────────────────────────────────────
+  guard:
+    name: Decide whether to run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # A push builds only when the commit asks for it. `publish` is not
+          # reachable from here: a push that publishes is a blast radius a
+          # commit flag should not be able to open.
+          if printf '%s' "${MSG:-}" | grep -qiE '\[fw:apk\]'; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            echo '::notice::[fw:apk] found; building.'
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            echo 'No [fw:apk] in the commit message; not building.'
+          fi
+
+  # ── 1. Resolve every knob, in one place ──────────────────────────────────
+  resolve:
+    name: Resolve config
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
+    uses: ./.github/workflows/_resolve-config.yml
+    with:
+      scope: apk
+      commit_message: ${{ github.event.head_commit.message }}
+      d_archs: ${{ inputs.archs }}
+      d_universal: ${{ inputs.universal }}
+      d_release_mode: ${{ inputs.release_mode }}
+      d_version: ${{ inputs.version }}
+      d_mode: ${{ inputs.mode }}
+    secrets: inherit
+
+  # ── 2. Refuse to build what cannot work, before Gradle runs ───────────────
+  preflight:
+    name: Preflight
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Require the signing secret
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error title=Missing keystore::ANDROID_KEYSTORE_BASE64 is unset."
+            echo "The keystore is the whole update path: Android refuses an update signed"
+            echo "by a different key, so a build without it produces an app that cannot be"
+            echo "installed over the one already on a participant's phone."
+            missing=1
+          fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error title=Missing keystore password::ANDROID_KEYSTORE_PASSWORD is unset."
+            missing=1
+          fi
+          exit "$missing"
+
+      # ★ THE VERSION IS ASSERTED, NOT PATCHED.
+      #
+      # Rewriting `app.json` in a scratch commit would make the tag and the
+      # artifact agree while leaving the repository's version behind, and the
+      # next build would silently revert. Failing means the version is bumped
+      # where a reader can see it.
+      - name: The version agrees with app.json
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          APP_VERSION="$(node -p "require('./app.json').expo.version")"
+          if [ "$APP_VERSION" != "$VERSION" ]; then
+            echo "::error title=Version mismatch::asked for $VERSION but app.json says $APP_VERSION."
+            echo "Bump app.json's expo.version to $VERSION, commit, and re-run — or dispatch"
+            echo "with the version app.json already carries."
+            exit 1
+          fi
+          echo "version: $APP_VERSION"
+
+      # ★ THE PRODUCTION GATE: PROVE THE SERVER BEFORE INLINING ITS URL.
+      #
+      # `EXPO_PUBLIC_APP_BASE_URL` is substituted at build time, and the app
+      # resolves its API origin from it. A production APK built against a dead
+      # host opens to a spinner on a stranger's phone and cannot be fixed
+      # without shipping another APK — so this runs before the build, not after.
+      - name: Validate the server URL (production only)
+        if: needs.resolve.outputs.mode == 'production'
+        env:
+          SERVER_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SERVER_URL" ]; then
+            echo "::error title=No server URL::production build cancelled: FREEWHEN_SERVER_URL is unset."
+            echo "The APK inlines its API origin at build time. Set the repository variable"
+            echo "FREEWHEN_SERVER_URL, or dispatch with mode=development."
+            exit 1
+          fi
+          URL="${SERVER_URL%/}"
+
+          echo "checking $URL/health"
+          BODY="$(curl -fsS --retry 3 --max-time 15 "$URL/health" || true)"
+          if ! printf '%s' "$BODY" | grep -q '"db":"up"'; then
+            echo "::error title=Server not healthy::production build cancelled: server URL not reachable, or its database is down."
+            echo "GET $URL/health answered: ${BODY:-<no response>}"
+            echo 'Expected a body containing "db":"up".'
+            exit 1
+          fi
+          echo "health: $BODY"
+
+          if [ -n "$DEMO_TOKEN" ]; then
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' --retry 3 --max-time 15 "$URL/e/$DEMO_TOKEN" || echo 000)"
+            if [ "$CODE" != "200" ]; then
+              echo "::error title=Reviewer path broken::/e/<demo token> answered $CODE, expected 200."
+              exit 1
+            fi
+            echo "reviewer path: 200"
+          else
+            echo "::warning::FREEWHEN_DEMO_TOKEN is unset — the reviewer path was not checked"
+          fi
+
+  # ── 3. One job per ABI, plus the universal build ─────────────────────────
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: [resolve, preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      # A single bad ABI must not cancel the others: the run is worth finishing
+      # so the log names which artifact failed.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Decode the release keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          # $RUNNER_TEMP, not the workspace: the workspace is what
+          # `upload-artifact` zips and what the Gradle cache hashes.
+          KEYSTORE_PATH="$RUNNER_TEMP/freewhen-release.keystore"
+          # `set -x` stays off around the decode: this is the one line whose
+          # expansion is the secret itself.
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::the decoded keystore is empty — ANDROID_KEYSTORE_BASE64 is not valid base64"
+            exit 1
+          fi
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >/dev/null
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          # Empty for the universal build: `reactNativeArchitectures` absent is
+          # what makes Gradle emit the un-suffixed all-ABI `app-release.apk`.
+          APK_ARCHS: ${{ matrix.arch == 'universal' && '' || matrix.arch }}
+          UNIVERSAL_APK: ${{ matrix.arch == 'universal' && '1' || '0' }}
+          FREE_WHEN_RELEASE_STORE_FILE: ${{ env.KEYSTORE_PATH }}
+          FREE_WHEN_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FREE_WHEN_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          FREE_WHEN_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL }}
+          EXPO_PUBLIC_API_URL: ${{ vars.FREEWHEN_SERVER_URL }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+        run: bash scripts/build/build-apk.sh
+
+      - name: Name the artifact
+        id: name
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          TARGET="FreeWhen-v${VERSION}-${ARCH}.apk"
+          cp web/dl/freewhen.apk "$TARGET"
+          echo "path=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "name=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the APK
+        env:
+          # ★ THE BUNDLE-URL CHECK IS THE ONE THAT CATCHES A SILENTLY EMPTY VAR.
+          #
+          # An APK whose inlined server URL is empty builds fine and throws on
+          # launch. Passing the expected host makes validate-apk.sh grep the
+          # bundle for it.
+          EXPECTED_HOST: ${{ needs.resolve.outputs.mode == 'production' && vars.FREEWHEN_SERVER_URL || '' }}
+          REQUIRE_RELEASE_SIGNING: '1'
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          set -euo pipefail
+          bash .github/scripts/validate-apk.sh \
+            "${{ steps.name.outputs.path }}" \
+            "${{ matrix.arch }}" \
+            "${EXPECTED_HOST%/}"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ matrix.arch }}
+          # The checksum travels with the artifact so the release job can
+          # re-verify from scratch rather than trusting a digest that crossed a
+          # job boundary.
+          path: |
+            ${{ steps.name.outputs.path }}
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── 4. Publish: draft by default, publish on request ─────────────────────
+  release:
+    name: Publish ${{ needs.resolve.outputs.release_mode }}
+    needs: [resolve, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # ★ `merge-multiple` IS WHAT MAKES THE UPLOAD CORRECT.
+      #
+      # Each matrix job uploads a zip containing the APK and its checksum line.
+      # Without this, `gh release upload` receives five zips — and a release
+      # whose assets are archives is a download nobody can install.
+      - name: Collect the artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Re-verify every checksum
+        run: |
+          set -euo pipefail
+          cd release
+          ls -la
+          if [ ! -f SHA256SUMS.txt ]; then
+            echo "::error::no SHA256SUMS.txt was uploaded — refusing to publish"
+            exit 1
+          fi
+          # Every matrix job appends its own line; duplicates are harmless to
+          # `-c` but make the file unreadable as a manifest.
+          sort -u SHA256SUMS.txt -o SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          echo "verified $(ls -1 ./*.apk 2>/dev/null | wc -l | tr -d ' ') APK(s)"
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          RELEASE_MODE: ${{ needs.resolve.outputs.release_mode }}
+          OVERWRITE_TAG: ${{ vars.FREEWHEN_OVERWRITE_RELEASE }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          NOTES="release-notes.md"
+
+          {
+            echo "## FreeWhen $TAG"
+            echo ""
+            echo "Built from \`${GITHUB_SHA:0:7}\` on $(date -u +%Y-%m-%d)."
+            echo ""
+            echo "Install the \`universal\` APK if you are unsure which ABI your phone"
+            echo "needs; a per-ABI APK saves space. Every file's SHA-256 is in"
+            echo "\`SHA256SUMS.txt\` — verify with \`sha256sum -c SHA256SUMS.txt\`."
+            echo ""
+            echo "Android will warn that this app is from an unknown developer. That is"
+            echo "expected: it is signed with FreeWhen's own release key, not distributed"
+            echo "through Play."
+          } > "$NOTES"
+
+          EXISTS=0
+          if gh release view "$TAG" >/dev/null 2>&1; then EXISTS=1; fi
+
+          if [ "$RELEASE_MODE" = "draft" ]; then
+            if [ "$EXISTS" = "1" ]; then
+              # A draft is REBUILT, not re-created: `gh release create` fails when
+              # the tag exists, and swallowing that with `|| true` leaves the old
+              # draft's assets beside the new ones.
+              echo "draft $TAG exists — replacing its assets"
+              gh release delete-asset "$TAG" --yes '*FreeWhen-*.apk' 2>/dev/null || true
+              gh release delete-asset "$TAG" --yes 'SHA256SUMS.txt' 2>/dev/null || true
+              gh release edit "$TAG" --draft --title "FreeWhen $TAG" --notes-file "$NOTES"
+            else
+              gh release create "$TAG" --draft --title "FreeWhen $TAG" --notes-file "$NOTES"
+            fi
+            gh release upload "$TAG" release/*.apk release/SHA256SUMS.txt --clobber
+          else
+            if [ "$EXISTS" = "1" ]; then
+              if [ "$OVERWRITE_TAG" != "true" ]; then
+                echo "::error title=Release exists::release $TAG already exists and FREEWHEN_OVERWRITE_RELEASE is not 'true'."
+                echo "Set that repository variable to overwrite a published release, or dispatch"
+                echo "with a version that has not been released."
+                exit 1
+              fi
+              echo "overwriting $TAG"
+              gh release upload "$TAG" release/*.apk release/SHA256SUMS.txt --clobber
+              gh release edit "$TAG" --title "FreeWhen $TAG" --notes-file "$NOTES" --latest
+            else
+              gh release create "$TAG" --title "FreeWhen $TAG" --notes-file "$NOTES" --latest \
+                release/*.apk release/SHA256SUMS.txt
+            fi
+          fi
+
+      # ★ `/dl/freewhen.apk` IS NOT UPDATED FROM HERE.
+      #
+      # The stable download URL is served from the deployment host's static
+      # root, and the only sanctioned writer is the deploy path, which orders
+      # export → gate:web → rsync. Copying an APK onto the host from a release
+      # workflow would publish to a path that bypassed that scan.
+      - name: What still needs doing
+        if: needs.resolve.outputs.release_mode == 'publish'
+        run: |
+          set -euo pipefail
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ### The stable download path was not updated
+
+          This workflow published the GitHub Release only. `https://<host>/dl/freewhen.apk`
+          is served from the deployment host's static root, and the only supported way
+          to write it is the **Deploy** workflow (or `scripts/deploy/deploy.sh`), which
+          orders `export → gate:web → rsync`.
+
+          Run **Deploy** with `web=true` to refresh the stable URL.
+          MD

@@ -1,0 +1,222 @@
+name: Resolve inputs
+description: >-
+  Merge the dispatch input, the repo variable and the commit flag into one
+  resolved value per knob, validate it, and emit it as a step output.
+
+# ★ ONE PLACE IMPLEMENTS THE PRECEDENCE CHAIN.
+#
+# Every workflow that has knobs calls this action instead of re-deriving them.
+# Nine call sites each writing `${{ inputs.x || vars.y || ... }}` is nine places
+# for the order to drift, and the failure mode of a drifted order is silent: a
+# repo variable quietly overriding an operator's explicit dispatch input.
+#
+#   workflow_dispatch input  >  vars.FREEWHEN_<X>  >  [fw:…] commit flag  >  default
+#
+# The dispatch input wins because it is the most specific act of will: a human
+# chose it for this run. The repo variable is the standing configuration. The
+# commit flag is the author's intent at the moment of the commit. The default
+# is the documented baseline.
+
+inputs:
+  archs:
+    description: >-
+      APK architectures, comma-separated. Empty means "use the repo variable,
+      then the commit flag, then every ABI".
+    required: false
+    default: ''
+  universal:
+    description: Also build the universal (all-ABI) APK. 'true' or 'false'.
+    required: false
+    default: ''
+  release_mode:
+    description: 'draft (default) or publish.'
+    required: false
+    default: ''
+  version:
+    description: 'Release version, x.y.z. Empty means "read it from app.json".'
+    required: false
+    default: ''
+  mode:
+    description: 'production (default), preview or development.'
+    required: false
+    default: ''
+  target:
+    description: 'Deploy target. Empty means "use the repo variable, then no target".'
+    required: false
+    default: ''
+  flags:
+    description: >-
+      A commit message or PR title to read `[fw:…]` tokens out of. Empty means
+      no commit flag applies.
+    required: false
+    default: ''
+
+outputs:
+  archs:
+    description: The resolved ABI list, comma-separated, no spaces.
+    value: ${{ steps.resolve.outputs.archs }}
+  universal:
+    description: "'true' or 'false'."
+    value: ${{ steps.resolve.outputs.universal }}
+  release_mode:
+    description: "'draft' or 'publish'."
+    value: ${{ steps.resolve.outputs.release_mode }}
+  version:
+    description: The resolved x.y.z version.
+    value: ${{ steps.resolve.outputs.version }}
+  mode:
+    description: "'production', 'preview' or 'development'."
+    value: ${{ steps.resolve.outputs.mode }}
+  target:
+    description: The resolved deploy target, possibly empty.
+    value: ${{ steps.resolve.outputs.target }}
+  matrix:
+    description: >-
+      A JSON array of the ABIs to build, with "universal" appended when it is
+      requested. Feed it straight into `strategy.matrix.arch`.
+    value: ${{ steps.resolve.outputs.matrix }}
+  warnings:
+    description: A JSON array of parser warnings, one per unrecognised token.
+    value: ${{ steps.resolve.outputs.warnings }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve and validate
+      id: resolve
+      shell: bash
+      # ★ THE VALUES ARRIVE THROUGH `env`, NOT THROUGH `${{ }}` IN THE SCRIPT.
+      #
+      # A commit message can contain anything, including a `$(…)`. Interpolating
+      # `inputs.flags` into the script body would let it run. Passing it as an
+      # environment variable keeps it data: the parser's regex is the only thing
+      # that ever reads it, and nothing it produces is ever evaluated.
+      env:
+        IN_ARCHS: ${{ inputs.archs }}
+        IN_UNIVERSAL: ${{ inputs.universal }}
+        IN_RELEASE_MODE: ${{ inputs.release_mode }}
+        IN_VERSION: ${{ inputs.version }}
+        IN_MODE: ${{ inputs.mode }}
+        IN_TARGET: ${{ inputs.target }}
+        IN_FLAGS: ${{ inputs.flags }}
+        VAR_ARCHS: ${{ vars.FREEWHEN_DEFAULT_ARCHS }}
+        VAR_UNIVERSAL: ${{ vars.FREEWHEN_DEFAULT_UNIVERSAL }}
+        VAR_RELEASE_MODE: ${{ vars.FREEWHEN_DEFAULT_RELEASE_MODE }}
+        VAR_VERSION: ${{ vars.FREEWHEN_DEFAULT_VERSION }}
+        VAR_MODE: ${{ vars.FREEWHEN_DEFAULT_MODE }}
+        VAR_TARGET: ${{ vars.FREEWHEN_DEFAULT_TARGET }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+
+        # The parser is the repo's own module, imported rather than reimplemented
+        # so the flag grammar has exactly one definition. Its stdout is the JSON
+        # object followed by a `summary:` line, and it writes warnings to stderr.
+        # `json-only.cjs` beside this action trims the summary off — a file
+        # rather than a `node -e` one-liner because the one-liner needed nested
+        # quotes that a re-quoting shell could not survive.
+        FLAGS_JSON="$(
+          npx --no-install tsx "$GITHUB_WORKSPACE/scripts/build/parse-commit-flags.ts" "$IN_FLAGS" 2>/dev/null \
+            | node "$ACTION_PATH/json-only.cjs"
+        )"
+        if [[ -z "$FLAGS_JSON" ]]; then
+          FLAGS_JSON='{"warnings":[]}'
+        fi
+
+        # ★ THE FLAG JSON CROSSES INTO NODE THROUGH THE ENVIRONMENT.
+        #
+        # A commit message may contain a quote, a backtick or a `$(…)`. Writing
+        # it into the script text would make it code; passing it as an env var
+        # keeps it data, and the only thing that reads it is JSON.parse.
+        export FLAGS_PARSED="$FLAGS_JSON"
+
+        node --input-type=commonjs - <<'NODE'
+        const fs = require('node:fs');
+
+        const env = process.env;
+        const flags = JSON.parse(env.FLAGS_PARSED || '{"warnings":[]}');
+
+        const ALL_ARCHS = ['armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'];
+        const MODES = ['production', 'preview', 'development'];
+        const RELEASE_MODES = ['draft', 'publish'];
+
+        const failures = [];
+        const warnings = [...(flags.warnings || [])];
+
+        /** First non-empty of: dispatch input, repo variable, commit flag. */
+        const pick = (input, variable, flagged) => {
+          for (const candidate of [input, variable, flagged]) {
+            if (typeof candidate === 'string' && candidate.trim() !== '') return candidate.trim();
+          }
+          return '';
+        };
+
+        const archsRaw = pick(env.IN_ARCHS, env.VAR_ARCHS, flags.archs ? flags.archs.join(',') : '');
+        let archs = archsRaw === '' ? [...ALL_ARCHS] : archsRaw.split(',').map((a) => a.trim()).filter(Boolean);
+        archs = [...new Set(archs)];
+        for (const arch of archs) {
+          if (!ALL_ARCHS.includes(arch)) {
+            failures.push(`unknown architecture "${arch}" — accepted: ${ALL_ARCHS.join(', ')}`);
+          }
+        }
+        if (archs.length === 0) failures.push('the architecture list is empty');
+
+        const mode = pick(env.IN_MODE, env.VAR_MODE, flags.mode) || 'production';
+        if (!MODES.includes(mode)) {
+          failures.push(`unknown mode "${mode}" — accepted: ${MODES.join(', ')}`);
+        }
+
+        const releaseMode = pick(env.IN_RELEASE_MODE, env.VAR_RELEASE_MODE, flags.release_mode) || 'draft';
+        if (!RELEASE_MODES.includes(releaseMode)) {
+          failures.push(`unknown release_mode "${releaseMode}" — accepted: ${RELEASE_MODES.join(', ')}`);
+        }
+
+        const universalRaw = pick(env.IN_UNIVERSAL, env.VAR_UNIVERSAL, flags.universal ? 'true' : '');
+        const universal = universalRaw === '' ? 'true' : universalRaw.toLowerCase();
+        if (universal !== 'true' && universal !== 'false') {
+          failures.push(`universal must be true or false, got "${universalRaw}"`);
+        }
+
+        // ★ THE VERSION DEFAULTS TO app.json, NOT TO A LITERAL.
+        //
+        // The APK's versionName and the release tag must be the same string, and
+        // app.json is the file the build actually reads. A hardcoded default here
+        // would let a release be tagged v1.2.3 while the APK inside it says 1.0.0.
+        let version = pick(env.IN_VERSION, env.VAR_VERSION, flags.version);
+        if (version === '') {
+          version = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo.version;
+        }
+        if (!/^\d+\.\d+\.\d+$/.test(version)) {
+          failures.push(`version must be x.y.z, got "${version}"`);
+        }
+
+        const target = pick(env.IN_TARGET, env.VAR_TARGET, flags.target);
+
+        // ★ THE UNKNOWN-VALUE RULE IS THE REPO'S OWN (.env.example:103-107).
+        //
+        // `DATABASE_BACKEND` refuses an unrecognised value at boot rather than
+        // falling back to the default, because a typo would otherwise serve one
+        // transport while the operator believed they had configured the other.
+        // The same argument holds here: a mistyped mode must not silently build
+        // a development APK while the operator believes they shipped production.
+        if (failures.length > 0) {
+          for (const failure of failures) console.error(`::error::${failure}`);
+          console.error('resolve-inputs: refusing to guess — fix the input above.');
+          process.exit(1);
+        }
+
+        const matrix = universal === 'true' ? [...archs, 'universal'] : archs;
+
+        const out = (name, value) => fs.appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
+        out('archs', archs.join(','));
+        out('universal', universal);
+        out('release_mode', releaseMode);
+        out('version', version);
+        out('mode', mode);
+        out('target', target);
+        out('matrix', JSON.stringify(matrix));
+        out('warnings', JSON.stringify(warnings));
+
+        for (const warning of warnings) console.log(`::warning::${warning}`);
+        console.log(`resolve-inputs: archs=${archs.join(',')} universal=${universal} release_mode=${releaseMode} version=${version} mode=${mode} target=${target || '(none)'}`);
+        NODE

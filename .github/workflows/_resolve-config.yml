@@ -1,0 +1,221 @@
+name: _resolve-config
+
+# Resolves every customization the release workflows read, in one place.
+#
+# ★ PRECEDENCE, THE SAME FOR EVERY KEY:
+#
+#   1. a workflow_dispatch input, when the caller supplies one
+#   2. a repository or organisation variable (`vars.FREEWHEN_*`)
+#   3. a `[fw:key=value]` flag in the commit message
+#   4. the built-in default
+#
+# ★ A REPO VARIABLE BEATS A COMMIT FLAG, ON PURPOSE.
+#
+# A flag rides in every commit's message. If a flag outranked the variable, one
+# commit that set `[fw:release_mode=publish]` would keep publishing on every
+# later ordinary push until somebody noticed. The variable is the standing
+# configuration; the flag is one commit's request; the dispatch input is a human
+# choosing right now, so it wins.
+#
+# ★ EMPTY MEANS UNSET, AND EACH RUNG IS TESTED FOR EMPTINESS SEPARATELY.
+#
+# `vars.FREEWHEN_DEFAULT_ARCHS` is a string, and `"false"` is truthy. Every read
+# here compares against `''` rather than testing truthiness — the same mistake
+# `.env.example:103-107` warns about for `DATABASE_BACKEND`.
+#
+# ★ THE CALLER PASSES ITS OWN DISPATCH INPUTS DOWN AS `d_*`.
+#
+# A reusable workflow cannot read `github.event.inputs` of its caller. Threading
+# them explicitly keeps the precedence visible in one file instead of being
+# re-derived in each workflow.
+
+on:
+  workflow_call:
+    inputs:
+      scope:
+        description: 'apk | deploy'
+        required: true
+        type: string
+      commit_message:
+        description: 'Text to read `[fw:key=value]` flags from.'
+        required: false
+        type: string
+        default: ''
+
+      # Dispatch inputs. Empty means "not supplied on the form".
+      d_archs: { required: false, type: string, default: '' }
+      d_universal: { required: false, type: string, default: '' }
+      d_release_mode: { required: false, type: string, default: '' }
+      d_version: { required: false, type: string, default: '' }
+      d_mode: { required: false, type: string, default: '' }
+      d_target: { required: false, type: string, default: '' }
+
+    outputs:
+      archs: { value: '${{ jobs.resolve.outputs.archs }}' }
+      universal: { value: '${{ jobs.resolve.outputs.universal }}' }
+      release_mode: { value: '${{ jobs.resolve.outputs.release_mode }}' }
+      version: { value: '${{ jobs.resolve.outputs.version }}' }
+      mode: { value: '${{ jobs.resolve.outputs.mode }}' }
+      target: { value: '${{ jobs.resolve.outputs.target }}' }
+      matrix: { value: '${{ jobs.resolve.outputs.matrix }}' }
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      archs: ${{ steps.r.outputs.archs }}
+      universal: ${{ steps.r.outputs.universal }}
+      release_mode: ${{ steps.r.outputs.release_mode }}
+      version: ${{ steps.r.outputs.version }}
+      mode: ${{ steps.r.outputs.mode }}
+      target: ${{ steps.r.outputs.target }}
+      matrix: ${{ steps.r.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve config
+        id: r
+        env:
+          SCOPE: ${{ inputs.scope }}
+          COMMIT_MESSAGE: ${{ inputs.commit_message }}
+
+          D_ARCHS: ${{ inputs.d_archs }}
+          D_UNIVERSAL: ${{ inputs.d_universal }}
+          D_RELEASE_MODE: ${{ inputs.d_release_mode }}
+          D_VERSION: ${{ inputs.d_version }}
+          D_MODE: ${{ inputs.d_mode }}
+          D_TARGET: ${{ inputs.d_target }}
+
+          VAR_ARCHS: ${{ vars.FREEWHEN_DEFAULT_ARCHS }}
+          VAR_UNIVERSAL: ${{ vars.FREEWHEN_DEFAULT_UNIVERSAL }}
+          VAR_RELEASE_MODE: ${{ vars.FREEWHEN_DEFAULT_RELEASE_MODE }}
+          VAR_VERSION: ${{ vars.FREEWHEN_DEFAULT_VERSION }}
+          VAR_MODE: ${{ vars.FREEWHEN_DEFAULT_MODE }}
+          VAR_TARGET: ${{ vars.FREEWHEN_DEFAULT_TARGET }}
+        run: |
+          set -euo pipefail
+
+          # `[fw:key=value]` and `[fw:key]`, anywhere in the text. Case-insensitive
+          # on the key, so `[FW:APK]` is the same flag.
+          declare -A FLAG=()
+          while IFS='=' read -r k v; do
+            [ -z "${k:-}" ] && continue
+            FLAG["$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]')"]="$v"
+            FLAG["$(printf '%s' "$k" | tr '[:upper:]' '[:lower:]')_set"]="1"
+          done < <(printf '%s\n' "${COMMIT_MESSAGE:-}" \
+                   | grep -oiE '\[fw:[a-z0-9_-]+(=[^]]*)?\]' \
+                   | sed -E 's/^\[fw://; s/\]$//' || true)
+
+          # resolve <dispatch> <variable> <flag-key> <default>
+          resolve() {
+            local out="$1"
+            if [ -z "$out" ] && [ -n "${2:-}" ]; then out="$2"; fi
+            if [ -z "$out" ] && [ -n "${FLAG[$3_set]:-}" ]; then
+              # A boolean flag carries no value; treat its presence as `true`.
+              if [ -n "${FLAG[$3]:-}" ]; then out="${FLAG[$3]}"; else out="true"; fi
+            fi
+            if [ -z "$out" ]; then out="$4"; fi
+            printf '%s' "$out"
+          }
+
+          # ★ DELIMITER FORM, NOT `printf 'k=v\n'`.
+          #
+          # A value containing a newline would otherwise inject a second output
+          # line into $GITHUB_OUTPUT and silently set a different key. The
+          # delimiter is random hex, so it cannot occur inside the value.
+          set_out() {
+            local delim
+            delim="ghadelim_$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+            {
+              printf '%s<<%s\n' "$1" "$delim"
+              printf '%s\n' "$2"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          ARCHS="$(resolve "$D_ARCHS" "$VAR_ARCHS" archs 'all')"
+          UNIVERSAL="$(resolve "$D_UNIVERSAL" "$VAR_UNIVERSAL" universal 'true')"
+          RELEASE_MODE="$(resolve "$D_RELEASE_MODE" "$VAR_RELEASE_MODE" release_mode 'draft')"
+          VERSION="$(resolve "$D_VERSION" "$VAR_VERSION" version '')"
+          MODE="$(resolve "$D_MODE" "$VAR_MODE" mode 'production')"
+          TARGET="$(resolve "$D_TARGET" "$VAR_TARGET" target '')"
+
+          # ── Validation: refuse an unknown value, never fall back ────────────
+          # The same doctrine as `DATABASE_BACKEND`: a typo must fail loudly,
+          # because a silent fallback builds one thing while the operator
+          # believes they configured another.
+          LEGAL_ABIS='armeabi-v7a arm64-v8a x86 x86_64'
+
+          if [ "$ARCHS" = "all" ]; then
+            ARCHS='armeabi-v7a,arm64-v8a,x86,x86_64'
+          fi
+          for abi in $(printf '%s' "$ARCHS" | tr ',' ' '); do
+            case " $LEGAL_ABIS " in
+              *" $abi "*) ;;
+              *) echo "::error::unknown architecture '$abi'; legal: $LEGAL_ABIS (or 'all')"; exit 1 ;;
+            esac
+          done
+
+          case "$UNIVERSAL" in true|false) ;; *)
+            echo "::error::universal must be true or false, got '$UNIVERSAL'"; exit 1 ;; esac
+
+          case "$RELEASE_MODE" in draft|publish) ;; *)
+            echo "::error::release_mode must be draft or publish, got '$RELEASE_MODE'"; exit 1 ;; esac
+
+          case "$MODE" in production|preview|development) ;; *)
+            echo "::error::mode must be production, preview or development, got '$MODE'"; exit 1 ;; esac
+
+          # The version defaults to app.json rather than to a literal: the APK's
+          # versionName and the release tag must be the same string, and app.json
+          # is what the build actually reads.
+          if [ -z "$VERSION" ]; then
+            VERSION="$(node -p "require('./app.json').expo.version")"
+          fi
+          case "$VERSION" in
+            ''|*[!0-9.]*) echo "::error::version must be x.y.z, got '$VERSION'"; exit 1 ;;
+          esac
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version must be x.y.z, got '$VERSION'"; exit 1
+          fi
+
+          # ── The build matrix ───────────────────────────────────────────────
+          # `universal` is a separate Gradle invocation, not a fifth `-P` value:
+          # the un-suffixed `app-release.apk` is what Gradle emits when
+          # `reactNativeArchitectures` is absent, so building both in one run
+          # would have the per-ABI task overwrite the shared output directory.
+          MATRIX="$(printf '%s' "$ARCHS" | tr ',' '\n' | sed 's/^/"/; s/$/"/' | paste -sd, -)"
+          if [ "$UNIVERSAL" = "true" ]; then
+            MATRIX="$MATRIX,\"universal\""
+          fi
+
+          set_out archs "$ARCHS"
+          set_out universal "$UNIVERSAL"
+          set_out release_mode "$RELEASE_MODE"
+          set_out version "$VERSION"
+          set_out mode "$MODE"
+          set_out target "$TARGET"
+          set_out matrix "{\"arch\":[$MATRIX]}"
+
+          {
+            echo "### Resolved config ($SCOPE)"
+            echo ''
+            echo '| Key | Value |'
+            echo '|---|---|'
+            if [ "$SCOPE" = "apk" ]; then
+              echo "| archs | $ARCHS |"
+              echo "| universal | $UNIVERSAL |"
+              echo "| release_mode | $RELEASE_MODE |"
+              echo "| version | $VERSION |"
+              echo "| mode | $MODE |"
+            else
+              echo "| target | ${TARGET:-_(unset)_} |"
+              echo "| mode | $MODE |"
+            fi
+            if [ "${#FLAG[@]}" -gt 0 ]; then
+              echo ''
+              echo "_commit flags were read from the message_"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -34,14 +34,44 @@
 #   FREE_WHEN_RELEASE_STORE_PASSWORD  the store password
 #   FREE_WHEN_RELEASE_KEY_ALIAS       the key alias (default: freewhen)
 #   FREE_WHEN_RELEASE_KEY_PASSWORD    the key password (defaults to the store one)
+#   APK_ARCHS                         a single ABI to build, or empty (see below)
+#   UNIVERSAL_APK                     1 = this run is producing the universal APK
+#
+# ★ APK_ARCHS IS HOW ONE ABI IS BUILT; ITS ABSENCE IS HOW ALL OF THEM ARE.
+#
+# `android/gradle.properties` declares `reactNativeArchitectures` for four ABIs,
+# and Gradle emits `app-<abi>-release.apk` for each *plus* an un-suffixed
+# `app-release.apk` containing all of them. Historically this script only looked
+# at the un-suffixed file, so every release carried all ABIs under one name and
+# the per-ABI outputs were discarded.
+#
+# Setting `APK_ARCHS=arm64-v8a` passes
+# `-PreactNativeArchitectures=arm64-v8a`, which makes the per-ABI output the only
+# one produced. Leaving it empty reproduces the previous behaviour exactly — the
+# universal artifact — so a caller that says nothing gets what it always got.
+#
+# ★ THE TWO FORMS NEED TWO RUNS.
+#
+# The universal artifact is not a fifth `-P` value: it is what Gradle emits when
+# the property is *absent*. Building both in one invocation would have the
+# per-ABI task overwrite the shared output directory, which is why the release
+# workflow invokes this script once per ABI and once more with `APK_ARCHS` unset.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-DIST_APK=android/app/build/outputs/apk/release/app-release.apk
 OUT_DIR=web/dl
 OUT_APK="$OUT_DIR/freewhen.apk"
+
+# The output this run is expected to produce. Resolved BEFORE the Gradle call so
+# the failure path can list what *was* produced against what was expected.
+APK_OUTPUT_DIR=android/app/build/outputs/apk/release
+if [[ -n "${APK_ARCHS:-}" ]]; then
+  DIST_APK="$APK_OUTPUT_DIR/app-${APK_ARCHS}-release.apk"
+else
+  DIST_APK="$APK_OUTPUT_DIR/app-release.apk"
+fi
 
 echo "== 1/4  release gates =="
 # Both artifacts are built from the same source, and a key that reaches the APK
@@ -87,16 +117,38 @@ GRADLE_PROPS=android/gradle.properties
   echo "FREE_WHEN_RELEASE_KEY_PASSWORD=${FREE_WHEN_RELEASE_KEY_PASSWORD:-${FREE_WHEN_RELEASE_STORE_PASSWORD:-}}"
 } >> "$GRADLE_PROPS"
 
+# ★ AN EMPTY ARRAY NEEDS THE `${ARR[@]+…}` GUARD UNDER `set -u`.
+#
+# Bash 4.4+ expands an empty `"${ARCH_ARGS[@]}"` to nothing, but bash 3.2 — which
+# is what `/bin/bash` is on macOS — raises "unbound variable" instead. The guard
+# is what lets a developer on either shell run the universal path.
+ARCH_ARGS=()
+if [[ -n "${APK_ARCHS:-}" ]]; then
+  ARCH_ARGS=(-PreactNativeArchitectures="$APK_ARCHS")
+  echo "   architectures: $APK_ARCHS -> $(basename "$DIST_APK")"
+else
+  echo "   architectures: all (universal) -> $(basename "$DIST_APK")"
+fi
+
 if [[ "${SKIP_GRADLE:-0}" == "1" ]]; then
   echo "   skipped (SKIP_GRADLE=1) — no artifact was produced"
   exit 0
 fi
 
-( cd android && ./gradlew assembleRelease )
+( cd android && ./gradlew assembleRelease ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} )
 
 echo "== 4/4  stage the artifact =="
 if [[ ! -f "$DIST_APK" ]]; then
   echo "expected ${DIST_APK} and it is not there — the Gradle task did not run" >&2
+  echo "the release output directory holds:" >&2
+  # Listing the directory is the difference between "the build failed" and "the
+  # build succeeded with a name nobody predicted" — and the second is the one
+  # that ships the wrong artifact.
+  if [[ -d "$APK_OUTPUT_DIR" ]]; then
+    ( cd "$APK_OUTPUT_DIR" && ls -1 2>/dev/null | sed 's/^/   /' >&2 ) || true
+  else
+    echo "   (the directory does not exist)" >&2
+  fi
   exit 1
 fi
 
@@ -104,7 +156,18 @@ mkdir -p "$OUT_DIR"
 # The download URL is stable (`/dl/freewhen.apk`), because the web/dl page and
 # the QR codes already printed on slides point at it. Replacing the file in
 # place is the "fix reaches a reviewer the same day" path (AC-13.5.1).
+#
+# ★ IN A PER-ABI RUN THIS COPY IS A SCRATCH FILE, NOT THE PUBLICATION.
+#
+# The release workflow renames and uploads it; `/dl/freewhen.apk` on a host is
+# only ever written by the deploy path. Keeping the copy here means the local
+# build flow still ends with an APK where a human expects to find one.
 cp "$DIST_APK" "$OUT_APK"
 
-echo "build-apk: ${OUT_APK} ($(du -h "$OUT_APK" | cut -f1))"
+ARCH_LABEL="${APK_ARCHS:-universal}"
+if [[ "${UNIVERSAL_APK:-0}" == "1" ]]; then
+  ARCH_LABEL=universal
+fi
+
+echo "build-apk: ${OUT_APK} ($(du -h "$OUT_APK" | cut -f1), ${ARCH_LABEL})"
 echo "           deploy it with the web/ static root, then re-run the /dl/ smoke test"

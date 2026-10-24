@@ -1,0 +1,423 @@
+name: Deploy
+
+# Deploys the whole stack to ONE selected target per run: migrations, then the
+# app, then a health check.
+#
+# ★ ONE TARGET PER RUN, AND THE FORM MAKES YOU SAY WHICH.
+#
+# Deploying two targets from one run means one of them is not the deployment
+# anyone is looking at, and the second silently becomes the truth. Only the
+# target named on the form (or in `vars.FREEWHEN_DEFAULT_TARGET`) has its job
+# enabled, so a repository holding several providers' credentials can never
+# deploy to two at once.
+#
+# ★ DISPATCH ONLY. NEVER ON PUSH.
+#
+# A commit flag chooses an APK's ABIs; it cannot deploy. The blast radius of a
+# bad APK is one download replaced in minutes; the blast radius of a bad deploy
+# is the live product. Deploying is a decision a person makes, with a target, in
+# a run they can see.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'vps | vercel | netlify | cloudflare | railway | render | fly'
+        required: true
+        default: ''
+      mode:
+        description: 'production (needs an approval environment) or preview.'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
+      shape:
+        description: 'serverless (static + function) or vm (container). Inferred from the target when blank.'
+        required: false
+        default: ''
+        type: choice
+        options: ['', 'serverless', 'vm']
+      web:
+        description: 'Deploy the static web export.'
+        required: false
+        default: true
+        type: boolean
+      api:
+        description: 'Deploy the backend API.'
+        required: false
+        default: true
+        type: boolean
+      run_migrations:
+        description: 'Apply migrations before deploying.'
+        required: false
+        default: true
+        type: boolean
+      external_db:
+        description: 'The target uses an external DATABASE_URL instead of its own Postgres.'
+        required: false
+        default: false
+        type: boolean
+      ref:
+        description: 'Branch or tag to deploy. Blank = this ref.'
+        required: false
+        default: ''
+
+concurrency:
+  # One deploy per target: two concurrent `rsync --delete` runs over one
+  # directory is how a directory gets half-old and half-new.
+  group: deploy-${{ inputs.target }}-${{ inputs.mode }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # ── 0. Resolve the target, with the same precedence as every other knob ───
+  resolve:
+    name: Resolve config
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    uses: ./.github/workflows/_resolve-config.yml
+    with:
+      scope: deploy
+      commit_message: ${{ github.event.head_commit.message }}
+      d_target: ${{ inputs.target }}
+      d_mode: ${{ inputs.mode }}
+    secrets: inherit
+
+  # ── 1. Refuse impossible or under-specified runs before provisioning ─────
+  validate:
+    name: Validate ${{ needs.resolve.outputs.target }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      shape: ${{ steps.v.outputs.shape }}
+      target: ${{ steps.v.outputs.target }}
+      site: ${{ steps.v.outputs.site }}
+    steps:
+      - id: v
+        env:
+          TARGET: ${{ needs.resolve.outputs.target }}
+          MODE: ${{ needs.resolve.outputs.mode }}
+          SHAPE_IN: ${{ inputs.shape }}
+          WANT_API: ${{ inputs.api }}
+          EXTERNAL_DB: ${{ inputs.external_db }}
+          PUBLIC_ORIGIN: ${{ vars.FREEWHEN_SERVER_URL }}
+          DATABASE_BACKEND: ${{ vars.FREEWHEN_DATABASE_BACKEND }}
+          VERCEL_ENABLED: ${{ vars.FREEWHEN_VERCEL_ENABLED }}
+
+          # Presence only. A value is never printed.
+          HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
+          HAS_NETLIFY: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
+          HAS_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAS_CF_ACCOUNT: ${{ vars.CLOUDFLARE_ACCOUNT_ID != '' }}
+          HAS_RAILWAY: ${{ secrets.RAILWAY_TOKEN != '' }}
+          HAS_RENDER: ${{ secrets.RENDER_API_KEY != '' }}
+          HAS_FLY: ${{ secrets.FLY_API_TOKEN != '' }}
+          HAS_VPS_HOST: ${{ vars.VPS_HOST != '' }}
+          HAS_VPS_KEY: ${{ secrets.VPS_SSH_KEY != '' }}
+          HAS_DATABASE_URL: ${{ secrets.DATABASE_URL != '' }}
+          HAS_SUPABASE_URL: ${{ secrets.SUPABASE_URL != '' }}
+          HAS_SUPABASE_KEY: ${{ secrets.SUPABASE_SECRET_KEY != '' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$TARGET" ]; then
+            echo "::error title=No target::Set the target on the form, or FREEWHEN_DEFAULT_TARGET, or use [fw:target=<name>] in a commit message. Exactly one target deploys per run."
+            exit 1
+          fi
+
+          # ★ KOYEB IS GONE, AND SAYS SO.
+          #
+          # A target silently removed from the case list would report "unknown
+          # target", which reads as a typo rather than a deprecation.
+          case "$TARGET" in
+            koyeb)
+              echo "::error title=Deprecated target::Koyeb is deprecated and no longer supported. Use railway, render or fly for the vm shape, or vercel/netlify for serverless."
+              exit 1 ;;
+          esac
+
+          case "$TARGET" in
+            vps|vercel|netlify|cloudflare|railway|render|fly) ;;
+            *)
+              echo "::error::Unknown target '$TARGET'. Legal: vps, vercel, netlify, cloudflare, railway, render, fly"
+              exit 1 ;;
+          esac
+
+          # ★ THE SHAPE FOLLOWS FROM THE HOST CONTRACT, NOT FROM PREFERENCE.
+          #
+          # A function-per-request host cannot serve `dist/` itself, and a
+          # persistent container host must run the long-lived listener.
+          case "$TARGET" in
+            vercel|netlify|cloudflare) EXPECTED=serverless ;;
+            *) EXPECTED=vm ;;
+          esac
+          SHAPE="$SHAPE_IN"
+          if [ -z "$SHAPE" ]; then SHAPE="$EXPECTED"; fi
+          if [ "$SHAPE" != "$EXPECTED" ]; then
+            echo "::error title=Wrong shape::$TARGET needs shape=$EXPECTED (got '$SHAPE'). A function-per-request host cannot serve the app itself; a persistent host runs the long-lived listener."
+            exit 1
+          fi
+
+          missing() {
+            echo "::error title=Missing credential::$1 is required to deploy to $TARGET. $2"
+            exit 1
+          }
+
+          case "$TARGET" in
+            vps)
+              [ "$HAS_VPS_HOST" = "true" ] || missing VPS_HOST "The server address (repository variable)."
+              [ "$HAS_VPS_KEY" = "true" ]  || missing VPS_SSH_KEY "A private key with access to that host (secret)."
+              ;;
+            vercel)
+              [ "$HAS_VERCEL" = "true" ] || missing VERCEL_TOKEN "Create one at https://vercel.com/account/tokens (secret)."
+              if [ "$VERCEL_ENABLED" != "true" ]; then
+                echo "::error title=Vercel disabled::Set vars.FREEWHEN_VERCEL_ENABLED=true to enable Vercel deploys."
+                echo "Vercel is behind this switch because enabling it is an account and billing"
+                echo "decision, not a technical one."
+                exit 1
+              fi
+              ;;
+            netlify)
+              [ "$HAS_NETLIFY" = "true" ] || missing NETLIFY_AUTH_TOKEN "Create one at https://app.netlify.com/user/applications (secret)."
+              ;;
+            cloudflare)
+              [ "$HAS_CF_TOKEN" = "true" ]   || missing CLOUDFLARE_API_TOKEN "Create one with Pages:Edit (secret)."
+              [ "$HAS_CF_ACCOUNT" = "true" ] || missing CLOUDFLARE_ACCOUNT_ID "The account id from the dashboard URL (repository variable)."
+              # ★ A WORKER HAS NO TCP SOCKET.
+              #
+              # Deploying the `pg` transport there succeeds and then 500s on the
+              # first database request — after the deploy reported success.
+              if [ "$WANT_API" = "true" ] && [ "$DATABASE_BACKEND" != "supabase_rest" ]; then
+                echo "::error title=Wrong database transport::target=cloudflare with api=true needs vars.FREEWHEN_DATABASE_BACKEND=supabase_rest."
+                echo "A Workers runtime cannot open a TCP Postgres socket. See"
+                echo "server/runtime/README.md §What does not run on a request-scoped runtime."
+                exit 1
+              fi
+              if [ "$WANT_API" = "true" ]; then
+                [ "$HAS_SUPABASE_URL" = "true" ] || missing SUPABASE_URL "The PostgREST endpoint (secret)."
+                [ "$HAS_SUPABASE_KEY" = "true" ] || missing SUPABASE_SECRET_KEY "The PostgREST service key (secret)."
+              fi
+              ;;
+            railway)
+              [ "$HAS_RAILWAY" = "true" ] || missing RAILWAY_TOKEN "Railway → Project → Settings → Tokens (secret)."
+              ;;
+            render)
+              [ "$HAS_RENDER" = "true" ] || missing RENDER_API_KEY "https://dashboard.render.com/u/settings#api-keys (secret)."
+              ;;
+            fly)
+              [ "$HAS_FLY" = "true" ] || missing FLY_API_TOKEN "Run \`fly tokens create org\` (secret)."
+              ;;
+          esac
+
+          # An external database is required by every PaaS target; a VPS can
+          # bring its own Postgres through Compose.
+          if [ "$EXTERNAL_DB" = "true" ]; then
+            [ "$HAS_DATABASE_URL" = "true" ] || missing DATABASE_URL "The Postgres connection string (secret). Neon and Supabase both work."
+          fi
+
+          if [ -z "$PUBLIC_ORIGIN" ]; then
+            echo "::error title=Missing public origin::Set the FREEWHEN_SERVER_URL repository variable to the URL this deployment answers on."
+            echo "The APK inlines it at build time, and a wrong value points every installed app at the wrong host."
+            exit 1
+          fi
+
+          echo "shape=$SHAPE" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "site=${PUBLIC_ORIGIN%/}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Deployment plan"
+            echo ''
+            echo '| Field | Value |'
+            echo '|---|---|'
+            echo "| Target | \`$TARGET\` |"
+            echo "| Shape | \`$SHAPE\` |"
+            echo "| Site | $PUBLIC_ORIGIN |"
+            echo "| Static web | ${{ inputs.web }} |"
+            echo "| Backend | ${{ inputs.api }} |"
+            echo "| External DB | $EXTERNAL_DB |"
+            echo ''
+            echo 'Exactly one target runs per invocation.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 2. Migrate BEFORE the app goes live ──────────────────────────────────
+  migrate:
+    name: Migrate the database
+    needs: validate
+    if: inputs.run_migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_BACKEND: ${{ vars.FREEWHEN_DATABASE_BACKEND }}
+        run: bash .github/scripts/db-migrate.sh
+
+  # ── 3. Deploy. Exactly one provider branch runs ─────────────────────────
+  deploy:
+    name: Deploy to ${{ needs.validate.outputs.target }}
+    needs: [validate, migrate]
+    # `always()` because `migrate` is skipped when run_migrations=false.
+    if: always() && needs.validate.result == 'success' && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # An approval environment for production: the blame for a bad production
+    # deploy should attach to a person who clicked.
+    environment: ${{ needs.resolve.outputs.mode }}
+    permissions:
+      contents: read
+    outputs:
+      site: ${{ steps.d.outputs.SITE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build the web export
+        if: inputs.web
+        env:
+          # ★ THESE MUST BE IN THIS SHELL, NOT ON THE HOST.
+          #
+          # `EXPO_PUBLIC_*` is substituted by the bundler. Setting them only on
+          # the host produces a bundle whose `/start` renders "not configured" —
+          # the same trap `scripts/build/export-web.sh:28-33` warns about.
+          EXPO_PUBLIC_APP_BASE_URL: ${{ needs.validate.outputs.site }}
+          EXPO_PUBLIC_API_URL: ${{ needs.validate.outputs.site }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+        run: bash scripts/build/export-web.sh
+
+      - name: Compose the single static root
+        if: inputs.web
+        # `dist/` and `web/` are two roots behind Caddy so the app's router
+        # cannot shadow `/dl/` and `/privacy`. A single-root host has no such
+        # mechanism, so the tree is composed and each host gets an explicit rule.
+        run: bash .github/scripts/compose-static.sh
+
+      - name: Deploy
+        id: d
+        env:
+          TARGET: ${{ needs.validate.outputs.target }}
+          SHAPE: ${{ needs.validate.outputs.shape }}
+          PUBLIC_ORIGIN: ${{ needs.validate.outputs.site }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          RUNNER_TEMP: ${{ runner.temp }}
+          EXTERNAL_DB: ${{ inputs.external_db }}
+
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ vars.NETLIFY_SITE_ID }}
+
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PAGES_PROJECT: ${{ vars.CF_PAGES_PROJECT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+          RENDER_OWNER_ID: ${{ vars.RENDER_OWNER_ID }}
+
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_APP: ${{ vars.FLY_APP }}
+          FLY_REGION: ${{ vars.FLY_REGION }}
+
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_PATH: ${{ vars.VPS_PATH }}
+          VPS_SSH_HOST_FINGERPRINT: ${{ vars.VPS_SSH_HOST_FINGERPRINT }}
+
+          NESHAN_MATRIX_API_KEY: ${{ secrets.NESHAN_MATRIX_API_KEY }}
+          NESHAN_DIRECTION_API_KEY: ${{ secrets.NESHAN_DIRECTION_API_KEY }}
+          ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
+
+          APP_ORIGIN: ${{ needs.validate.outputs.site }}
+        run: bash .github/scripts/host-platform.sh "$TARGET" "$SHAPE"
+
+  # ── 4. Prove the deployment actually works ──────────────────────────────
+  verify:
+    name: Verify the deployment
+    needs: [validate, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # ★ A STATUS CODE IS NOT A DEPLOYMENT CHECK.
+      #
+      # On Vercel, a project with SSO protection on answers every URL with 200
+      # and a login wall. On Netlify, a pretty-URL redirect makes a correct page
+      # answer 301. Both pass a status-only smoke test while proving nothing.
+      # `verify-deployment.sh` checks bodies, distinctness, and the refusals.
+      - name: Served paths, refused paths, and content identity
+        env:
+          SITE: ${{ needs.deploy.outputs.site || needs.validate.outputs.site }}
+          WANT_API: ${{ inputs.api }}
+          WANT_WEB: ${{ inputs.web }}
+          DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+        run: bash .github/scripts/verify-deployment.sh "${SITE%/}"
+
+      - name: Record the result
+        if: always()
+        env:
+          SITE: ${{ needs.deploy.outputs.site || needs.validate.outputs.site }}
+          TARGET: ${{ needs.validate.outputs.target }}
+          SHAPE: ${{ needs.validate.outputs.shape }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          {
+            echo '### Deployment verification'
+            echo ''
+            echo '| Field | Value |'
+            echo '|---|---|'
+            echo "| Target | \`$TARGET\` |"
+            echo "| Shape | \`$SHAPE\` |"
+            echo "| Site | $SITE |"
+            echo "| Result | $OUTCOME |"
+          } >> "$GITHUB_STEP_SUMMARY"
