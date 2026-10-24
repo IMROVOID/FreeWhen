@@ -17,6 +17,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ir.freewhen.app",
+      "icon": {
+        "light": "./assets/images/icon-light.png",
+        "dark": "./assets/images/icon.png",
+        "tinted": "./assets/images/icon-tinted.png"
+      },
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true
       }
@@ -25,7 +30,8 @@
       "package": "ir.freewhen.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#120A07"
+        "backgroundColor": "#120A07",
+        "monochromeImage": "./assets/images/monochrome-icon.png"
       },
       "edgeToEdgeEnabled": true,
       "usesCleartextTraffic": true
