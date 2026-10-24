@@ -42,6 +42,12 @@ BG_LIGHT = "#FBF5EF"
 # sit inside a 66 % safe zone or the corners get clipped on a round launcher.
 ADAPTIVE_SAFE_SCALE = 0.62
 
+# A full-bleed mark reads as cramped once iOS rounds the tile and the launcher
+# shrinks it. The master mark already fills 86 % of its 256-unit box, so this
+# pulls the ink in to roughly 72 % of the tile — visible breathing room at every
+# size, and still heavy enough to read at 16 px.
+APP_ICON_SCALE = 0.84
+
 # Splash canvas matches the 1284x2778 default the old generator shipped.
 SPLASH_SIZE = (1284, 2778)
 
@@ -114,13 +120,17 @@ def tile(parts: tuple[list[str], str], *, background: str | None, ink: str, scal
     )
 
 
-def two_tone(parts: tuple[list[str], str], *, background: str, bracket: str, node: str) -> str:
+def two_tone(
+    parts: tuple[list[str], str], *, background: str, bracket: str, node: str, scale: float = 1.0
+) -> str:
     """Full-colour mark: brackets and Meet Point node in separate inks."""
     paths, node_shape = parts
+    offset = (256 * (1 - scale)) / 2
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">'
         f'<rect width="256" height="256" fill="{background}"/>'
-        f'{brackets(paths, bracket)}{node_shape.format(ink=node)}'
+        f'<g transform="translate({offset} {offset}) scale({scale})">'
+        f'{brackets(paths, bracket)}{node_shape.format(ink=node)}</g>'
         "</svg>"
     )
 
@@ -138,11 +148,26 @@ def main() -> None:
     # only legible on dark ink, which is why the dark tile is espresso and the
     # light tile swaps the node to espresso (brand guideline "approved
     # pairings" 1 and 2).
-    write("icon.png", render(two_tone(parts, background=ESPRESSO, bracket=TANGERINE, node=VOLT), 1024))
-    write("icon-light.png", render(two_tone(parts, background=BG_LIGHT, bracket=TANGERINE, node=ESPRESSO), 1024))
+    write(
+        "icon.png",
+        render(
+            two_tone(parts, background=ESPRESSO, bracket=TANGERINE, node=VOLT, scale=APP_ICON_SCALE),
+            1024,
+        ),
+    )
+    write(
+        "icon-light.png",
+        render(
+            two_tone(parts, background=BG_LIGHT, bracket=TANGERINE, node=ESPRESSO, scale=APP_ICON_SCALE),
+            1024,
+        ),
+    )
     # The tinted variant is flattened to greyscale by iOS and then tinted, so it
     # ships as a single-ink mark on the light ground: no colour survives anyway.
-    write("icon-tinted.png", render(tile(parts, background=BG_LIGHT, ink=ESPRESSO), 1024))
+    write(
+        "icon-tinted.png",
+        render(tile(parts, background=BG_LIGHT, ink=ESPRESSO, scale=APP_ICON_SCALE), 1024),
+    )
 
     # --- Android adaptive ------------------------------------------------
     # Foreground must be transparent and pre-shrunk into the safe zone; the
@@ -171,17 +196,22 @@ def main() -> None:
     splash.save(OUT / "splash.png")
 
     # --- Web: favicons, PWA, Apple touch ---------------------------------
+    # Tab favicons stay close to full bleed: at 16 px every pixel of ink counts,
+    # and the browser already draws them on a light chrome where the tile edge
+    # reads as the icon boundary.
     write("favicon.png", render(tile(parts, background=BG_DARK, ink=TANGERINE), 48))
 
-    web_icons = {
-        "favicon-16.png": 16,
-        "favicon-32.png": 32,
+    for name, size in {"favicon-16.png": 16, "favicon-32.png": 32}.items():
+        write(name, render(tile(parts, background=BG_DARK, ink=TANGERINE), size))
+
+    # Home-screen tiles get the app icon's inset, because they sit beside real
+    # app icons that all have that breathing room.
+    for name, size in {
         "apple-touch-icon.png": 180,
         "icon-192.png": 192,
         "icon-512.png": 512,
-    }
-    for name, size in web_icons.items():
-        write(name, render(tile(parts, background=BG_DARK, ink=TANGERINE), size))
+    }.items():
+        write(name, render(tile(parts, background=BG_DARK, ink=TANGERINE, scale=APP_ICON_SCALE), size))
 
     # Maskable PWA icon: the launcher may crop to a circle, so the mark is
     # inset well inside the 80 % maskable safe zone.
