@@ -135,9 +135,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   segmentInner: {
+    width: '100%',
     height: size.segment,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: space[2],
   },
 });

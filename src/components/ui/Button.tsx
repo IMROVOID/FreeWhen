@@ -2,10 +2,10 @@ import { StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { Text, type Variant } from './Text';
 import { Pressy } from './Pressy';
-import { radius, size, space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
-export type ButtonVariant = 'primary' | 'brand' | 'secondary' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'brand' | 'secondary' | 'ghost' | 'outline' | 'danger';
 export type ButtonSize = 'large' | 'medium' | 'small';
 
 export interface ButtonProps {
@@ -15,6 +15,9 @@ export interface ButtonProps {
   size?: ButtonSize;
   disabled?: boolean;
   loading?: boolean;
+  fullWidth?: boolean;
+  icon?: React.ReactNode;
+  iconPosition?: 'left' | 'right';
   testID?: string;
   accessibilityLabel?: string;
   style?: ViewStyle;
@@ -44,6 +47,9 @@ export function Button({
   size = 'large',
   disabled = false,
   loading = false,
+  fullWidth = true,
+  icon,
+  iconPosition = 'left',
   testID,
   accessibilityLabel,
   style,
@@ -63,12 +69,20 @@ export function Button({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: isDisabled, busy: loading }}
-      style={[styles.base, { height: HEIGHTS[size] }, style]}
+      style={[
+        fullWidth ? styles.full : styles.inline,
+        { height: HEIGHTS[size] },
+        style,
+      ]}
     >
       <View
         style={[
           styles.fill,
-          { backgroundColor: fill.background, borderColor: fill.border },
+          {
+            backgroundColor: fill.background,
+            borderColor: fill.border,
+            borderWidth: fill.border === 'transparent' ? 0 : border.hairline,
+          },
         ]}
       >
         {loading ? (
@@ -78,9 +92,13 @@ export function Button({
             <View style={[styles.dot, { backgroundColor: labelColor }]} />
           </View>
         ) : (
-          <Text variant={TEXT_VARIANTS[size]} color={labelColor} align="center">
-            {label}
-          </Text>
+          <View style={styles.labelRow}>
+            {icon && iconPosition === 'left' && <View style={styles.icon}>{icon}</View>}
+            <Text variant={TEXT_VARIANTS[size]} color={labelColor} align="center">
+              {label}
+            </Text>
+            {icon && iconPosition === 'right' && <View style={styles.icon}>{icon}</View>}
+          </View>
         )}
       </View>
     </Pressy>
@@ -105,7 +123,9 @@ function fillFor(variant: ButtonVariant, t: ReturnType<typeof useTheme>['t'], is
     case 'secondary':
       return { background: t.surface2, border: 'transparent' };
     case 'ghost':
-      return { background: 'transparent', border: t.text };
+      return { background: 'transparent', border: 'transparent' };
+    case 'outline':
+      return { background: 'transparent', border: t.line };
     case 'danger':
       return { background: t.danger, border: 'transparent' };
   }
@@ -127,22 +147,36 @@ function labelColorFor(
       return t.text;
     case 'ghost':
       return t.text;
+    case 'outline':
+      return t.text;
     case 'danger':
       return t.onPrimary;
   }
 }
 
 const styles = StyleSheet.create({
-  base: {
+  full: {
     width: '100%',
+  },
+  inline: {
+    alignSelf: 'flex-start',
   },
   fill: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.pill,
-    borderWidth: 2,
-    paddingHorizontal: 28,
+    paddingHorizontal: space[5],
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[2],
+  },
+  icon: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dots: {
     flexDirection: 'row',

@@ -1,4 +1,10 @@
-import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  type PressableProps,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 
 import { press, spring } from '@/src/theme/motion';
@@ -11,6 +17,33 @@ export interface PressyProps extends Omit<PressableProps, 'style'> {
   scale?: number;
   style?: StyleProp<ViewStyle>;
 }
+
+const LAYOUT_PROPS = new Set([
+  'flex',
+  'flexGrow',
+  'flexShrink',
+  'flexBasis',
+  'width',
+  'height',
+  'minWidth',
+  'minHeight',
+  'maxWidth',
+  'maxHeight',
+  'margin',
+  'marginTop',
+  'marginBottom',
+  'marginLeft',
+  'marginRight',
+  'marginHorizontal',
+  'marginVertical',
+  'alignSelf',
+  'position',
+  'top',
+  'bottom',
+  'left',
+  'right',
+  'zIndex',
+]);
 
 /**
  * Translates `accessibilityState` into the ARIA attributes `react-native-web`
@@ -67,21 +100,46 @@ export function Pressy({
   haptic = 'light',
   scale = press.scale,
   hitSlop = 8,
+  style,
   ...rest
 }: PressyProps) {
   const motion = useMotion();
   const progress = useSharedValue(1);
 
+  const flatStyle = StyleSheet.flatten(style) as ViewStyle | undefined;
+  const outerStyle: ViewStyle = {};
+  const innerStyle: ViewStyle = {};
+
+  if (flatStyle) {
+    for (const [key, val] of Object.entries(flatStyle)) {
+      if (LAYOUT_PROPS.has(key)) {
+        (outerStyle as Record<string, unknown>)[key] = val;
+      } else {
+        (innerStyle as Record<string, unknown>)[key] = val;
+      }
+    }
+  }
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: progress.value }],
   }));
 
+  const hasFlex = outerStyle.flex !== undefined;
+  const hasHeight = outerStyle.height !== undefined;
+  const hasWidth = outerStyle.width !== undefined;
+
   return (
-    <Animated.View style={animatedStyle}>
+    <Animated.View style={[animatedStyle, outerStyle]}>
       <Pressable
         {...rest}
         {...ariaState(rest.accessibilityState, rest.accessibilityRole)}
         hitSlop={hitSlop}
+        style={[
+          hasFlex && styles.fillFlex,
+          hasHeight && styles.fillHeight,
+          hasWidth && styles.fillWidth,
+          innerStyle,
+        ]}
         onPressIn={(event) => {
           if (!motion.reduce) {
             progress.value = withSpring(scale, spring.snappy);
@@ -102,3 +160,15 @@ export function Pressy({
     </Animated.View>
   );
 }
+
+const styles = StyleSheet.create({
+  fillFlex: {
+    flex: 1,
+  },
+  fillHeight: {
+    height: '100%',
+  },
+  fillWidth: {
+    width: '100%',
+  },
+});

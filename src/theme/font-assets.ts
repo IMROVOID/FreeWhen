@@ -10,6 +10,11 @@
  */
 
 export const vazirmatnFonts = {
+  'Vazirmatn-Regular': require('@/assets/fonts/Vazirmatn-Regular.ttf'),
+  'Vazirmatn-Medium': require('@/assets/fonts/Vazirmatn-Medium.ttf'),
+  'Vazirmatn-SemiBold': require('@/assets/fonts/Vazirmatn-SemiBold.ttf'),
+  'Vazirmatn-Bold': require('@/assets/fonts/Vazirmatn-Bold.ttf'),
+  'Vazirmatn-ExtraBold': require('@/assets/fonts/Vazirmatn-ExtraBold.ttf'),
   Vazirmatn_Regular: require('@/assets/fonts/Vazirmatn-Regular.ttf'),
   Vazirmatn_Medium: require('@/assets/fonts/Vazirmatn-Medium.ttf'),
   Vazirmatn_SemiBold: require('@/assets/fonts/Vazirmatn-SemiBold.ttf'),
@@ -18,6 +23,11 @@ export const vazirmatnFonts = {
 } as const;
 
 export const vazirmatnFdFonts = {
+  'VazirmatnFD-Regular': require('@/assets/fonts/VazirmatnFD-Regular.ttf'),
+  'VazirmatnFD-Medium': require('@/assets/fonts/VazirmatnFD-Medium.ttf'),
+  'VazirmatnFD-SemiBold': require('@/assets/fonts/VazirmatnFD-SemiBold.ttf'),
+  'VazirmatnFD-Bold': require('@/assets/fonts/VazirmatnFD-Bold.ttf'),
+  'VazirmatnFD-ExtraBold': require('@/assets/fonts/VazirmatnFD-ExtraBold.ttf'),
   VazirmatnFD_Regular: require('@/assets/fonts/VazirmatnFD-Regular.ttf'),
   VazirmatnFD_Medium: require('@/assets/fonts/VazirmatnFD-Medium.ttf'),
   VazirmatnFD_SemiBold: require('@/assets/fonts/VazirmatnFD-SemiBold.ttf'),

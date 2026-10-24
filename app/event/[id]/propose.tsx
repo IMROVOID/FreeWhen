@@ -1,18 +1,11 @@
 /**
- * S7 — a new proposal (Plan 06 Task 7).
+ * S7 — New Proposal Page.
  *
- * ★ ONE FLOW, ONE TYPE FIELD.
- *
- * The segmented choice at the top decides which sections below are relevant. It
- * is one screen rather than three because the user's real question is "what do I
- * want to suggest?", and splitting it into a type-first wizard asks them the
- * same question twice.
- *
- * ★ THE DUPLICATE OFFER APPEARS AFTER A SUCCESSFUL CREATE, NOT BEFORE IT.
- *
- * The proposal exists by the time the offer renders, so there is no state in
- * which a hint can prevent it. "Create anyway" therefore does not need to
- * perform a second insert — it simply dismisses the offer and returns.
+ * Merged Time and Location selection into one single-page form:
+ * - Removed the separate chat parser page and mode switch.
+ * - Removed the broken segmented group.
+ * - Integrated both Time Selection and Map Location Picker onto one form.
+ * - Automatic type inference (TIME, PLACE, or TIME_AND_PLACE).
  */
 
 import { useCallback, useState } from 'react';
@@ -23,30 +16,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
-import { SegmentedControl } from '@/src/components/ui/Chip';
 import { Input } from '@/src/components/ui/Input';
 import { Text } from '@/src/components/ui/Text';
-import { ChatParserTab } from '@/src/features/parser/components/ChatParserTab';
-import type { ParsedCandidate } from '@/src/features/parser/types';
 import { DuplicateOffer } from '@/src/features/proposals/components/DuplicateOffer';
-import { ProposalTypeSegment } from '@/src/features/proposals/components/ProposalTypeSegment';
 import { TimeSlotPicker, defaultEndFor } from '@/src/features/proposals/components/TimeSlotPicker';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { createProposal } from '@/src/features/proposals/services/create-proposal';
 import { trackDuplicateResolution } from '@/src/features/proposals/services/analytics';
-import { PlaceSearchSheet } from '@/src/features/venues/components/PlaceSearchSheet';
+import { LocationMapPicker } from '@/src/components/ui/LocationMapPicker';
 import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
-import type { Language } from '@/src/i18n/types';
 import type { DuplicateHint, ProposalType, VenueRef } from '@/src/types/proposal';
 
-/** Which of the two entry modes the screen is in. */
-type ProposeMode = 'manual' | 'chat';
-
 export default function ProposeScreen() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -63,23 +48,17 @@ export default function ProposeScreen() {
   const windowEnd = typeof params.windowEnd === 'string' ? params.windowEnd : '';
   const homeTz = typeof params.homeTz === 'string' ? params.homeTz : 'Asia/Tehran';
 
-  const locale: Language = i18n.language === 'en' ? 'en' : 'fa';
-
   const { append } = useProposals(eventId);
 
-  const [mode, setMode] = useState<ProposeMode>('manual');
-  const [type, setType] = useState<ProposalType>('TIME');
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [link, setLink] = useState('');
   const [startUtc, setStartUtc] = useState<string | null>(null);
   const [venue, setVenue] = useState<VenueRef | null>(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [duplicate, setDuplicate] = useState<DuplicateHint | null>(null);
-
-  const needsTime = type === 'TIME' || type === 'TIME_AND_PLACE';
-  const needsPlace = type === 'PLACE' || type === 'TIME_AND_PLACE';
 
   /** The error under a field, translated. */
   const errorFor = useCallback(
@@ -94,26 +73,39 @@ export default function ProposeScreen() {
     setIsSubmitting(true);
     setFieldErrors({});
 
+    // Infer proposal type based on provided inputs
+    let inferredType: ProposalType = 'TIME';
+    if (startUtc !== null && venue !== null) {
+      inferredType = 'TIME_AND_PLACE';
+    } else if (venue !== null) {
+      inferredType = 'PLACE';
+    } else if (startUtc !== null) {
+      inferredType = 'TIME';
+    } else {
+      setFieldErrors({ _: 'proposals.form.requireTimeOrPlace' });
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       const userId = await getStoredUserId();
 
       const outcome = await createProposal(
         eventId,
         {
-          type,
+          type: inferredType,
           title: title.trim(),
           notes: notes.trim() === '' ? null : notes.trim(),
           link: link.trim() === '' ? null : link.trim(),
-          start_utc: needsTime ? startUtc : null,
-          end_utc: needsTime && startUtc ? defaultEndFor(startUtc) : null,
-          venue: needsPlace ? venue : null,
+          start_utc: startUtc,
+          end_utc: startUtc ? defaultEndFor(startUtc) : null,
+          venue,
         },
         userId,
       );
 
       append(outcome.proposal);
 
-      // A hint, not a refusal: the proposal has already been created.
       if (outcome.duplicate) {
         setDuplicate(outcome.duplicate);
         return;
@@ -130,39 +122,7 @@ export default function ProposeScreen() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [append, eventId, link, needsPlace, needsTime, notes, router, startUtc, title, type, venue]);
-
-  /**
-   * Confirms one parsed candidate through the ORDINARY create path.
-   *
-   * ★ THERE IS NO SECOND WRITE PATH (AC-7.1.1, AC-7.2.1).
-   *
-   * A candidate is not a proposal and has no endpoint of its own. Confirming it
-   * calls exactly the same `createProposal` the manual form calls, so two of
-   * three selected produce exactly two proposals and nothing else can.
-   */
-  const confirmCandidate = useCallback(
-    async (candidate: ParsedCandidate) => {
-      const userId = await getStoredUserId();
-
-      const outcome = await createProposal(
-        eventId,
-        {
-          type: candidate.type,
-          title: candidate.title,
-          notes: null,
-          link: null,
-          start_utc: candidate.startUtc,
-          end_utc: candidate.endUtc,
-          venue: null,
-        },
-        userId,
-      );
-
-      append(outcome.proposal);
-    },
-    [append, eventId],
-  );
+  }, [append, eventId, link, notes, router, startUtc, title, venue]);
 
   if (duplicate) {
     return (
@@ -191,46 +151,8 @@ export default function ProposeScreen() {
     );
   }
 
-  if (mode === 'chat') {
-    return (
-      <ScrollView
-        style={[styles.screen, { backgroundColor: theme.bg }]}
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[10] },
-        ]}
-        testID="propose-chat-screen"
-      >
-        <Text variant="h1">{t('parser.heading')}</Text>
-
-        <SegmentedControl
-          options={[
-            { value: 'chat', label: t('parser.tabChat') },
-            { value: 'manual', label: t('proposals.newProposal') },
-          ]}
-          value="chat"
-          onChange={(next) => setMode(next === 'chat' ? 'chat' : 'manual')}
-          testID="propose-mode-chat"
-        />
-
-        <ChatParserTab
-          eventId={eventId}
-          locale={locale}
-          onConfirm={confirmCandidate}
-          onManualEntry={() => setMode('manual')}
-          testID="propose-chat"
-        />
-
-        <Button
-          label={t('common.back')}
-          onPress={() => router.back()}
-          variant="ghost"
-          size="medium"
-          testID="propose-chat-back"
-        />
-      </ScrollView>
-    );
-  }
+  const hasOptionSelected = startUtc !== null || venue !== null;
+  const isSubmitDisabled = title.trim() === '' || !hasOptionSelected || isSubmitting;
 
   return (
     <ScrollView
@@ -243,18 +165,7 @@ export default function ProposeScreen() {
     >
       <Text variant="h1">{t('proposals.newProposal')}</Text>
 
-      <SegmentedControl
-        options={[
-          { value: 'chat', label: t('parser.tabChat') },
-          { value: 'manual', label: t('proposals.newProposal') },
-        ]}
-        value="manual"
-        onChange={(next) => setMode(next === 'chat' ? 'chat' : 'manual')}
-        testID="propose-mode"
-      />
-
-      <ProposalTypeSegment value={type} onChange={setType} testID="propose-type" />
-
+      {/* Proposal Title */}
       <Input
         value={title}
         onChangeText={setTitle}
@@ -263,62 +174,93 @@ export default function ProposeScreen() {
         testID="propose-title"
       />
 
-      {needsTime && (
-        <Card variant="surface" style={styles.section}>
-          <Text variant="h3">{t('proposals.form.timeSection')}</Text>
-          {errorFor('start_utc') && (
-            <Text variant="caption" color={theme.danger}>
-              {errorFor('start_utc')}
-            </Text>
-          )}
-          <TimeSlotPicker
-            windowStart={windowStart}
-            windowEnd={windowEnd}
-            homeTz={homeTz}
-            value={startUtc}
-            onChange={setStartUtc}
-            testID="propose-time"
-          />
-        </Card>
-      )}
-
-      {needsPlace && (
-        <Card variant="surface" style={styles.section}>
-          <Text variant="h3">{t('proposals.form.placeSection')}</Text>
-          {errorFor('venue') && (
-            <Text variant="caption" color={theme.danger}>
-              {errorFor('venue')}
-            </Text>
-          )}
-
-          {venue ? (
-            <View style={styles.chosen}>
-              <Text variant="body">{venue.name}</Text>
-              {venue.address && (
-                <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
-                  {venue.address}
-                </Text>
-              )}
-              <Button
-                label={t('proposals.form.changePlace')}
-                onPress={() => setVenue(null)}
-                variant="ghost"
-                size="small"
-                testID="propose-change-place"
-              />
-            </View>
-          ) : (
-            <PlaceSearchSheet
-              onSelect={setVenue}
-              // The map path routes back here with a chosen pin, so the sheet
-              // stays a pure chooser rather than owning navigation.
-              onPickOnMap={() => router.push(`/event/${eventId}/propose`)}
-              testID="propose-place-search"
+      {/* 1. Time & Date Selection Section */}
+      <Card variant="surface" style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text variant="h3">{t('proposals.form.timeSection', 'زمان پیشنهادی')}</Text>
+          {startUtc && (
+            <Button
+              label={t('common.clear', 'حذف زمان')}
+              onPress={() => setStartUtc(null)}
+              variant="ghost"
+              size="small"
+              fullWidth={false}
             />
           )}
-        </Card>
-      )}
+        </View>
 
+        {errorFor('start_utc') && (
+          <Text variant="caption" color={theme.danger}>
+            {errorFor('start_utc')}
+          </Text>
+        )}
+
+        <TimeSlotPicker
+          windowStart={windowStart}
+          windowEnd={windowEnd}
+          homeTz={homeTz}
+          value={startUtc}
+          onChange={setStartUtc}
+          testID="propose-time"
+        />
+      </Card>
+
+      {/* 2. Location Selection Section */}
+      <Card variant="surface" style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text variant="h3">{t('proposals.form.placeSection', 'مکان پیشنهادی')}</Text>
+          {venue && (
+            <Button
+              label={t('common.clear', 'حذف مکان')}
+              onPress={() => {
+                setVenue(null);
+                setShowLocationPicker(true);
+              }}
+              variant="ghost"
+              size="small"
+              fullWidth={false}
+            />
+          )}
+        </View>
+
+        {errorFor('venue') && (
+          <Text variant="caption" color={theme.danger}>
+            {errorFor('venue')}
+          </Text>
+        )}
+
+        {venue && !showLocationPicker ? (
+          <View style={styles.chosen}>
+            <Text variant="bodyL" color={theme.text}>
+              {venue.name}
+            </Text>
+            {venue.address && (
+              <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
+                {venue.address}
+              </Text>
+            )}
+            <Button
+              label={t('proposals.form.changePlace', 'تغییر مکان روی نقشه')}
+              onPress={() => setShowLocationPicker(true)}
+              variant="outline"
+              size="small"
+              fullWidth={false}
+              testID="propose-change-place"
+            />
+          </View>
+        ) : (
+          <LocationMapPicker
+            onSelect={(selectedVenue) => {
+              setVenue(selectedVenue);
+              setShowLocationPicker(false);
+            }}
+            onCancel={venue ? () => setShowLocationPicker(false) : undefined}
+            testID="propose-map-picker"
+          />
+        )}
+      </Card>
+
+      {/* Notes & Links */}
       <Input
         value={notes}
         onChangeText={setNotes}
@@ -341,11 +283,12 @@ export default function ProposeScreen() {
         </Text>
       )}
 
+      {/* Submit Button */}
       <Button
         label={t('proposals.form.submit')}
         onPress={() => void submit()}
         loading={isSubmitting}
-        disabled={title.trim() === '' || (needsTime && startUtc === null) || (needsPlace && venue === null)}
+        disabled={isSubmitDisabled}
         testID="propose-submit"
       />
     </ScrollView>
@@ -362,6 +305,11 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: space[3],
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   chosen: {
     gap: space[2],
