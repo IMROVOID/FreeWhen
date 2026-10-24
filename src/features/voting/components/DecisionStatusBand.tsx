@@ -17,12 +17,14 @@
  * not there.
  */
 
-import { StyleSheet, View } from 'react-native';
+import { I18nManager, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { CheckCircle, Users } from 'phosphor-react-native';
 
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
+import { toPersianDigits } from '@/src/lib/jalali';
 import { border, radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -50,8 +52,10 @@ export interface DecisionStatusBandProps {
 
 export function DecisionStatusBand({ eventId, shared }: DecisionStatusBandProps) {
   const { t: theme } = useTheme();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
+  const isFa = i18n.language === 'fa';
+  const isRTL = I18nManager.isRTL;
 
   // The hook is still called unconditionally — rules of hooks — but its work is
   // disabled when the host supplies the payload.
@@ -72,8 +76,13 @@ export function DecisionStatusBand({ eventId, shared }: DecisionStatusBandProps)
     (entry) => entry.proposal.status === 'OPEN' || entry.proposal.status === 'REOPENED',
   );
   const focus = open[0] ?? proposals[0] ?? null;
+  const focusAnswered = focus ? focus.tally.yes + focus.tally.maybe + focus.tally.no : 0;
   const total = focus?.tally.total ?? status.participants.length;
+  const votedCount = Math.min(total, focusAnswered > 0 ? focusAnswered : answered);
+  const percent = total > 0 ? Math.min(100, Math.max(0, Math.round((votedCount / total) * 100))) : 0;
   const isConfirmed = Object.keys(status.decisions).length > 0;
+
+  const percentLabel = isFa ? `${toPersianDigits(String(percent))}٪` : `${percent}%`;
 
   return (
     <Pressy
@@ -82,44 +91,111 @@ export function DecisionStatusBand({ eventId, shared }: DecisionStatusBandProps)
       }
       haptic="light"
       accessibilityRole="button"
-      accessibilityLabel={t('voting.tallySummary', { voted: answered, total })}
+      accessibilityLabel={t('voting.tallySummary', { voted: votedCount, total })}
       testID="event-decision-band"
+      style={styles.container}
     >
-      <View style={[styles.band, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-        <Text
-          variant="caption"
-          color={isConfirmed ? theme.brand : theme.text}
-          numeric
-          numberOfLines={1}
-          style={styles.text}
-        >
-          {isConfirmed
-            ? t('decision.viewDecision')
-            : t('voting.tallySummary', { voted: answered, total })}
-        </Text>
+      <View
+        style={[
+          styles.band,
+          {
+            backgroundColor: theme.surface2,
+            borderColor: theme.line,
+          },
+        ]}
+      >
+        {/* Progress fill track */}
+        <View
+          style={[
+            styles.progressTrack,
+            {
+              backgroundColor: isConfirmed ? theme.brand : theme.primary,
+              width: `${percent}%`,
+              [isRTL ? 'right' : 'left']: 0,
+            },
+          ]}
+        />
 
-        {connection === 'reconnecting' && (
-          <Text variant="caption" color={theme.textFaint}>
-            {t('voting.reconnecting')}
-          </Text>
-        )}
+        {/* Content row over the fill track */}
+        <View style={styles.contentRow}>
+          <View style={styles.labelSection}>
+            {isConfirmed ? (
+              <CheckCircle size={18} color={theme.brand} weight="fill" />
+            ) : (
+              <Users size={18} color={theme.textMuted} weight="bold" />
+            )}
+            <Text
+              variant="body"
+              weight={600}
+              color={isConfirmed ? theme.brand : theme.text}
+              numeric
+              numberOfLines={1}
+            >
+              {isConfirmed
+                ? t('decision.viewDecision')
+                : t('voting.tallySummary', { voted: votedCount, total })}
+            </Text>
+          </View>
+
+          <View style={styles.trailingSection}>
+            {connection === 'reconnecting' ? (
+              <Text variant="caption" color={theme.textFaint}>
+                {t('voting.reconnecting')}
+              </Text>
+            ) : (
+              <View style={[styles.percentBadge, { backgroundColor: theme.surface3 }]}>
+                <Text variant="caption" weight={700} color={theme.brand} numeric>
+                  {percentLabel}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
       </View>
     </Pressy>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    width: '100%',
+  },
   band: {
+    height: 48,
+    borderRadius: radius.pill,
+    borderWidth: border.hairline,
+    overflow: 'hidden',
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  progressTrack: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    opacity: 0.22,
+    borderRadius: radius.pill,
+  },
+  contentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: space[2],
-    borderWidth: border.hairline,
-    borderRadius: radius.pill,
     paddingHorizontal: space[4],
-    paddingVertical: space[2],
+    gap: space[2],
   },
-  text: {
+  labelSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
     flex: 1,
+  },
+  trailingSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1],
+  },
+  percentBadge: {
+    paddingHorizontal: space[2],
+    paddingVertical: space[1] / 2,
+    borderRadius: radius.pill,
   },
 });

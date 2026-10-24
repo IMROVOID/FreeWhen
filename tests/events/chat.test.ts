@@ -120,4 +120,26 @@ describe('appending to the live thread', () => {
 
     assert.equal(original.length, 1);
   });
+
+  test('editing a message updates the body in place without altering order', () => {
+    const m1 = message({ id: 'm-1', body: 'سلام اول' });
+    const m2 = message({ id: 'm-2', body: 'سلام دوم' });
+    const list = [m1, m2];
+    const edited = { ...m1, body: 'سلام ویرایش‌شده' };
+    const result = list.map((m) => (m.id === edited.id ? edited : m));
+
+    assert.equal(result.length, 2);
+    assert.equal(result[0]?.body, 'سلام ویرایش‌شده');
+    assert.equal(result[1]?.body, 'سلام دوم');
+  });
+
+  test('deleting a message removes it from the list', () => {
+    const m1 = message({ id: 'm-1' });
+    const m2 = message({ id: 'm-2' });
+    const list = [m1, m2];
+    const result = list.filter((m) => m.id !== 'm-1');
+
+    assert.equal(result.length, 1);
+    assert.equal(result[0]?.id, 'm-2');
+  });
 });

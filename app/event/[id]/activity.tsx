@@ -26,13 +26,15 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { EmptyState } from '@/src/components/states/EmptyState';
 import { ErrorState } from '@/src/components/states/ErrorState';
@@ -42,7 +44,7 @@ import { fetchActivity } from '@/src/features/voting/services/voting-api';
 import { useOffline } from '@/src/hooks/useOffline';
 import { formatGregorian, formatJalali } from '@/src/lib/jalali';
 import { getStoredUserId } from '@/src/lib/session';
-import { space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 import type { ActivityEntry } from '@/src/types/vote';
@@ -82,23 +84,45 @@ export default function ActivityScreen() {
     void load();
   }, [load]);
 
+  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({ pathname: '/event/[id]', params: { id: eventId } });
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[10] },
+        { paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[10] },
       ]}
       testID="activity-screen"
     >
       {isOffline && <OfflineBanner pendingCount={pendingCount} testID="activity-offline" />}
 
-      <View style={styles.header}>
-        <Text variant="h1">{t('activity.title')}</Text>
-        {/* ★ The absence of coordinates is STATED, not merely true. */}
-        <Text variant="caption" color={theme.textMuted} testID="activity-subheading">
-          {t('activity.subheading')}
-        </Text>
+      <View style={styles.topHeader}>
+        <Pressy
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back', 'بازگشت')}
+          style={styles.backButton}
+        >
+          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+            <BackIcon size={20} color={theme.text} weight="bold" />
+          </View>
+        </Pressy>
+        <View style={styles.header}>
+          <Text variant="h1">{t('activity.title')}</Text>
+          {/* ★ The absence of coordinates is STATED, not merely true. */}
+          <Text variant="caption" color={theme.textMuted} testID="activity-subheading">
+            {t('activity.subheading')}
+          </Text>
+        </View>
       </View>
 
       {state.kind === 'loading' && <ListSkeleton rows={4} testID="activity-loading" />}
@@ -222,6 +246,23 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: space[1],
+    flex: 1,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  backButton: {
+    padding: space[1],
+  },
+  backIconCircle: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    borderWidth: border.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   list: {
     gap: space[2],

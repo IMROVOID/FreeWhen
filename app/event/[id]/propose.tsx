@@ -9,14 +9,16 @@
  */
 
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { Input } from '@/src/components/ui/Input';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { DuplicateOffer } from '@/src/features/proposals/components/DuplicateOffer';
 import { TimeSlotPicker, defaultEndFor } from '@/src/features/proposals/components/TimeSlotPicker';
@@ -151,6 +153,16 @@ export default function ProposeScreen() {
     );
   }
 
+  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({ pathname: '/event/[id]', params: { id: eventId } });
+    }
+  };
+
   const hasOptionSelected = startUtc !== null || venue !== null;
   const isSubmitDisabled = title.trim() === '' || !hasOptionSelected || isSubmitting;
 
@@ -159,12 +171,22 @@ export default function ProposeScreen() {
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: space[3], paddingBottom: insets.bottom + space[10] },
+        { paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[10] },
       ]}
       nestedScrollEnabled={true}
       testID="propose-screen"
     >
       <View style={styles.topHeader}>
+        <Pressy
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back', 'بازگشت')}
+          style={styles.backButton}
+        >
+          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+            <BackIcon size={20} color={theme.text} weight="bold" />
+          </View>
+        </Pressy>
         <Text variant="h1">{t('proposals.newProposal')}</Text>
       </View>
 

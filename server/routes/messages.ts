@@ -166,7 +166,10 @@ export async function listMessagesHandler(
     [eventId, MESSAGE_PAGE_SIZE],
   );
 
-  return json({ messages: result.rows.reverse().map(toMessage) });
+  return json({
+    messages: result.rows.reverse().map(toMessage),
+    my_participant_id: member.id,
+  });
 }
 
 /**
@@ -276,4 +279,100 @@ export async function reportMessageHandler(
   );
 
   return json({ report: { id: result.rows[0]?.id ?? null } }, 201);
+}
+
+/**
+ * `PATCH /api/messages/:id`
+ *
+ * Edits the message body. Only the author can edit their own message.
+ */
+export async function editMessageHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const caller = await callerFrom(request);
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const messageId = params.id ?? '';
+  if (!isUuid(messageId)) return wireError('NOT_PARTICIPANT');
+
+  const found = await scopedQueryable().query<{ event_id: string; participant_id: string }>(
+    `select event_id, participant_id from event_message where id = $1`,
+    [messageId],
+  );
+
+  const row = found.rows[0];
+  if (!row) return wireError('NOT_PARTICIPANT');
+
+  const member = await participantIn(row.event_id, caller);
+  if (!member) return wireError('NOT_PARTICIPANT');
+
+  if (member.id !== row.participant_id) {
+    return wireError('NOT_PARTICIPANT');
+  }
+
+  const body = await readJsonBody(request);
+  if (!body) return validationFailed([{ path: [], message: 'errors.validationFailed' }]);
+
+  const validated = validateMessageBody(body.body);
+  if (!validated.ok) {
+    return validationFailed([{ path: ['body'], message: 'errors.validationFailed' }]);
+  }
+
+  const result = await scopedQueryable().query<MessageRow>(
+    `update event_message
+        set body = $1
+      where id = $2
+      returning id, event_id, participant_id, sender_name, body, message_type, created_at`,
+    [validated.body, messageId],
+  );
+
+  const updated = result.rows[0];
+  if (!updated) return wireError('VALIDATION_FAILED');
+
+  return json({ message: toMessage(updated) });
+}
+
+/**
+ * `DELETE /api/messages/:id`
+ *
+ * Deletes the message. Author or event organizer may delete.
+ */
+export async function deleteMessageHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const caller = await callerFrom(request);
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const messageId = params.id ?? '';
+  if (!isUuid(messageId)) return wireError('NOT_PARTICIPANT');
+
+  const found = await scopedQueryable().query<{ event_id: string; participant_id: string }>(
+    `select event_id, participant_id from event_message where id = $1`,
+    [messageId],
+  );
+
+  const row = found.rows[0];
+  if (!row) return wireError('NOT_PARTICIPANT');
+
+  const member = await participantIn(row.event_id, caller);
+  if (!member) return wireError('NOT_PARTICIPANT');
+
+  if (member.id !== row.participant_id) {
+    const roleResult = await scopedQueryable().query<{ role: string }>(
+      `select role from participant where id = $1`,
+      [member.id],
+    );
+    if (roleResult.rows[0]?.role !== 'organizer') {
+      return wireError('NOT_PARTICIPANT');
+    }
+  }
+
+  await scopedQueryable().query(
+    `delete from event_message where id = $1`,
+    [messageId],
+  );
+
+  return json({ deleted: true, id: messageId });
 }

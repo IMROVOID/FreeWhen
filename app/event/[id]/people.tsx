@@ -17,13 +17,15 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Card } from '@/src/components/ui/Card';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
@@ -36,7 +38,7 @@ import { patchProfile } from '@/src/features/participants/services/start-point';
 import { useOffline } from '@/src/hooks/useOffline';
 import { getStoredUserId } from '@/src/lib/session';
 import type { Language } from '@/src/i18n/types';
-import { space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 export default function PeopleScreen() {
@@ -44,11 +46,22 @@ export default function PeopleScreen() {
   const { i18n } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const params = useLocalSearchParams<{ id: string }>();
   const eventId = typeof params.id === 'string' ? params.id : '';
 
   const language: Language = i18n.language === 'en' ? 'en' : 'fa';
+
+  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({ pathname: '/event/[id]', params: { id: eventId } });
+    }
+  };
 
   const [userId, setUserId] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<'private' | 'event'>('event');
@@ -96,13 +109,25 @@ export default function PeopleScreen() {
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[12] },
+        { paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[12] },
       ]}
       testID="people"
     >
       {isOffline && <OfflineBanner pendingCount={pendingCount} testID="people-offline" />}
 
-      <Text variant="h1">{t('privacy.heading')}</Text>
+      <View style={styles.topHeader}>
+        <Pressy
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back', 'بازگشت')}
+          style={styles.backButton}
+        >
+          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+            <BackIcon size={20} color={theme.text} weight="bold" />
+          </View>
+        </Pressy>
+        <Text variant="h1">{t('privacy.heading')}</Text>
+      </View>
 
       {/* Your own area: audience, expiry, revoke, and the visibility control. */}
       <View style={styles.section}>
@@ -166,6 +191,22 @@ export default function PeopleScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { paddingHorizontal: space[5], gap: space[6] },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  backButton: {
+    padding: space[1],
+  },
+  backIconCircle: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    borderWidth: border.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   section: { gap: space[3] },
   loading: { marginVertical: space[6], alignItems: 'center' },
   row: { gap: space[1] },

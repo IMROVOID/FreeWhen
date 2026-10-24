@@ -31,19 +31,28 @@ export {
 
 export interface ListMessagesResponse {
   messages: ChatMessage[];
+  my_participant_id?: string;
+}
+
+export interface ListMessagesResult {
+  messages: ChatMessage[];
+  myParticipantId?: string;
 }
 
 /** Reads the thread, oldest first. */
 export async function listMessages(
   eventId: string,
   userId: string | null,
-): Promise<ChatMessage[]> {
+): Promise<ListMessagesResult> {
   const { data } = await apiRequest<ListMessagesResponse>(
     `/api/events/${eventId}/messages`,
     { userId },
   );
 
-  return data.messages;
+  return {
+    messages: data.messages,
+    myParticipantId: data.my_participant_id,
+  };
 }
 
 export interface PostMessageResponse {
@@ -67,6 +76,35 @@ export async function postMessage(
   );
 
   return data.message;
+}
+
+/**
+ * Edits an existing message.
+ */
+export async function editMessage(
+  messageId: string,
+  body: string,
+  userId: string | null,
+): Promise<ChatMessage> {
+  const { data } = await apiRequest<PostMessageResponse>(
+    `/api/messages/${messageId}`,
+    { method: 'PATCH', userId, body: { body: body.trim() } },
+  );
+
+  return data.message;
+}
+
+/**
+ * Deletes a message.
+ */
+export async function deleteMessage(
+  messageId: string,
+  userId: string | null,
+): Promise<void> {
+  await apiRequest(`/api/messages/${messageId}`, {
+    method: 'DELETE',
+    userId,
+  });
 }
 
 /**

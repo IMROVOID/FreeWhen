@@ -28,12 +28,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { I18nManager, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
@@ -51,7 +53,7 @@ import {
 } from '@/src/features/venues/services/analytics';
 import { createMapAdapter, type MapPlatform } from '@/src/features/map';
 import type { MapRenderLevel } from '@/src/features/map/types';
-import { radius, space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Coordinate } from '@/src/routing/types';
 
@@ -164,22 +166,44 @@ export default function RankedVenuesScreen() {
     );
   }
 
+  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace({ pathname: '/event/[id]', params: { id: eventId } });
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[10] },
+        { paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[10] },
       ]}
       testID="ranking-screen"
     >
       {isOffline && <OfflineBanner pendingCount={pendingCount} testID="ranking-offline" />}
 
-      <View style={styles.header}>
-        <Text variant="h1">{t('ranking.heading')}</Text>
-        <Text variant="caption" color={theme.textMuted}>
-          {t('ranking.subheading')}
-        </Text>
+      <View style={styles.topHeader}>
+        <Pressy
+          onPress={handleBack}
+          accessibilityRole="button"
+          accessibilityLabel={t('common.back', 'بازگشت')}
+          style={styles.backButton}
+        >
+          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+            <BackIcon size={20} color={theme.text} weight="bold" />
+          </View>
+        </Pressy>
+        <View style={styles.header}>
+          <Text variant="h1">{t('ranking.heading')}</Text>
+          <Text variant="caption" color={theme.textMuted}>
+            {t('ranking.subheading')}
+          </Text>
+        </View>
       </View>
 
       <LensSwitcher active={lens} onChange={setLens} testID="ranking-lens" />
@@ -245,8 +269,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
     gap: space[5],
   },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  backButton: {
+    padding: space[1],
+  },
+  backIconCircle: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    borderWidth: border.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   header: {
     gap: space[1],
+    flex: 1,
   },
   centred: {
     flex: 1,
