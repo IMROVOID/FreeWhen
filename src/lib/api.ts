@@ -14,29 +14,24 @@
  */
 
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
+import { resolveBaseUrlFrom } from './api-base-url';
 import type { ApiErrorCode } from './errors';
 import { REQUEST_PLATFORM, type RequestPlatform } from './platform-tag';
 
-/** The development API port `server/index.ts` listens on. */
-const DEV_API_PORT = 8787;
+export { resolveBaseUrlFrom };
+export type { ApiEnv } from './api-base-url';
 
-/**
- * The API origin.
- *
- * On a physical device `127.0.0.1` is the phone, not the developer's machine,
- * so the Expo dev-server host is reused — it is the one address already known
- * to be reachable from the device running the bundle.
- */
 function resolveBaseUrl(): string {
-  const configured = process.env.EXPO_PUBLIC_API_URL;
-  if (configured) return configured.replace(/\/$/, '');
-
-  const hostUri = Constants.expoConfig?.hostUri;
-  const host = hostUri?.split(':')[0];
-  if (host) return `http://${host}:${DEV_API_PORT}`;
-
-  return `http://127.0.0.1:${DEV_API_PORT}`;
+  return resolveBaseUrlFrom(
+    {
+      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL,
+      EXPO_PUBLIC_APP_BASE_URL: process.env.EXPO_PUBLIC_APP_BASE_URL,
+    },
+    Constants.expoConfig?.hostUri,
+    Platform.OS,
+  );
 }
 
 export const API_BASE_URL = resolveBaseUrl();
