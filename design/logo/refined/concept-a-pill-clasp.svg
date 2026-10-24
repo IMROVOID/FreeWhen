@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img">
+
+  <!-- Concept A v2: Two rounded stadium brackets clasping around a central Meet Point -->
+  <g fill="#170E0A">
+    <!-- Top-Left Pill Hook -->
+    <path d="
+      M 72 48
+      H 136
+      A 36 36 0 0 1 172 84
+      A 24 24 0 0 1 148 108
+      H 108
+      A 24 24 0 0 0 84 132
+      V 148
+      A 24 24 0 0 1 60 172
+      A 36 36 0 0 1 24 136
+      V 96
+      A 48 48 0 0 1 72 48 Z
+    "/>
+    <!-- Bottom-Right Pill Hook (180 deg) -->
+    <g transform="rotate(180 128 128)">
+      <path d="
+        M 72 48
+        H 136
+        A 36 36 0 0 1 172 84
+        A 24 24 0 0 1 148 108
+        H 108
+        A 24 24 0 0 0 84 132
+        V 148
+        A 24 24 0 0 1 60 172
+        A 36 36 0 0 1 24 136
+        V 96
+        A 48 48 0 0 1 72 48 Z
+      "/>
+    </g>
+    <!-- Central Meet Point sphere -->
+    <circle cx="128" cy="128" r="22"/>
+  </g>
+
+</svg>

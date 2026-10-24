@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img">
+
+  <!-- Concept 3: Two Interlocking Squircles (Time + Place) -->
+  <g fill="none" stroke="#170E0A" stroke-width="26" stroke-linejoin="round">
+    <!-- Top-left squircle ring -->
+    <rect x="42" y="42" width="116" height="116" rx="42"/>
+    <!-- Bottom-right squircle ring -->
+    <rect x="98" y="98" width="116" height="116" rx="42"/>
+  </g>
+  <!-- Central intersection focal dot -->
+  <circle cx="128" cy="128" r="16" fill="#170E0A"/>
+
+</svg>

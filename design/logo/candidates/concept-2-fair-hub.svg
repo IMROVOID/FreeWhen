@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img">
+
+  <!-- Concept 2: Threefold Convergence Hub -->
+  <g fill="#170E0A" transform="translate(128, 134)">
+    <!-- Arm 1: Top (0 deg) -->
+    <g transform="rotate(0)">
+      <rect x="-24" y="-102" width="48" height="72" rx="24"/>
+    </g>
+    <!-- Arm 2: Bottom-Right (120 deg) -->
+    <g transform="rotate(120)">
+      <rect x="-24" y="-102" width="48" height="72" rx="24"/>
+    </g>
+    <!-- Arm 3: Bottom-Left (240 deg) -->
+    <g transform="rotate(240)">
+      <rect x="-24" y="-102" width="48" height="72" rx="24"/>
+    </g>
+    <!-- Central focal nexus / Meet Point disc -->
+    <circle cx="0" cy="0" r="22"/>
+  </g>
+
+</svg>

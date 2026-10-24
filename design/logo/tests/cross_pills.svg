@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+
+    <g fill="#170E0A">
+      <!-- Horizontal pill -->
+      <rect x="36" y="96" width="184" height="64" rx="32"/>
+      <!-- Vertical pill crossing with cutout/interlock or unified -->
+      <rect x="96" y="36" width="64" height="184" rx="32"/>
+      <!-- Negative space center circle (aperture) -->
+      <circle cx="128" cy="128" r="20" fill="#FFFFFF"/>
+    </g>
+    
+</svg>

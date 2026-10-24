@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-symbol">
+  <title id="title-symbol">FreeWhen — Brand Symbol (The Focus Nexus)</title>
+  <!-- Pure filled outline geometry (no strokes) for universal CAD, cutting, and vector tool compatibility -->
+  <g fill="#170E0A">
+    <!-- Top-Left Focus Bracket -->
+    <path d="M 18 168 V 84 A 66 66 0 0 1 84 18 H 168 A 22 22 0 0 1 168 62 H 84 A 22 22 0 0 0 62 84 V 168 A 22 22 0 0 1 18 168 Z" />
+    <!-- Bottom-Right Focus Bracket -->
+    <path d="M 238 88 V 172 A 66 66 0 0 1 172 238 H 88 A 22 22 0 0 1 88 194 H 172 A 22 22 0 0 0 194 172 V 88 A 22 22 0 0 1 238 88 Z" />
+    <!-- Central Meet Point Node -->
+    <circle cx="128" cy="128" r="30" />
+  </g>
+</svg>

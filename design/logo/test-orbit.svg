@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-orbit">
+  <title id="title-orbit">FreeWhen — The Converging Orbit</title>
+  <!-- Two thick pill arcs (stroke 44, rounded caps) rotating in dynamic equilibrium around a central Meet Point -->
+  <g fill="none" stroke="#170E0A" stroke-width="44" stroke-linecap="round">
+    <!-- Top-Right Arc: sweeps from 200 deg to 20 deg (radius 80) -->
+    <!-- Center (128, 128), R = 80 -->
+    <!-- Start at angle 200 deg: x = 128 + 80*cos(200) = 128 - 75.18 = 52.82, y = 128 + 80*sin(200) = 128 - 27.36 = 100.64 -->
+    <!-- End at angle 20 deg: x = 128 + 80*cos(20) = 128 + 75.18 = 203.18, y = 128 + 80*sin(20) = 128 + 27.36 = 155.36 -->
+    <!-- Wait, let's use exact 180-deg arcs with offset or 210-deg arcs -->
+    <path d="M 58 102 A 80 80 0 0 1 204 128" />
+    <path d="M 198 154 A 80 80 0 0 1 52 128" />
+  </g>
+  <!-- Central Meet Point core -->
+  <circle cx="128" cy="128" r="24" fill="#170E0A" />
+</svg>

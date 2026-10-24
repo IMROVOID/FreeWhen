@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-a">
+  <title id="title-a">FreeWhen Concept A — The Meet Point (Orbital Convergence)</title>
+  <g fill="none" stroke="#170E0A" stroke-width="36" stroke-linecap="round">
+    <!-- Top Arc (sweeping over top, generous 46-degree gaps at left & right) -->
+    <path d="M 58 100 A 76 76 0 0 1 198 100" />
+    <!-- Bottom Arc (sweeping under bottom) -->
+    <path d="M 198 156 A 76 76 0 0 1 58 156" />
+  </g>
+  <!-- Central Meet Point Core (bold solid focal node) -->
+  <circle cx="128" cy="128" r="26" fill="#170E0A" />
+</svg>

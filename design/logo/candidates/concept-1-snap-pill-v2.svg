@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img">
+
+  <!-- Concept 1 v2: Two curved pill jaws docking around a central Meet Point -->
+  <g fill="#170E0A">
+    <!-- Left pill bracket -->
+    <path d="
+      M 80 72
+      H 116
+      C 126 72 134 78 138 86
+      L 110 128
+      L 138 170
+      C 134 178 126 184 116 184
+      H 80
+      A 56 56 0 0 1 80 72 Z
+    "/>
+    <!-- Right pill bracket -->
+    <path d="
+      M 176 184
+      H 140
+      C 130 184 122 178 118 170
+      L 146 128
+      L 118 86
+      C 122 78 130 72 140 72
+      H 176
+      A 56 56 0 0 1 176 184 Z
+    "/>
+    <!-- Central Meet Point core -->
+    <circle cx="128" cy="128" r="18"/>
+  </g>
+
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-b">
+  <title id="title-b">FreeWhen — Concept B: The Fair Nexus</title>
+  <!-- Four bold pill arms in 90-degree rotational symmetry converging toward a central common nexus -->
+  <g fill="#170E0A">
+    <!-- Top arm: vertical pill offset left, pointing down -->
+    <rect x="76" y="24" width="44" height="96" rx="22" />
+    <!-- Right arm: horizontal pill offset top, pointing left -->
+    <rect x="136" y="76" width="96" height="44" rx="22" />
+    <!-- Bottom arm: vertical pill offset right, pointing up -->
+    <rect x="136" y="136" width="44" height="96" rx="22" />
+    <!-- Left arm: horizontal pill offset bottom, pointing right -->
+    <rect x="24" y="136" width="96" height="44" rx="22" />
+    <!-- Center focal core -->
+    <circle cx="128" cy="128" r="16" />
+  </g>
+</svg>

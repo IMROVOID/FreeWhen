@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-a">
+  <title id="title-a">FreeWhen — Concept A: The Meet Point</title>
+  <!-- Bold convergence of three pill trajectories docking into a central meeting nexus -->
+  <g fill="#170E0A">
+    <!-- Top-left converging pill, rotated 30 deg -->
+    <rect x="24" y="52" width="112" height="48" rx="24" transform="rotate(30 80 76)" />
+    <!-- Bottom-left converging pill, rotated -30 deg -->
+    <rect x="24" y="156" width="112" height="48" rx="24" transform="rotate(-30 80 180)" />
+    <!-- Right locking focal pill (The Meet Point) -->
+    <rect x="120" y="104" width="108" height="48" rx="24" />
+  </g>
+</svg>

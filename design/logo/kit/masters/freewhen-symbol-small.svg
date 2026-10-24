@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-symbol-small">
+  <title id="title-symbol-small">FreeWhen — Brand Symbol (Small Scale Cut 16-32px)</title>
+  <g fill="#170E0A">
+    <!-- Top-Left Bracket (tuned stroke 48) -->
+    <path d="M 16 164 V 84 A 68 68 0 0 1 84 16 H 164 A 24 24 0 0 1 164 64 H 84 A 20 20 0 0 0 64 84 V 164 A 24 24 0 0 1 16 164 Z" />
+    <!-- Bottom-Right Bracket -->
+    <path d="M 240 92 V 172 A 68 68 0 0 1 172 240 H 92 A 24 24 0 0 1 92 192 H 172 A 20 20 0 0 0 192 172 V 92 A 24 24 0 0 1 240 92 Z" />
+    <!-- Enlarged Meet Point core -->
+    <circle cx="128" cy="128" r="34" />
+  </g>
+</svg>

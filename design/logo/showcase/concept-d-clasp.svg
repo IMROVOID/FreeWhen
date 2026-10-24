@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-d">
+  <title id="title-d">FreeWhen Concept D — The Horizon Clasp</title>
+  <g fill="none" stroke="#170E0A" stroke-width="36" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Flowing S-curve / infinity interlocking pill -->
+    <path d="M 60 100 C 60 64, 110 64, 128 100 C 146 136, 196 136, 196 100" />
+    <path d="M 196 156 C 196 192, 146 192, 128 156 C 110 120, 60 120, 60 156" />
+  </g>
+  <circle cx="128" cy="128" r="18" fill="#170E0A" />
+</svg>

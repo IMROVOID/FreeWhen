@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-c-s">
+  <title id="title-c-s">FreeWhen Concept C2 — The Diagonal Convergence Spark</title>
+  <g fill="#170E0A" transform="rotate(45 128 128)">
+    <!-- Top Pill -->
+    <rect x="106" y="28" width="44" height="76" rx="22" />
+    <!-- Bottom Pill -->
+    <rect x="106" y="152" width="44" height="76" rx="22" />
+    <!-- Left Pill -->
+    <rect x="28" y="106" width="76" height="44" rx="22" />
+    <!-- Right Pill -->
+    <rect x="152" y="106" width="76" height="44" rx="22" />
+    <!-- Central Meeting Point Core -->
+    <circle cx="128" cy="128" r="16" />
+  </g>
+</svg>

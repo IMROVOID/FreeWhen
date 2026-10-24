@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t-a6">
+  <title id="t-a6">A6 — The Tight Focus Lock</title>
+  <g fill="none" stroke="#170E0A" stroke-width="48" stroke-linecap="round">
+    <path d="M 44 154 V 88 A 44 44 0 0 1 88 44 H 154" />
+    <path d="M 212 102 V 168 A 44 44 0 0 1 168 212 H 102" />
+  </g>
+  <circle cx="128" cy="128" r="32" fill="#170E0A" />
+</svg>

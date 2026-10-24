@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img">
+
+  <!-- Concept A: The Meet Point Clasp -->
+  <g fill="#170E0A">
+    <!-- Top-Left Bracket -->
+    <path d="
+      M 56 40
+      C 47.16 40 40 47.16 40 56
+      V 136
+      C 40 148 46 158 56 164
+      L 164 56
+      C 158 46 148 40 136 40
+      H 56 Z
+    "/>
+    <!-- Bottom-Right Bracket -->
+    <path d="
+      M 200 216
+      C 208.84 216 216 208.84 216 200
+      V 120
+      C 216 108 210 98 200 92
+      L 92 200
+      C 98 210 108 216 120 216
+      H 200 Z
+    "/>
+    <!-- Central Meet Point Core -->
+    <circle cx="128" cy="128" r="26"/>
+  </g>
+
+</svg>

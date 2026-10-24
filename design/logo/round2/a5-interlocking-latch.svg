@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-a5">
+  <title id="title-a5">FreeWhen A5 — The Interlocking Latch</title>
+  <g fill="none" stroke="#170E0A" stroke-width="42" stroke-linecap="round">
+    <path d="M 42 174 V 80 A 40 40 0 0 1 82 40 H 182" />
+    <path d="M 214 82 V 176 A 40 40 0 0 1 174 216 H 74" />
+  </g>
+  <circle cx="128" cy="128" r="28" fill="#170E0A" />
+</svg>

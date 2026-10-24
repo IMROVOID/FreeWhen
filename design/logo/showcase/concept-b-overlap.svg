@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-b">
+  <title id="title-b">FreeWhen Concept B — The Overlap Knot (Time & Place)</title>
+  <!-- Background / outer geometry: Two interlocking rounded square frames -->
+  <g fill="none" stroke="#170E0A" stroke-width="28" stroke-linejoin="round" stroke-linecap="round">
+    <!-- Top-Left Squircle Loop (Time) -->
+    <rect x="42" y="42" width="112" height="112" rx="36" />
+    <!-- Bottom-Right Squircle Loop (Place) -->
+    <rect x="102" y="102" width="112" height="112" rx="36" />
+  </g>
+  <!-- Central Intersection Core (The Agreement) -->
+  <circle cx="128" cy="128" r="18" fill="#170E0A" />
+</svg>

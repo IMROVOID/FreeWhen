@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t-a4">
+  <title id="t-a4">A4 — The Nested Aperture</title>
+  <g fill="none" stroke="#170E0A" stroke-width="42" stroke-linecap="round">
+    <!-- Top bracket with inward curl -->
+    <path d="M 44 148 V 80 A 36 36 0 0 1 80 44 H 176 A 36 36 0 0 1 212 80" />
+    <!-- Bottom bracket with inward curl -->
+    <path d="M 212 108 V 176 A 36 36 0 0 1 176 212 H 80 A 36 36 0 0 1 44 176" />
+  </g>
+  <circle cx="128" cy="128" r="28" fill="#170E0A" />
+</svg>

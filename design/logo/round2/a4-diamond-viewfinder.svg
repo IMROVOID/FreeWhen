@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-a4">
+  <title id="title-a4">FreeWhen A4 — The Diamond Viewfinder</title>
+  <g fill="none" stroke="#170E0A" stroke-width="44" stroke-linecap="round" transform="rotate(45 128 128)">
+    <path d="M 40 168 V 84 A 44 44 0 0 1 84 40 H 168" />
+    <path d="M 216 88 V 172 A 44 44 0 0 1 172 216 H 88" />
+  </g>
+  <circle cx="128" cy="128" r="30" fill="#170E0A" />
+</svg>

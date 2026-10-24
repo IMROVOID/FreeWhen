@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t-a2">
+  <title id="t-a2">A2 — The Target Viewfinder</title>
+  <g fill="none" stroke="#170E0A" stroke-width="36" stroke-linecap="round">
+    <!-- Top-Left -->
+    <path d="M 38 104 V 68 A 30 30 0 0 1 68 38 H 104" />
+    <!-- Top-Right -->
+    <path d="M 152 38 H 188 A 30 30 0 0 1 218 68 V 104" />
+    <!-- Bottom-Right -->
+    <path d="M 218 152 V 188 A 30 30 0 0 1 188 218 H 152" />
+    <!-- Bottom-Left -->
+    <path d="M 104 218 H 68 A 30 30 0 0 1 38 188 V 152" />
+  </g>
+  <circle cx="128" cy="128" r="28" fill="#170E0A" />
+</svg>
