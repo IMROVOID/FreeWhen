@@ -62,21 +62,20 @@ export const palette = {
 
 export const themes = {
   dark: {
-    bg: '#120A07',
-    surface1: '#1D1410',
-    surface2: '#281C16',
-    surface3: '#35261E',
-    // Was #3F2F26 (1.42:1 on surface1). Now 3.02–4.07:1 across all surfaces.
-    line: '#7F6F66',
-    text: '#FFF6EF',
-    textMuted: '#C2AEA2',
-    textFaint: '#8C766A',
+    bg: '#181513',
+    surface1: '#231F1C',
+    surface2: '#2F2A26',
+    surface3: '#3D3732',
+    line: '#93847B',
+    text: '#FFF7F2',
+    textMuted: '#CAB8AD',
+    textFaint: '#9E8E85',
     primary: palette.volt,
     onPrimary: palette.espresso,
     brand: palette.tangerine,
     onBrand: palette.espresso,
     danger: palette.danger,
-    onDanger: '#FFF6EF',
+    onDanger: '#FFF7F2',
     success: palette.success,
     warning: palette.warning,
     info: palette.lilac,
@@ -181,9 +180,27 @@ export const size = {
 export const nestedRadius = (outer: number, padding: number): number =>
   Math.max(radius.sm, outer - padding);
 
-export type ThemeName = keyof typeof themes;
-/** Both palettes are the same shape, so a theme is either one of them. */
-export type Theme = (typeof themes)[ThemeName];
+export type ThemeName = 'dark' | 'light';
+
+export interface Theme {
+  bg: string;
+  surface1: string;
+  surface2: string;
+  surface3: string;
+  line: string;
+  text: string;
+  textMuted: string;
+  textFaint: string;
+  primary: string;
+  onPrimary: string;
+  brand: string;
+  onBrand: string;
+  danger: string;
+  onDanger: string;
+  success: string;
+  warning: string;
+  info: string;
+}
 
 /** Semantic colours that live outside the per-theme neutrals (Style Guide §2.4). */
 export const semantic = {

@@ -36,9 +36,16 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  CalendarCheck,
+  ChatCircleDots,
+  ClockCounterClockwise,
+  ShareNetwork,
+} from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { Banner } from '@/src/components/ui/Toast';
 import { EmptyState } from '@/src/components/states/EmptyState';
@@ -343,53 +350,79 @@ export default function EventHomeScreen() {
         </View>
       )}
 
-      <Button
-        label={t('proposals.newProposal')}
-        onPress={openPropose}
-        testID="event-home-new-proposal"
-        style={styles.action}
-      />
+      {proposals.length > 0 && (
+        <Button
+          label={t('proposals.newProposal')}
+          onPress={openPropose}
+          testID="event-home-new-proposal"
+          style={styles.action}
+        />
+      )}
 
-      <Button
-        label={t('slots.heading')}
-        onPress={() =>
-          router.push({ pathname: '/event/[id]/time', params: { id: event.id, homeTz } })
-        }
-        variant="secondary"
-        size="medium"
-        testID="event-home-slots"
-      />
+      {/* Modern, clean Quick Actions grid */}
+      <View style={styles.actionGrid}>
+        <Pressy
+          onPress={() =>
+            router.push({ pathname: '/event/[id]/time', params: { id: event.id, homeTz } })
+          }
+          testID="event-home-slots"
+          accessibilityRole="button"
+          accessibilityLabel={t('slots.heading')}
+          style={styles.actionTile}
+        >
+          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
+            <ClockCounterClockwise size={22} color={theme.text} weight="bold" />
+            <Text variant="caption" color={theme.text} align="center">
+              {t('slots.heading')}
+            </Text>
+          </View>
+        </Pressy>
 
-      <Button
-        label={t('invite.share')}
-        onPress={() => router.push('/')}
-        variant="ghost"
-        size="medium"
-        testID="event-home-back"
-      />
+        <Pressy
+          onPress={() => router.push('/')}
+          testID="event-home-back"
+          accessibilityRole="button"
+          accessibilityLabel={t('invite.share')}
+          style={styles.actionTile}
+        >
+          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
+            <ShareNetwork size={22} color={theme.text} weight="bold" />
+            <Text variant="caption" color={theme.text} align="center">
+              {t('invite.share')}
+            </Text>
+          </View>
+        </Pressy>
 
-      {/* ★ S14 — the history is one tap from the decision it explains.
-          Plan 11 Task 6 builds the screen; this is its way in. */}
-      <Button
-        label={t('a11y.openActivity')}
-        accessibilityLabel={t('a11y.openActivity')}
-        onPress={() => router.push({ pathname: '/event/[id]/activity', params: { id: event.id } })}
-        variant="ghost"
-        size="medium"
-        testID="event-home-activity"
-      />
+        <Pressy
+          onPress={() => router.push({ pathname: '/event/[id]/activity', params: { id: event.id } })}
+          testID="event-home-activity"
+          accessibilityRole="button"
+          accessibilityLabel={t('a11y.openActivity')}
+          style={styles.actionTile}
+        >
+          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
+            <CalendarCheck size={22} color={theme.text} weight="bold" />
+            <Text variant="caption" color={theme.text} align="center">
+              {t('a11y.openActivity')}
+            </Text>
+          </View>
+        </Pressy>
 
-      {/* D23 — the in-room chat. Reaching it from the event shell is what makes
-          the surface discoverable: a chat nobody can find is the same as no
-          chat, and the tables would still be live for nobody. */}
-      <Button
-        label={t('chat.open')}
-        accessibilityLabel={t('chat.title')}
-        onPress={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
-        variant="ghost"
-        size="medium"
-        testID="event-home-chat"
-      />
+        <Pressy
+          onPress={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
+          testID="event-home-chat"
+          accessibilityRole="button"
+          accessibilityLabel={t('chat.title')}
+          style={styles.actionTile}
+        >
+          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
+            <ChatCircleDots size={22} color={theme.text} weight="bold" />
+            <Text variant="caption" color={theme.text} align="center">
+              {t('chat.open')}
+            </Text>
+          </View>
+        </Pressy>
+      </View>
     </ScrollView>
   );
 }
@@ -426,6 +459,24 @@ const styles = StyleSheet.create({
   action: {
     marginTop: space[6],
     borderRadius: radius.pill,
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space[3],
+    marginTop: space[4],
+  },
+  actionTile: {
+    flex: 1,
+    minWidth: '45%',
+  },
+  actionTileInner: {
+    borderRadius: radius.lg,
+    paddingVertical: space[4],
+    paddingHorizontal: space[3],
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[2],
   },
   missingAction: {
     marginTop: space[2],

@@ -32,6 +32,8 @@ expo-env.d.ts
 # Native builds (produced locally by `npx expo run:android` — PRD-10 D2)
 /android/
 /ios/
+*.apk
+*.aab
 *.jks
 *.p8
 *.p12

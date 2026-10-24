@@ -14,9 +14,13 @@ export type ThemePreference = 'system' | 'dark' | 'light';
 interface AppearanceState {
   themePreference: ThemePreference;
   setThemePreference: (preference: ThemePreference) => void;
+  useDeviceAccent: boolean;
+  setUseDeviceAccent: (useDeviceAccent: boolean) => void;
 }
 
 export const useAppearanceStore = create<AppearanceState>((set) => ({
   themePreference: 'system',
   setThemePreference: (themePreference) => set({ themePreference }),
+  useDeviceAccent: true,
+  setUseDeviceAccent: (useDeviceAccent) => set({ useDeviceAccent }),
 }));

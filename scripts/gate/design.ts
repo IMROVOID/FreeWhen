@@ -16,6 +16,7 @@ const ALLOWED_FILES = [
   'src/theme/tokens.ts',
   'src/theme/motion.ts',
   'src/theme/fonts.ts',
+  'src/theme/font-assets.ts',
 ];
 
 const failures: string[] = [];
