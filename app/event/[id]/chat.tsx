@@ -358,9 +358,17 @@ export default function ChatScreen() {
         animationType="fade"
         onRequestClose={() => setSelectedMessage(null)}
       >
-        <Pressy style={styles.modalOverlay} onPress={() => setSelectedMessage(null)}>
+        <Pressy
+          style={[styles.modalOverlay, { backgroundColor: theme.surface1 }]}
+          onPress={() => setSelectedMessage(null)}
+        >
           <View style={[styles.menuSheet, { backgroundColor: theme.surface1, borderColor: theme.line }]}>
-            <Text variant="caption" color={theme.textMuted} numberOfLines={1} style={styles.menuPreview}>
+            <Text
+              variant="caption"
+              color={theme.textMuted}
+              numberOfLines={1}
+              style={[styles.menuPreview, { borderBottomColor: theme.line }]}
+            >
               {selectedMessage?.body}
             </Text>
 
@@ -503,15 +511,14 @@ const styles = StyleSheet.create({
   },
   sendIconBtn: { padding: space[1] },
   sendIconCircle: {
-    width: 38,
-    height: 38,
+    width: size.buttonSmall,
+    height: size.buttonSmall,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
     padding: space[4],
   },
@@ -524,7 +531,6 @@ const styles = StyleSheet.create({
   menuPreview: {
     paddingBottom: space[2],
     borderBottomWidth: border.hairline,
-    borderBottomColor: 'rgba(150,150,150,0.2)',
   },
   menuOption: {
     flexDirection: 'row',

@@ -29,6 +29,7 @@ import { Button } from '@/src/components/ui/Button';
 import { Text } from '@/src/components/ui/Text';
 import { ScreenStateGate, type ScreenState } from '@/src/components/states/ScreenStateGate';
 import { EventRow } from '@/src/features/events/components/EventRow';
+import { JoinEventCard } from '@/src/features/events/components/JoinEventCard';
 import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
 import { space } from '@/src/theme/tokens';
@@ -103,6 +104,8 @@ export default function EventListScreen() {
       <Text variant="h1" align="start">
         {t('events.list.heading')}
       </Text>
+
+      <JoinEventCard onJoin={(token) => router.push(`/e/${token}`)} />
 
       <ScreenStateGate state={state} offline={isOffline} testID="event-list-states" />
     </ScrollView>

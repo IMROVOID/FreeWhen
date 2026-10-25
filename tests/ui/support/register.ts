@@ -44,6 +44,8 @@ const ALIASES: Record<string, string> = {
   // Reanimated needs a Babel plugin and a UI thread; the stub keeps the tree
   // intact and makes every animated style static.
   'react-native-reanimated': JOIN_SUPPORT('reanimated-stub.ts'),
+  'expo-clipboard': JOIN_SUPPORT('clipboard-stub.ts'),
+  'react-native-svg': JOIN_SUPPORT('svg-stub.ts'),
 };
 
 /** An absolute path to a file in this directory, for the resolver. */
@@ -86,6 +88,10 @@ module_._resolveFilename = function patched(
 // ── The frame-loop stubs ─────────────────────────────────────────────────
 
 const globalScope = globalThis as unknown as Record<string, unknown>;
+
+if (globalScope.__DEV__ === undefined) {
+  globalScope.__DEV__ = true;
+}
 
 if (typeof globalScope.requestAnimationFrame !== 'function') {
   globalScope.requestAnimationFrame = (callback: (time: number) => void): number =>

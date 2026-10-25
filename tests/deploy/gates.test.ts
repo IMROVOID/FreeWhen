@@ -229,7 +229,7 @@ test('web/ contains only the two hand-written pages', () => {
   // Arrange — PRD-18 D18-1: `/start` and `/e/<token>` are app routes, so a
   // `web/start/` or `web/e/` directory here would be a second frontend that
   // drifts from the export on the first edit.
-  const expected = ['dl', 'privacy'];
+  const expected = ['dl', 'icons', 'privacy'];
 
   // Act
   const actual = readdirSync('web', { withFileTypes: true })

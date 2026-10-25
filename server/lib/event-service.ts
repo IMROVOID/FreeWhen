@@ -13,6 +13,7 @@
 import { EventCreateSchema, type EventSummary, type ParticipantSummary } from '@/src/types/event';
 import type { EventCreateInput } from '@/src/types/event';
 
+import { inviteUrl } from './invite-token';
 import { scopedQueryable, withTransaction, type Caller } from './supabase';
 
 interface EventRow {
@@ -27,6 +28,9 @@ interface EventRow {
   participant_count: string | number;
   has_pending_vote: boolean;
   notifications_muted: boolean;
+  invite_token: string | null;
+  invite_expires_at: Date | null;
+  is_organizer: boolean;
 }
 
 interface ParticipantRow {
@@ -59,7 +63,15 @@ function toParticipant(row: ParticipantRow): ParticipantSummary {
   };
 }
 
-function toEvent(row: EventRow): EventSummary {
+function toEvent(row: EventRow, baseUrl?: string): EventSummary {
+  const isInviteActive =
+    row.invite_token &&
+    row.invite_expires_at &&
+    new Date(row.invite_expires_at).getTime() > Date.now();
+
+  const inviteCode = isInviteActive ? row.invite_token : null;
+  const inviteLink = inviteCode && baseUrl ? inviteUrl(inviteCode, baseUrl) : null;
+
   return {
     id: row.id,
     title: row.title,
@@ -72,6 +84,9 @@ function toEvent(row: EventRow): EventSummary {
     has_pending_vote: row.has_pending_vote,
     notifications_muted: row.notifications_muted,
     created_at: iso(row.created_at) ?? '',
+    is_organizer: Boolean(row.is_organizer),
+    invite_code: inviteCode,
+    invite_url: inviteLink,
   };
 }
 
@@ -93,6 +108,9 @@ const EVENT_SELECT = `
     e.date_window_end,
     e.voting_deadline,
     e.created_at,
+    e.invite_token,
+    e.invite_expires_at,
+    (e.created_by = $1) as is_organizer,
     (select count(*) from participant p where p.event_id = e.id) as participant_count,
     exists (
       select 1
@@ -177,14 +195,18 @@ export async function createEvent(
 }
 
 /** The event the caller can see, or `null`. Used after a status transition. */
-export async function getEventFor(caller: Caller, eventId: string): Promise<EventSummary | null> {
+export async function getEventFor(
+  caller: Caller,
+  eventId: string,
+  baseUrl?: string,
+): Promise<EventSummary | null> {
   const result = await scopedQueryable().query<EventRow>(`${EVENT_SELECT} where e.id = $2`, [
     caller.userId,
     eventId,
   ]);
 
   const row = result.rows[0];
-  return row ? toEvent(row) : null;
+  return row ? toEvent(row, baseUrl) : null;
 }
 
 /**
@@ -198,7 +220,7 @@ export async function getEventFor(caller: Caller, eventId: string): Promise<Even
  * The greatest of the event's own creation and its latest proposal or vote is
  * the signal the screen actually wants, and it needs no schema change.
  */
-export async function listMyEvents(caller: Caller): Promise<EventSummary[]> {
+export async function listMyEvents(caller: Caller, baseUrl?: string): Promise<EventSummary[]> {
   const result = await scopedQueryable().query<EventRow>(
     `${EVENT_SELECT}
      order by greatest(
@@ -215,7 +237,7 @@ export async function listMyEvents(caller: Caller): Promise<EventSummary[]> {
     [caller.userId],
   );
 
-  return result.rows.map(toEvent);
+  return result.rows.map((row) => toEvent(row, baseUrl));
 }
 
 /** Whether the caller organizes this event. Rotation and revocation are theirs. */
@@ -228,4 +250,77 @@ export async function isOrganizer(caller: Caller, eventId: string): Promise<bool
   );
 
   return result.rows[0]?.ok === true;
+}
+
+/** Renames the event. Protected by organizer authorization. */
+export async function renameEvent(
+  caller: Caller,
+  eventId: string,
+  title: string,
+  baseUrl?: string,
+): Promise<EventSummary | null> {
+  const isOrg = await isOrganizer(caller, eventId);
+  if (!isOrg) return null;
+
+  await scopedQueryable().query(
+    `update event set title = $1, updated_at = now() where id = $2`,
+    [title, eventId],
+  );
+
+  return getEventFor(caller, eventId, baseUrl);
+}
+
+/** Deletes the event and cascades. Protected by organizer authorization. */
+export async function deleteEvent(caller: Caller, eventId: string): Promise<boolean> {
+  const isOrg = await isOrganizer(caller, eventId);
+  if (!isOrg) return false;
+
+  await scopedQueryable().query(`delete from event where id = $1`, [eventId]);
+  return true;
+}
+
+/** Removes a joined participant. Protected by organizer authorization. Cannot remove self. */
+export async function removeParticipant(
+  caller: Caller,
+  eventId: string,
+  participantId: string,
+): Promise<{ ok: boolean; reason?: 'NOT_ORGANIZER' | 'CANNOT_REMOVE_SELF' | 'NOT_FOUND' }> {
+  const isOrg = await isOrganizer(caller, eventId);
+  if (!isOrg) return { ok: false, reason: 'NOT_ORGANIZER' };
+
+  const target = await scopedQueryable().query<{ id: string; role: string; auth_user_id: string }>(
+    `select id, role, auth_user_id from participant where id = $1 and event_id = $2`,
+    [participantId, eventId],
+  );
+
+  const row = target.rows[0];
+  if (!row) return { ok: false, reason: 'NOT_FOUND' };
+  if (row.auth_user_id === caller.userId || row.role === 'organizer') {
+    return { ok: false, reason: 'CANNOT_REMOVE_SELF' };
+  }
+
+  await scopedQueryable().query(`delete from participant where id = $1 and event_id = $2`, [
+    participantId,
+    eventId,
+  ]);
+
+  return { ok: true };
+}
+
+/** Leaves the event. Allowed for non-organizer members only. */
+export async function leaveEvent(
+  caller: Caller,
+  eventId: string,
+): Promise<{ ok: boolean; reason?: 'IS_ORGANIZER' | 'NOT_PARTICIPANT' }> {
+  const found = await scopedQueryable().query<{ id: string; role: string }>(
+    `select id, role from participant where event_id = $1 and auth_user_id = $2`,
+    [eventId, caller.userId],
+  );
+
+  const row = found.rows[0];
+  if (!row) return { ok: false, reason: 'NOT_PARTICIPANT' };
+  if (row.role === 'organizer') return { ok: false, reason: 'IS_ORGANIZER' };
+
+  await scopedQueryable().query(`delete from participant where id = $1`, [row.id]);
+  return { ok: true };
 }

@@ -14,8 +14,12 @@
 import { healthHandler } from './routes/health';
 import {
   createEventHandler,
+  deleteEventHandler,
   getEventHandler,
+  leaveEventHandler,
   listEventsHandler,
+  patchEventHandler,
+  removeParticipantHandler,
   revokeInviteHandler,
   rotateInviteHandler,
 } from './routes/events';
@@ -83,6 +87,14 @@ const ROUTES: Route[] = [
   { method: 'POST', segments: ['api', 'events'], handler: createEventHandler },
   { method: 'GET', segments: ['api', 'events'], handler: listEventsHandler },
   { method: 'GET', segments: ['api', 'events', ':id'], handler: getEventHandler },
+  { method: 'PATCH', segments: ['api', 'events', ':id'], handler: patchEventHandler },
+  { method: 'DELETE', segments: ['api', 'events', ':id'], handler: deleteEventHandler },
+  { method: 'POST', segments: ['api', 'events', ':id', 'leave'], handler: leaveEventHandler },
+  {
+    method: 'DELETE',
+    segments: ['api', 'events', ':id', 'participants', ':participantId'],
+    handler: removeParticipantHandler,
+  },
   { method: 'POST', segments: ['api', 'events', ':id', 'invite', 'rotate'], handler: rotateInviteHandler },
   { method: 'DELETE', segments: ['api', 'events', ':id', 'invite'], handler: revokeInviteHandler },
   { method: 'GET', segments: ['api', 'invite', ':token'], handler: resolveInviteHandler },

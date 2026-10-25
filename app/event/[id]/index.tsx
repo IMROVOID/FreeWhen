@@ -32,7 +32,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, Share, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,6 +40,7 @@ import {
   CalendarCheck,
   ChatCircleDots,
   ClockCounterClockwise,
+  Gear,
   ShareNetwork,
 } from 'phosphor-react-native';
 
@@ -52,6 +53,11 @@ import { EmptyState } from '@/src/components/states/EmptyState';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
+import { EventManagementModal } from '@/src/features/events/components/EventManagementModal';
+import { EventShareModal } from '@/src/features/events/components/EventShareModal';
+import { deleteEvent, leaveEvent, renameEvent } from '@/src/features/events/services/event-management';
+import { rotateInvite } from '@/src/features/events/services/invite';
+import { extractInviteToken } from '@/src/features/events/utils/invite-token';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { DecisionStatusBand } from '@/src/features/voting/components/DecisionStatusBand';
@@ -76,6 +82,9 @@ interface EventShell {
   date_window_start: string;
   date_window_end: string;
   home_tz: string;
+  is_organizer?: boolean;
+  invite_code?: string | null;
+  invite_url?: string | null;
 }
 
 export default function EventHomeScreen() {
@@ -185,21 +194,38 @@ export default function EventHomeScreen() {
     });
   }, [event, router]);
 
-  const handleShare = useCallback(async () => {
-    const baseUrl = (process.env.EXPO_PUBLIC_APP_BASE_URL ?? '').replace(/\/$/, '');
-    const url = `${baseUrl}/event/${eventId}`;
-    const shareTitle = event?.title ? `${event.title} — FreeWhen` : 'FreeWhen';
-    const message = `${shareTitle}\n${url}`;
-    try {
-      await Share.share({
-        title: shareTitle,
-        message,
-        url,
-      });
-    } catch {
-      // Share cancelled or dismissed
-    }
-  }, [event?.title, eventId]);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [managementModalVisible, setManagementModalVisible] = useState(false);
+
+  const handleRename = useCallback(
+    async (newTitle: string) => {
+      const stored = await getStoredUserId();
+      const updated = await renameEvent(eventId, newTitle, stored);
+      setEvent((prev) => (prev ? { ...prev, title: updated.title } : prev));
+    },
+    [eventId],
+  );
+
+  const handleRegenerateCode = useCallback(async () => {
+    const stored = await getStoredUserId();
+    const result = await rotateInvite(eventId, stored);
+    const inviteCode = extractInviteToken(result.invite.url);
+    setEvent((prev) =>
+      prev ? { ...prev, invite_url: result.invite.url, invite_code: inviteCode } : prev,
+    );
+  }, [eventId]);
+
+  const handleDelete = useCallback(async () => {
+    const stored = await getStoredUserId();
+    await deleteEvent(eventId, stored);
+    router.replace('/');
+  }, [eventId, router]);
+
+  const handleLeave = useCallback(async () => {
+    const stored = await getStoredUserId();
+    await leaveEvent(eventId, stored);
+    router.replace('/');
+  }, [eventId, router]);
 
   // ★ LOADING IS A SKELETON, NOT A CENTRED SPINNER (§6).
   if (isLoadingEvent) {
@@ -395,7 +421,7 @@ export default function EventHomeScreen() {
         </Pressy>
 
         <Pressy
-          onPress={() => void handleShare()}
+          onPress={() => setShareModalVisible(true)}
           testID="event-home-share"
           accessibilityRole="button"
           accessibilityLabel={t('invite.share')}
@@ -438,7 +464,43 @@ export default function EventHomeScreen() {
             </Text>
           </View>
         </Pressy>
+
+        <Pressy
+          onPress={() => setManagementModalVisible(true)}
+          testID="event-home-management"
+          accessibilityRole="button"
+          accessibilityLabel={t('events.management.title')}
+          style={styles.actionTile}
+        >
+          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
+            <Gear size={22} color={theme.text} weight="bold" />
+            <Text variant="caption" color={theme.text} align="center">
+              {t('events.management.title')}
+            </Text>
+          </View>
+        </Pressy>
       </View>
+
+      <EventShareModal
+        visible={shareModalVisible}
+        onDismiss={() => setShareModalVisible(false)}
+        eventTitle={event.title}
+        inviteCode={event.invite_code}
+        inviteUrl={event.invite_url}
+        testID="event-share-modal"
+      />
+
+      <EventManagementModal
+        visible={managementModalVisible}
+        onDismiss={() => setManagementModalVisible(false)}
+        isOwner={Boolean(event.is_organizer)}
+        eventTitle={event.title}
+        onRename={handleRename}
+        onRegenerateCode={handleRegenerateCode}
+        onDeleteEvent={handleDelete}
+        onLeaveEvent={handleLeave}
+        testID="event-management-modal"
+      />
     </ScrollView>
   );
 }

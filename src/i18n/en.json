@@ -73,6 +73,47 @@
     "unknown": "Something went wrong. Please try again"
   },
   "events": {
+    "management": {
+      "title": "Venue Management",
+      "rename": "Rename Venue",
+      "nameLabel": "Venue / Event Name",
+      "save": "Save Changes",
+      "renamed": "Venue renamed successfully",
+      "regenerateCode": "Regenerate Code & URL",
+      "regenerateTitle": "Regenerate Invite Code?",
+      "regenerateBody": "The current code and link will stop working immediately. Are you sure?",
+      "regenerated": "New invite code generated",
+      "delete": "Delete Venue",
+      "deleteTitle": "Delete Venue?",
+      "deleteBody": "This will permanently delete the event, proposals, and all votes. This action cannot be undone.",
+      "deleted": "Venue deleted",
+      "leave": "Leave Venue",
+      "leaveTitle": "Leave Venue?",
+      "leaveBody": "Are you sure you want to leave this event?",
+      "left": "You left the event",
+      "removeUser": "Remove",
+      "removeUserTitle": "Remove user?",
+      "removeUserBody": "Remove {{name}} from this event?",
+      "userRemoved": "User removed"
+    },
+    "shareModal": {
+      "title": "Share Venue / Event",
+      "codeLabel": "Event Code",
+      "linkLabel": "Invite Link",
+      "copyCode": "Copy Code",
+      "copyLink": "Copy Link",
+      "copiedCode": "Event code copied",
+      "copiedLink": "Invite link copied",
+      "shareSystem": "Share via System Prompt"
+    },
+    "join": {
+      "heading": "Join with Code or Link",
+      "subheading": "Have an invite? Enter the code or link to join directly without a browser.",
+      "label": "Invite code or URL",
+      "placeholder": "e.g. freewhen.app/e/... or 22-char code",
+      "button": "Join",
+      "invalidError": "Please enter a valid invite link or 22-character code"
+    },
     "list": {
       "heading": "My events",
       "emptyTitle": "No events yet",
