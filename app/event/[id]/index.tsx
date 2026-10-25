@@ -44,7 +44,6 @@ import {
 } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
-import { Card } from '@/src/components/ui/Card';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { Banner } from '@/src/components/ui/Toast';
@@ -60,7 +59,7 @@ import { VoteControl } from '@/src/features/voting/components/VoteControl';
 import { useDecisionStatus } from '@/src/features/voting/hooks/useDecisionStatus';
 import { useVote } from '@/src/features/voting/hooks/useVote';
 import { useOffline } from '@/src/hooks/useOffline';
-import { apiRequest } from '@/src/lib/api';
+import { apiRequest, isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -89,7 +88,7 @@ export default function EventHomeScreen() {
 
   const [event, setEvent] = useState<EventShell | null>(null);
   const [isLoadingEvent, setIsLoadingEvent] = useState(true);
-  const [isMissing, setIsMissing] = useState(false);
+  const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
 
   const { proposals, isLoading, isReconnecting, errorKey } = useProposals(eventId);
   const { isOffline, pendingCount } = useOffline();
@@ -158,10 +157,19 @@ export default function EventHomeScreen() {
         ...raw,
         home_tz: raw.home_tz ?? 'Asia/Tehran',
       });
-      setIsMissing(false);
-    } catch {
+      setLoadErrorKey(null);
+    } catch (error) {
+      // ★ "NOT A PARTICIPANT" IS A VERDICT; A DROPPED CONNECTION IS NOT.
+      //
+      // This used to catch everything into one flag and render
+      // `errors.notParticipant`, so a subway tunnel told the user they were
+      // not a member of their own event — with no retry, because the screen
+      // had decided the event did not exist. The key now comes from the
+      // failure, and the screen offers the request again.
       setEvent(null);
-      setIsMissing(true);
+      setLoadErrorKey(
+        isApiFailure(error) ? error.messageKey : 'errors.networkError',
+      );
     } finally {
       setIsLoadingEvent(false);
     }
@@ -215,7 +223,7 @@ export default function EventHomeScreen() {
     );
   }
 
-  if (isMissing || !event) {
+  if (loadErrorKey !== null || !event) {
     return (
       <View
         style={[
@@ -223,19 +231,24 @@ export default function EventHomeScreen() {
           { backgroundColor: theme.bg, paddingTop: insets.top, paddingHorizontal: space[5] },
         ]}
       >
-        <Card variant="raised" testID="event-home-missing">
-          <Text variant="h3">{t('states.errorTitle')}</Text>
-          <Text variant="body" color={theme.textMuted}>
-            {t('errors.notParticipant')}
-          </Text>
-          <Button
-            label={t('common.back')}
-            onPress={() => router.replace('/')}
-            variant="secondary"
-            size="medium"
-            style={styles.missingAction}
-          />
-        </Card>
+        {/* ★ A RETRY, AND THE REAL REASON.
+            The failure used to be reported as "you are not a participant" with
+            only a Back button — the one explanation that is both untrue and
+            unfixable when the actual cause was the network. `ErrorState`
+            renders the sentence the key names and offers the request again,
+            and Back stays available for the case where leaving is the answer. */}
+        <ErrorState
+          messageKey={loadErrorKey ?? 'errors.unknown'}
+          onRetry={() => void loadEvent()}
+          testID="event-home-missing"
+        />
+        <Button
+          label={t('common.back')}
+          onPress={() => router.replace('/')}
+          variant="secondary"
+          size="medium"
+          style={styles.missingAction}
+        />
       </View>
     );
   }

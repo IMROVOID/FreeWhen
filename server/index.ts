@@ -14,6 +14,7 @@
 import { createServer } from 'node:http';
 
 import { handleRequest } from './app';
+import { wireError } from './lib/http';
 import { resolveBackend } from './lib/db-backend';
 import { ensureServerSql } from './lib/server-sql';
 import { closeServicePool } from './lib/supabase';
@@ -96,8 +97,16 @@ const server = createServer((incoming, outgoing) => {
     } catch {
       // The adapter itself failed — never the request's fault, so it says
       // nothing about it. A stack trace here would publish server internals.
-      if (!outgoing.headersSent) outgoing.writeHead(500, { 'content-type': 'application/json' });
-      outgoing.end(JSON.stringify({ error: 'VALIDATION_FAILED' }));
+      //
+      // ★ INTERNAL_ERROR, NOT VALIDATION_FAILED. This branch used to answer a
+      // 500 carrying the 422 code, which told a client its input was wrong when
+      // the server had actually broken — and the client then rendered a
+      // validation sentence for a server outage.
+      const failure = wireError('INTERNAL_ERROR');
+      if (!outgoing.headersSent) {
+        outgoing.writeHead(failure.status, Object.fromEntries(failure.headers.entries()));
+      }
+      outgoing.end(Buffer.from(await failure.arrayBuffer()));
     }
   })();
 });

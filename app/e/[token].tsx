@@ -20,7 +20,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Alert } from 'react-native';
 import { EmptyState } from '@/src/components/ui/EmptyState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { LanguageToggle } from '@/src/features/events/components/LanguageToggle';
@@ -129,14 +128,13 @@ export default function JoinScreen() {
     // (PRD-10 D11). The catalogue is NOT changed in place: English
     // text in a Persian layout is worse than either language alone.
     //
-    // The preference has ALREADY been persisted by the toggle — this is the
-    // prompt that tells the guest what to expect, and it is the only
-    // thing the join screen does with the choice.
-    Alert.alert(
-      t('app.language'),
-      t('app.restartRequired'),
-      [{ text: t('common.ok'), onPress: () => router.replace('/') }],
-    );
+    // ★ THE PROMPT NAVIGATES; IT DOES NOT RAISE A SYSTEM DIALOG.
+    //
+    // The preference has ALREADY been persisted by the toggle, so the only
+    // thing left to do is start over. A guest who just asked for English does
+    // not need to be asked whether they meant it — the app restarts into the
+    // choice they made.
+    router.replace('/');
   };
 
   return (

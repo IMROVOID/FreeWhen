@@ -66,3 +66,70 @@ export function appendMessage(
     return delta !== 0 ? delta : a.id.localeCompare(b.id);
   });
 }
+
+/**
+ * The side a bubble sits on, as a cross-axis alignment.
+ *
+ * ★ THE SIDE IS PHYSICAL, NOT LOGICAL.
+ *
+ * "My message is on the right" is what a messenger user reads, in either
+ * direction — so the literal that means "right" is SWAPPED in RTL rather than
+ * inherited from the layout. A `flex-end` that mirrored with the rest of the
+ * screen would put the sender's own message on the left in Persian, which is
+ * the defect this function exists to make impossible.
+ *
+ * `isRtl` is passed rather than read from `I18nManager` so the rule is testable
+ * without a native runtime.
+ */
+export function bubbleAlignment(isMe: boolean, isRtl: boolean): 'flex-start' | 'flex-end' {
+  const right: 'flex-start' | 'flex-end' = isRtl ? 'flex-start' : 'flex-end';
+  const left: 'flex-start' | 'flex-end' = isRtl ? 'flex-end' : 'flex-start';
+
+  return isMe ? right : left;
+}
+
+/**
+ * The device-local calendar day an instant falls on, as `YYYY-MM-DD`.
+ *
+ * ★ LOCAL, NOT UTC. The pill is read next to a time rendered in the device's
+ * own clock, so grouping by a UTC day would split an evening's messages into
+ * two groups for anyone east or west of Greenwich.
+ *
+ * `null` when the timestamp cannot be parsed, which groups the message with
+ * whatever precedes it rather than under a wrong date.
+ */
+export function localDayOf(iso: string): string | null {
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) return null;
+
+  const date = new Date(time);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * Whether a date pill belongs above the message at `index`.
+ *
+ * True for the first message, and whenever the local day changes — so a thread
+ * that spans midnight reads as two days rather than one long run.
+ */
+export function startsNewDay(messages: readonly ChatMessage[], index: number): boolean {
+  const current = messages[index];
+  if (!current) return false;
+  if (index === 0) return true;
+
+  const previous = messages[index - 1];
+  if (!previous) return true;
+
+  const before = localDayOf(previous.created_at);
+  const now = localDayOf(current.created_at);
+
+  // An unknown day on either side means "cannot tell", not "different": two
+  // nulls must not print a pill, and a null after a known day must not print
+  // one under a date the message may not belong to.
+  if (before === null || now === null) return false;
+
+  return before !== now;
+}

@@ -25,7 +25,7 @@ import { CheckCircle, Users } from 'phosphor-react-native';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { toPersianDigits } from '@/src/lib/jalali';
-import { border, radius, space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 import { useDecisionStatus } from '../hooks/useDecisionStatus';
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   band: {
-    height: 48,
+    height: size.buttonMedium,
     borderRadius: radius.pill,
     borderWidth: border.hairline,
     overflow: 'hidden',

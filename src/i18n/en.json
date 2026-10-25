@@ -70,6 +70,8 @@
     "validationFailed": "The information you entered is not valid",
     "rateLimited": "Too many requests. Please try again shortly",
     "providerUnavailable": "The routing service is unavailable",
+    "serverError": "Something went wrong on the server. Please try again.",
+    "networkError": "We could not reach the server. Check your internet connection.",
     "unknown": "Something went wrong. Please try again"
   },
   "events": {
@@ -111,10 +113,11 @@
         "today": "Today",
         "tomorrow": "Tomorrow",
         "weekend": "This weekend",
-        "nextWeek": "Next week"
+        "nextWeek": "Next week",
+        "custom": "Custom"
       },
       "calendarHint": "Dates are shown in the Jalali calendar.",
-      "submit": "Create and get the link",
+      "submit": "Create event",
       "activity": {
         "dinner": "Dinner",
         "coffee": "Coffee",

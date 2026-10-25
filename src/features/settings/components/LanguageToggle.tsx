@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/src/components/ui/Button';
@@ -50,6 +50,7 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
 
   const [busy, setBusy] = useState(false);
   const [restartReasonKey, setRestartReasonKey] = useState<string | null>(null);
+  const [restartAcknowledged, setRestartAcknowledged] = useState(false);
   const [failed, setFailed] = useState(false);
 
   const choose = useCallback(
@@ -75,11 +76,18 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
   );
 
   const closeAndReopen = useCallback(() => {
-    // The build has no programmatic relaunch, so the prompt is an instruction
-    // rather than a button that pretends to restart the process.
+    // The build has no programmatic relaunch, so the confirmed choice is
+    // recorded inline instead of in an OS dialog.
+    //
+    // ★ THE INSTRUCTION STAYS ON SCREEN.
+    //
+    // `Alert.alert` put "close the app and open it again" in a modal, which
+    // vanishes the moment it is dismissed — leaving the user in an app that
+    // still looks the same with nothing telling them what to do next. The
+    // prompt keeps that sentence visible with a Done control that clears it.
     setRestartReasonKey(null);
-    Alert.alert(t('states.languageRestartLater'), t('states.languageRestartAction'));
-  }, [t]);
+    setRestartAcknowledged(true);
+  }, []);
 
   return (
     <View testID={testID ?? 'language-toggle'}>
@@ -101,6 +109,28 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
           );
         })}
       </View>
+
+      {/* ★ The restart instruction, with its reason — and it stays put. */}
+      {restartAcknowledged && restartReasonKey === null && (
+        <View
+          style={[styles.prompt, { backgroundColor: theme.surface2 }]}
+          accessibilityRole="alert"
+          accessibilityLiveRegion="polite"
+          testID="language-restart-instruction"
+        >
+          <Text variant="body" color={theme.text}>
+            {t('states.languageRestartAction')}
+          </Text>
+          <Button
+            label={t('common.done')}
+            variant="secondary"
+            size="small"
+            onPress={() => setRestartAcknowledged(false)}
+            testID="language-restart-dismiss"
+            style={styles.promptButton}
+          />
+        </View>
+      )}
 
       {/* ★ The restart prompt, with its reason. */}
       {restartReasonKey !== null && (

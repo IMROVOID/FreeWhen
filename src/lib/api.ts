@@ -17,6 +17,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { resolveBaseUrlFrom } from './api-base-url';
+import { ApiFailure, FALLBACK_KEY } from './api-failure';
 import type { ApiErrorCode } from './errors';
 import { REQUEST_PLATFORM, type RequestPlatform } from './platform-tag';
 
@@ -55,34 +56,11 @@ function resolveBaseUrl(): string {
 
 export const API_BASE_URL = resolveBaseUrl();
 
-/** A refused request, carrying the server's code and catalogue key. */
-export class ApiFailure extends Error {
-  constructor(
-    readonly code: ApiErrorCode,
-    readonly messageKey: string,
-    readonly status: number,
-    readonly fields: Record<string, string> = {},
-  ) {
-    super(messageKey);
-    this.name = 'ApiFailure';
-  }
-
-  /** The key for a specific field, when the server supplied one. */
-  fieldError(field: string): string | undefined {
-    return this.fields[field];
-  }
-}
-
-/** The default catalogue key per code, when the server omits `messageKey`. */
-const FALLBACK_KEY: Record<ApiErrorCode, string> = {
-  INVITE_INVALID: 'errors.inviteInvalid',
-  EVENT_FULL: 'errors.eventFull',
-  NOT_PARTICIPANT: 'errors.notParticipant',
-  NOT_ORGANIZER: 'errors.notOrganizer',
-  VALIDATION_FAILED: 'errors.validationFailed',
-  RATE_LIMITED: 'errors.rateLimited',
-  PROVIDER_UNAVAILABLE: 'errors.providerUnavailable',
-};
+/**
+ * The failure type and its catalogue defaults, re-exported so no call site has
+ * to know they moved out of this module.
+ */
+export { ApiFailure, FALLBACK_KEY, isApiFailure } from './api-failure';
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -109,8 +87,15 @@ export interface ApiResult<T> {
 /**
  * One API call.
  *
- * Throws `ApiFailure` when the server refuses, and the underlying error when
- * nothing answered at all.
+ * ★ EVERY FAILURE LEAVES HERE AS AN `ApiFailure`.
+ *
+ * A refusal already did. A transport failure did not: `fetch` rejects with
+ * `TypeError: Network request failed`, and that value is not an `ApiFailure`,
+ * so every `isApiFailure(error) ? error.messageKey : 'errors.unknown'` guard in
+ * the app missed it and fell through to a generic — or, on the event home, to
+ * "you are not a participant", which is a lie about a dropped connection.
+ * Wrapping it is what lets a screen tell "the server said no" apart from
+ * "nothing answered" and offer a retry for the second.
  */
 export async function apiRequest<T>(
   path: string,
@@ -123,11 +108,18 @@ export async function apiRequest<T>(
   if (userId) headers['x-user-id'] = userId;
   if (platform) headers['x-platform'] = platform;
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    // Status 0: the request never reached a server, so there is no status.
+    throw new ApiFailure('NETWORK_ERROR', FALLBACK_KEY.NETWORK_ERROR, 0);
+  }
 
   const payload: unknown = await response.json().catch(() => null);
 
@@ -149,9 +141,4 @@ export async function apiRequest<T>(
     response.status,
     envelope.fields ?? {},
   );
-}
-
-/** Whether a thrown value is a refusal the UI can explain. */
-export function isApiFailure(error: unknown): error is ApiFailure {
-  return error instanceof ApiFailure;
 }
