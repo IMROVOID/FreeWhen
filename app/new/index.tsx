@@ -20,11 +20,24 @@ import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CaretLeft, CaretRight } from 'phosphor-react-native';
+import {
+  BookOpen,
+  Cake,
+  CaretLeft,
+  CaretRight,
+  Coffee,
+  FilmSlate,
+  ForkKnife,
+  GameController,
+  Mountains,
+  Sparkle,
+  type Icon,
+} from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { Chip } from '@/src/components/ui/Chip';
+import { DateSelectionComponent } from '@/src/components/ui/DateSelectionComponent';
 import { Input } from '@/src/components/ui/Input';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Stepper } from '@/src/components/ui/Stepper';
@@ -33,7 +46,7 @@ import { createEvent } from '@/src/features/events/services/create-event';
 import { formatDate } from '@/src/lib/format';
 import { getStoredUserId } from '@/src/lib/session';
 import { isApiFailure } from '@/src/lib/api';
-import { border, radius, size, space } from '@/src/theme/tokens';
+import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import { ACTIVITY_TYPES, TITLE_MAX, type ActivityType } from '@/src/types/event';
 import type { Language } from '@/src/i18n/types';
@@ -43,13 +56,42 @@ const DAY_MS = 86_400_000;
 /** The start-hour of an evening meetup. Late afternoon, so the window is real. */
 const START_HOUR = 17;
 
+/**
+ * The icon each activity carries on its card.
+ *
+ * The label alone was ambiguous once the chips became cards — «دیگر» next to a
+ * fork and a mountain reads as a category rather than "something else". Pairing
+ * every token with a glyph is what makes the row scannable.
+ */
+const ACTIVITY_ICONS: Record<ActivityType, Icon> = {
+  dinner: ForkKnife,
+  coffee: Coffee,
+  study: BookOpen,
+  birthday: Cake,
+  hiking: Mountains,
+  movie: FilmSlate,
+  games: GameController,
+  other: Sparkle,
+};
+
 /** The maximum window length offered. */
 const MAX_WINDOW_DAYS = 14;
 
 /** Iran's weekend starts on Thursday; `getDay()` gives 4 for it. */
 const THURSDAY = 4;
 
-type DayPreset = 'today' | 'tomorrow' | 'weekend' | 'nextWeek';
+/**
+ * The activity card's dimensions.
+ *
+ * A tile wide enough for a 24px glyph and the longest label («کوه‌نوردی»),
+ * tall enough to hold both on two lines. Style Guide §11 has no entry for a
+ * selectable card, so — like the chat's empty box — it is named here rather
+ * than inlined as a literal `gate:design` would reject.
+ */
+const ACTIVITY_CARD_WIDTH = 76;
+const ACTIVITY_CARD_HEIGHT = 80;
+
+type DayPreset = 'today' | 'tomorrow' | 'weekend' | 'custom';
 type DeadlinePreset = 'none' | '24h' | '48h';
 
 /** Local midnight for the given offset in days, at the window's start hour. */
@@ -66,11 +108,10 @@ function offsetToThursday(): number {
   return (THURSDAY - today + 7) % 7;
 }
 
-const PRESET_OFFSET: Record<DayPreset, () => number> = {
+const PRESET_OFFSET: Record<Exclude<DayPreset, 'custom'>, () => number> = {
   today: () => 0,
   tomorrow: () => 1,
   weekend: offsetToThursday,
-  nextWeek: () => 7,
 };
 
 export default function CreateEventScreen() {
@@ -85,12 +126,20 @@ export default function CreateEventScreen() {
   const [description, setDescription] = useState('');
   const [activity, setActivity] = useState<ActivityType | null>(null);
   const [preset, setPreset] = useState<DayPreset>('tomorrow');
+  const [customStartDate, setCustomStartDate] = useState<string>(() => dayStart(0).toISOString());
   const [windowDays, setWindowDays] = useState(3);
   const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>('none');
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const start = dayStart(PRESET_OFFSET[preset]());
+  const start =
+    preset === 'custom'
+      ? (() => {
+          const d = new Date(customStartDate);
+          d.setHours(START_HOUR, 0, 0, 0);
+          return d;
+        })()
+      : dayStart(PRESET_OFFSET[preset]());
   const end = new Date(start.getTime() + windowDays * DAY_MS);
 
   const deadlineHours = deadlinePreset === '24h' ? 24 : deadlinePreset === '48h' ? 48 : 0;
@@ -166,15 +215,20 @@ export default function CreateEventScreen() {
           accessibilityLabel={t('common.back', 'بازگشت')}
           style={styles.backButton}
         >
-          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-            <BackIcon size={20} color={theme.text} weight="bold" />
-          </View>
+          <BackIcon size={24} color={theme.text} weight="bold" />
         </Pressy>
-        <Text variant="h1" align="start">
-          {t('events.create.heading')}
-        </Text>
+        {/* ★ THE TITLE IS CENTRED BY A SYMMETRIC SPACER, NOT BY `flex: 1`.
+            A flexed title centres inside what is LEFT of the row, which shifts
+            it by half the back button's width. The spacer is the same width as
+            the button, so the title sits on the screen's centre line. */}
+        <View style={styles.headerTitle} pointerEvents="none">
+          <Text variant="h1" align="center" numberOfLines={1}>
+            {t('events.create.heading')}
+          </Text>
+        </View>
+        <View style={styles.headerSpacer} />
       </View>
-      <Text variant="body" color={theme.textMuted} align="start">
+      <Text variant="body" color={theme.textMuted} align="center">
         {t('events.create.subheading')}
       </Text>
 
@@ -205,23 +259,58 @@ export default function CreateEventScreen() {
       <Text variant="bodyL" align="start" style={styles.sectionTitle}>
         {t('events.create.activityLabel')}
       </Text>
-      <View style={styles.chips}>
-        {ACTIVITY_TYPES.map((token) => (
-          <Chip
-            key={token}
-            label={t(`events.create.activity.${token}`)}
-            selected={activity === token}
-            onPress={() => setActivity(activity === token ? null : token)}
-            testID={`create-activity-${token}`}
-          />
-        ))}
-      </View>
+      {/* ★ A HORIZONTAL CARD ROW, NOT WRAPPED CHIPS.
+          Eight wrapped chips reflowed into three ragged rows, and the label was
+          the only cue to what each one meant. A card carries an icon as well as
+          the word, in one row that scrolls — so the set reads as one group and
+          the chosen card is a filled tile rather than a tinted chip. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.activityScrollView}
+        contentContainerStyle={styles.activityScroll}
+        testID="create-activity-scroll"
+      >
+        {ACTIVITY_TYPES.map((token) => {
+          const Icon = ACTIVITY_ICONS[token];
+          const isSelected = activity === token;
+
+          return (
+            <Pressy
+              key={token}
+              onPress={() => setActivity(activity === token ? null : token)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isSelected }}
+              accessibilityLabel={t(`events.create.activity.${token}`)}
+              testID={`create-activity-${token}`}
+              style={[
+                styles.activityCard,
+                { backgroundColor: isSelected ? theme.primary : theme.surface2 },
+              ]}
+            >
+              <Icon
+                size={24}
+                weight={isSelected ? 'fill' : 'regular'}
+                color={isSelected ? theme.onPrimary : theme.textMuted}
+              />
+              <Text
+                variant="caption"
+                align="center"
+                numberOfLines={1}
+                color={isSelected ? theme.onPrimary : theme.textMuted}
+              >
+                {t(`events.create.activity.${token}`)}
+              </Text>
+            </Pressy>
+          );
+        })}
+      </ScrollView>
 
       <Text variant="bodyL" align="start" style={styles.sectionTitle}>
         {t('events.create.windowLabel')}
       </Text>
       <View style={styles.chips}>
-        {(['today', 'tomorrow', 'weekend', 'nextWeek'] as const).map((option) => (
+        {(['today', 'tomorrow', 'weekend', 'custom'] as const).map((option) => (
           <Chip
             key={option}
             label={t(`events.create.preset.${option}`)}
@@ -231,6 +320,14 @@ export default function CreateEventScreen() {
           />
         ))}
       </View>
+
+      {preset === 'custom' && (
+        <DateSelectionComponent
+          value={customStartDate}
+          onChange={setCustomStartDate}
+          testID="create-custom-calendar"
+        />
+      )}
 
       <Card variant="raised" style={styles.windowCard}>
         <Text variant="caption" color={theme.textMuted} align="start" numeric>
@@ -244,9 +341,6 @@ export default function CreateEventScreen() {
           label={t('events.create.windowLabel')}
           testID="create-window-days"
         />
-        <Text variant="caption" color={theme.textFaint} align="start">
-          {t('events.create.windowHint')}
-        </Text>
       </Card>
 
       <Text variant="bodyL" align="start" style={styles.sectionTitle}>
@@ -284,18 +378,19 @@ const styles = StyleSheet.create({
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[3],
   },
   backButton: {
-    padding: space[1],
-  },
-  backIconCircle: {
     width: size.stepperButton,
     height: size.stepperButton,
-    borderRadius: radius.pill,
-    borderWidth: border.hairline,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerSpacer: {
+    width: size.stepperButton,
   },
   content: {
     paddingHorizontal: space[5],
@@ -312,6 +407,26 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: space[2],
     marginTop: space[2],
+  },
+  activityScrollView: {
+    marginHorizontal: -space[5],
+  },
+  /* The card row scrolls edge-to-edge across the screen's padding, with
+     space[5] on each end matching the content edge. */
+  activityScroll: {
+    flexDirection: 'row',
+    gap: space[2],
+    paddingVertical: space[2],
+    paddingHorizontal: space[5],
+  },
+  activityCard: {
+    width: ACTIVITY_CARD_WIDTH,
+    height: ACTIVITY_CARD_HEIGHT,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[2],
+    paddingHorizontal: space[1],
   },
   windowCard: {
     gap: space[3],

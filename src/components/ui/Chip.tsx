@@ -42,7 +42,7 @@ export function Chip({
       style={style}
     >
       <View style={[styles.chip, { backgroundColor: background }]}>
-        <Text variant="body" color={labelColor}>
+        <Text variant="body" color={labelColor} numberOfLines={1}>
           {label}
         </Text>
       </View>
@@ -125,6 +125,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[4],
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'flex-start',
   },
   segmented: {
     flexDirection: 'row',

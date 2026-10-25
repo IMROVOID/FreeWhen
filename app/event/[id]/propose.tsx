@@ -28,7 +28,7 @@ import { trackDuplicateResolution } from '@/src/features/proposals/services/anal
 import { LocationMapPicker } from '@/src/components/ui/LocationMapPicker';
 import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
-import { border, radius, size, space } from '@/src/theme/tokens';
+import { size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { DuplicateHint, ProposalType, VenueRef } from '@/src/types/proposal';
 
@@ -183,11 +183,18 @@ export default function ProposeScreen() {
           accessibilityLabel={t('common.back', 'بازگشت')}
           style={styles.backButton}
         >
-          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-            <BackIcon size={20} color={theme.text} weight="bold" />
-          </View>
+          <BackIcon size={24} color={theme.text} weight="bold" />
         </Pressy>
-        <Text variant="h1">{t('proposals.newProposal')}</Text>
+        {/* ★ THE TITLE IS CENTRED BY A SYMMETRIC SPACER, NOT BY `flex: 1`.
+            A flexed title centres inside what is LEFT of the row, which shifts
+            it by half the back button's width. The spacer is the same width as
+            the button, so the title sits on the screen's centre line. */}
+        <View style={styles.headerTitle} pointerEvents="none">
+          <Text variant="h1" align="center" numberOfLines={1}>
+            {t('proposals.newProposal')}
+          </Text>
+        </View>
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Proposal Title */}
@@ -327,19 +334,20 @@ const styles = StyleSheet.create({
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[3],
     marginBottom: space[1],
   },
   backButton: {
-    padding: space[1],
-  },
-  backIconCircle: {
     width: size.stepperButton,
     height: size.stepperButton,
-    borderRadius: radius.pill,
-    borderWidth: border.hairline,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerSpacer: {
+    width: size.stepperButton,
   },
   content: {
     paddingHorizontal: space[5],

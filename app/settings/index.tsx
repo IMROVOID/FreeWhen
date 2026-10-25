@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -45,6 +45,7 @@ export default function SettingsScreen() {
   const [showNotice, setShowNotice] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteFailed, setDeleteFailed] = useState(false);
+  const [deleteDone, setDeleteDone] = useState(false);
   const { isOffline, pendingCount } = useOffline();
 
   // The mute list needs the caller's events; the flag travels on each summary.
@@ -60,7 +61,7 @@ export default function SettingsScreen() {
       // The identity is gone server-side, so the local copy must go too —
       // keeping it would let the app keep sending a header for a deleted user.
       await clearStoredUserId();
-      Alert.alert(t('settings.deleteAccountDone'));
+      setDeleteDone(true);
     } catch {
       // ★ A FAILED DELETION IS A DESIGNED ERROR STATE, NOT AN ALERT.
       // This is the one action here whose failure the user must act on.
@@ -68,7 +69,7 @@ export default function SettingsScreen() {
     } finally {
       setDeletingAccount(false);
     }
-  }, [t]);
+  }, []);
 
   return (
     <ScrollView
@@ -139,6 +140,21 @@ export default function SettingsScreen() {
             onRetry={() => void confirmDeleteAccount()}
             testID="settings-delete-error"
           />
+        )}
+        {/* ★ A CONFIRMATION, NOT A SYSTEM DIALOG.
+            Deletion success used to be announced in a second OS window with a
+            single OK — the user tapped through it without reading it, and on
+            Android it outlived the screen it belonged to. The same sentence now
+            appears where the action was. */}
+        {deleteDone && (
+          <Text
+            variant="body"
+            color={theme.success}
+            accessibilityLiveRegion="polite"
+            testID="settings-delete-done"
+          >
+            {t('settings.deleteAccountDone')}
+          </Text>
         )}
         <DeleteAccountAction
           onConfirm={confirmDeleteAccount}

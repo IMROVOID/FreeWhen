@@ -20,7 +20,30 @@ export type ApiErrorCode =
   /** 429, with Retry-After. */
   | 'RATE_LIMITED'
   /** 200 — a degraded result, not a failure. The engine labels its confidence. */
-  | 'PROVIDER_UNAVAILABLE';
+  | 'PROVIDER_UNAVAILABLE'
+  /**
+   * 500 — an unexpected failure the server refuses to describe.
+   *
+   * ★ THE POINT OF THIS CODE IS THAT IT CARRIES NOTHING.
+   *
+   * A route that throws has usually thrown a database error, a driver message
+   * or a stack frame, and shipping any of those to a client publishes the
+   * schema. The boundary logs the real error and answers with this code and a
+   * catalogue key, so the user reads a sentence and the attacker reads nothing.
+   */
+  | 'INTERNAL_ERROR'
+  /**
+   * No HTTP status at all — the request never completed.
+   *
+   * ★ THIS ONE IS CLIENT-ONLY AND MUST NEVER BE SENT.
+   *
+   * It exists so a failed `fetch` becomes a typed `ApiFailure` the UI can
+   * render, rather than a bare `TypeError` that reaches a screen as
+   * "Network request failed". Its status is `0` because no response exists;
+   * `wireError` is therefore never called with it, and a server that did would
+   * hand `Response` an illegal status.
+   */
+  | 'NETWORK_ERROR';
 
 export interface ApiError {
   error: ApiErrorCode;
@@ -57,6 +80,9 @@ export const HTTP_STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   VALIDATION_FAILED: 422,
   RATE_LIMITED: 429,
   PROVIDER_UNAVAILABLE: 200,
+  INTERNAL_ERROR: 500,
+  // No response was ever received, so there is no status. See `ApiErrorCode`.
+  NETWORK_ERROR: 0,
 };
 
 /** Whether a value is the error envelope. */

@@ -36,6 +36,9 @@ export const MESSAGE_KEY_BY_CODE: Record<ApiErrorCode, string> = {
   VALIDATION_FAILED: 'errors.validationFailed',
   RATE_LIMITED: 'errors.rateLimited',
   PROVIDER_UNAVAILABLE: 'errors.providerUnavailable',
+  INTERNAL_ERROR: 'errors.serverError',
+  // Client-only — never reachable through `wireError`. See `ApiErrorCode`.
+  NETWORK_ERROR: 'errors.networkError',
 };
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' } as const;

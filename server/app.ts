@@ -12,6 +12,7 @@
  */
 
 import { healthHandler } from './routes/health';
+import { wireError } from './lib/http';
 import {
   createEventHandler,
   getEventHandler,
@@ -232,11 +233,42 @@ export async function handleRequest(request: Request): Promise<Response> {
     const params = match(route.segments, path);
     if (!params) continue;
 
-    const response = await route.handler(request, params);
-    return withHeaders(response, cors);
+    try {
+      const response = await route.handler(request, params);
+      return withHeaders(response, cors);
+    } catch (error) {
+      return withHeaders(internalErrorResponse(error), cors);
+    }
   }
 
   return withHeaders(new Response(null, { status: 404 }), cors);
+}
+
+/**
+ * The failure envelope for a handler that threw.
+ *
+ * ★ THE REAL ERROR IS LOGGED, THE RESPONSE CARRIES NOTHING BUT A CODE.
+ *
+ * A rejected `pg` query carries the statement, the column names and often the
+ * row values; a `ZodError` carries the schema. Returning either — or a stack
+ * frame — publishes the database to whoever can provoke a throw. The log line
+ * keeps the detail where an operator can read it, and the client gets
+ * `INTERNAL_ERROR` plus a catalogue key it renders as a sentence.
+ *
+ * ★ A RESPONSE THAT ALREADY EXISTS IS NOT REPLACED.
+ *
+ * Every domain failure in this codebase is a RETURNED `wireError`, not a throw,
+ * so reaching here means something genuinely unexpected. Nothing needs to be
+ * unwrapped for that reason: there is no inner `Response` to preserve.
+ */
+function internalErrorResponse(error: unknown): Response {
+  // The message is deliberately narrow: a `pg` error string can carry a host, a
+  // role or a fragment of SQL, and the redaction rule that governs a log line
+  // governs a response body too. Same shape as `server/runtime/driver.ts:196`.
+  const detail = error instanceof Error ? error.message : 'unknown error';
+  process.stderr.write(`api: request failed: ${detail}\n`);
+
+  return wireError('INTERNAL_ERROR');
 }
 
 function withHeaders(response: Response, extra: Record<string, string>): Response {

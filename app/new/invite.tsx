@@ -13,14 +13,16 @@
  */
 
 import { useCallback, useState } from 'react';
-import { Alert, ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
+import { Text } from '@/src/components/ui/Text';
 import { InviteShareCard } from '@/src/features/events/components/InviteShareCard';
 import { revokeInvite, rotateInvite } from '@/src/features/events/services/invite';
+import { isApiFailure } from '@/src/lib/api';
 import { formatDate } from '@/src/lib/format';
 import { getStoredUserId } from '@/src/lib/session';
 import { space } from '@/src/theme/tokens';
@@ -43,58 +45,57 @@ export default function InviteShareScreen() {
   );
   const [isBusy, setIsBusy] = useState(false);
   const [revoked, setRevoked] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const expiresLabel = expiresAt
     ? t('invite.expiresAt', { date: formatDate(expiresAt, locale).primary })
     : '';
 
+  /**
+   * Rotate the link.
+   *
+   * ★ NO CONFIRMATION DIALOG.
+   *
+   * The old `Alert.alert` asked "are you sure?" in a second window, over a
+   * screen that already has one destructive control beside one safe one. The
+   * button's own copy is the warning — it is labelled with what it does — and
+   * the rotation is recoverable: the previous link stops working, and the new
+   * one replaces it on screen immediately. A dialog here cost more than the
+   * mistake it prevented.
+   */
   const rotate = useCallback(() => {
-    // Rotation is destructive to a URL already in circulation, so it confirms
-    // first (FR-1.11).
-    Alert.alert(t('invite.rotateTitle'), t('invite.rotateBody'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('invite.rotate'),
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setIsBusy(true);
-            try {
-              const userId = await getStoredUserId();
-              const result = await rotateInvite(eventId, userId);
-              setUrl(result.invite.url);
-              setExpiresAt(result.invite.expires_at);
-              setRevoked(false);
-            } finally {
-              setIsBusy(false);
-            }
-          })();
-        },
-      },
-    ]);
-  }, [eventId, t]);
+    void (async () => {
+      setIsBusy(true);
+      setActionError(null);
+      try {
+        const userId = await getStoredUserId();
+        const result = await rotateInvite(eventId, userId);
+        setUrl(result.invite.url);
+        setExpiresAt(result.invite.expires_at);
+        setRevoked(false);
+      } catch (error) {
+        setActionError(isApiFailure(error) ? error.messageKey : 'errors.unknown');
+      } finally {
+        setIsBusy(false);
+      }
+    })();
+  }, [eventId]);
 
   const revoke = useCallback(() => {
-    Alert.alert(t('invite.revokeTitle'), t('invite.revokeBody'), [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('invite.revoke'),
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setIsBusy(true);
-            try {
-              const userId = await getStoredUserId();
-              await revokeInvite(eventId, userId);
-              setRevoked(true);
-            } finally {
-              setIsBusy(false);
-            }
-          })();
-        },
-      },
-    ]);
-  }, [eventId, t]);
+    void (async () => {
+      setIsBusy(true);
+      setActionError(null);
+      try {
+        const userId = await getStoredUserId();
+        await revokeInvite(eventId, userId);
+        setRevoked(true);
+      } catch (error) {
+        setActionError(isApiFailure(error) ? error.messageKey : 'errors.unknown');
+      } finally {
+        setIsBusy(false);
+      }
+    })();
+  }, [eventId]);
 
   return (
     <ScrollView
@@ -144,6 +145,18 @@ export default function InviteShareScreen() {
             style={styles.action}
           />
         </>
+      )}
+
+      {/* The failure replaces the dialog that used to report it. */}
+      {actionError !== null && (
+        <Text
+          variant="caption"
+          color={theme.danger}
+          accessibilityLiveRegion="polite"
+          style={styles.action}
+        >
+          {t(actionError)}
+        </Text>
       )}
     </ScrollView>
   );

@@ -25,7 +25,7 @@ import {
   toPersianDigits,
   weekdayIndex,
 } from '@/src/lib/jalali';
-import { border, radius, size, space } from '@/src/theme/tokens';
+import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 
@@ -180,7 +180,7 @@ export function DateSelectionComponent({
       </View>
 
       {/* 2. Interactive Month Calendar Grid (Always visible) */}
-      <View style={[styles.calendarGridContainer, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+      <View style={[styles.calendarGridContainer, { backgroundColor: theme.surface2 }]}>
         {/* Month Header with Steppers */}
         <View style={styles.monthHeader}>
           <Pressy onPress={handlePrevMonth} style={styles.monthNavBtn}>
@@ -224,7 +224,10 @@ export function DateSelectionComponent({
                 <View
                   style={[
                     styles.cellInner,
-                    cell.isSelected && { backgroundColor: theme.primary },
+                    cell.isSelected && [
+                      styles.cellSelected,
+                      { backgroundColor: theme.primary },
+                    ],
                     cell.isPast && styles.disabled,
                   ]}
                 >
@@ -267,7 +270,6 @@ const styles = StyleSheet.create({
   calendarGridContainer: {
     padding: space[3],
     borderRadius: radius.lg,
-    borderWidth: border.hairline,
     gap: space[2],
   },
   monthHeader: {
@@ -299,11 +301,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: space[1] / 2,
   },
+  /* ★ THE CELL IS SQUARE BY ASPECT RATIO, SO THE CIRCLE MUST FIT INSIDE IT.
+     The inner disc was a FIXED 36pt square (the segmented-control token) sitting
+     in a cell that is 14.28% of the grid's width — around 41pt on a 390pt
+     phone, but under 36pt on a small one. Where the disc overflowed the cell,
+     Android clipped it, and a clipped pill renders as the sharp-cornered
+     rectangle this fix is about. `overflow: 'hidden'` plus a circular radius on
+     the disc's own size keeps the shape round at every width. */
   cellInner: {
-    width: size.segment,
-    height: size.segment,
+    width: '100%',
+    aspectRatio: 1,
+    maxWidth: size.segment,
+    maxHeight: size.segment,
+    alignSelf: 'center',
     borderRadius: radius.pill,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  cellSelected: {
+    borderRadius: radius.pill,
   },
 });

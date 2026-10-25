@@ -53,7 +53,7 @@ import {
 } from '@/src/features/venues/services/analytics';
 import { createMapAdapter, type MapPlatform } from '@/src/features/map';
 import type { MapRenderLevel } from '@/src/features/map/types';
-import { border, radius, size, space } from '@/src/theme/tokens';
+import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Coordinate } from '@/src/routing/types';
 
@@ -194,16 +194,21 @@ export default function RankedVenuesScreen() {
           accessibilityLabel={t('common.back', 'بازگشت')}
           style={styles.backButton}
         >
-          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-            <BackIcon size={20} color={theme.text} weight="bold" />
-          </View>
+          <BackIcon size={24} color={theme.text} weight="bold" />
         </Pressy>
-        <View style={styles.header}>
-          <Text variant="h1">{t('ranking.heading')}</Text>
-          <Text variant="caption" color={theme.textMuted}>
+        {/* ★ THE TITLE IS CENTRED BY A SYMMETRIC SPACER, NOT BY `flex: 1`.
+            A flexed title centres inside what is LEFT of the row, which shifts
+            it by half the back button's width. The spacer is the same width as
+            the button, so the title sits on the screen's centre line. */}
+        <View style={styles.header} pointerEvents="none">
+          <Text variant="h1" align="center" numberOfLines={1}>
+            {t('ranking.heading')}
+          </Text>
+          <Text variant="caption" color={theme.textMuted} align="center" numberOfLines={1}>
             {t('ranking.subheading')}
           </Text>
         </View>
+        <View style={styles.headerSpacer} />
       </View>
 
       <LensSwitcher active={lens} onChange={setLens} testID="ranking-lens" />
@@ -272,22 +277,20 @@ const styles = StyleSheet.create({
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space[3],
   },
   backButton: {
-    padding: space[1],
-  },
-  backIconCircle: {
     width: size.stepperButton,
     height: size.stepperButton,
-    borderRadius: radius.pill,
-    borderWidth: border.hairline,
     alignItems: 'center',
     justifyContent: 'center',
   },
   header: {
     gap: space[1],
     flex: 1,
+    alignItems: 'center',
+  },
+  headerSpacer: {
+    width: size.stepperButton,
   },
   centred: {
     flex: 1,
