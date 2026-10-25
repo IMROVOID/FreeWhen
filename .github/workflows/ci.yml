@@ -60,6 +60,27 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # ★ THE EXPORT COMES BEFORE `npm test`, BECAUSE THE TESTS READ `dist/`.
+      #
+      # A dozen assertions in `tests/deploy/` and the `AC-18.*` web-export suite
+      # inspect the exported bundle: that the routes exist, that the document
+      # declares `dir="rtl"`, that no source maps or third-party script origins
+      # leaked in. They were failing here with
+      # "dist/ is missing — run `npm run export:web` first", which the local run
+      # never showed because a developer's tree already holds a `dist/`.
+      #
+      # Exported with CI's own values, so the bundle the tests inspect is the
+      # bundle CI would ship.
+      - name: Build the web export
+        env:
+          EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL || 'https://ci.invalid' }}
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.FREEWHEN_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.FREEWHEN_SUPABASE_PUBLISHABLE_KEY }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+        run: npm run export:web
+
       - name: Unit and component tests
         run: npm test
 
