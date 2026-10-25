@@ -155,3 +155,14 @@ export async function apiRequest<T>(
 export function isApiFailure(error: unknown): error is ApiFailure {
   return error instanceof ApiFailure;
 }
+
+/**
+ * Whether an error indicates failure to reach the server (connection refused,
+ * network offline, DNS failure, or gateway/proxy 502/503/504).
+ */
+export function isNetworkError(error: unknown): boolean {
+  if (isApiFailure(error)) {
+    return error.status === 502 || error.status === 503 || error.status === 504;
+  }
+  return error instanceof Error;
+}

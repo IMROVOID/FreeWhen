@@ -33,7 +33,7 @@ import { PermissionDeniedState } from './PermissionDeniedState';
 
 export type ScreenState =
   | { kind: 'loading'; rows?: number }
-  | { kind: 'error'; onRetry?: () => void; messageKey?: string; retryKey?: string }
+  | { kind: 'error'; onRetry?: () => void; messageKey?: string; retryKey?: string; titleKey?: string }
   | { kind: 'empty'; prompt: string; body?: string; action?: React.ReactNode }
   | { kind: 'ready'; children: React.ReactNode }
   | { kind: 'permissionDenied'; alternative: React.ReactNode; messageKey?: string };
@@ -79,6 +79,7 @@ function renderState(state: ScreenState): React.ReactNode {
         <ErrorState
           messageKey={state.messageKey ?? 'states.errorBody'}
           retryKey={state.retryKey}
+          titleKey={state.titleKey}
           onRetry={state.onRetry}
           testID="screen-state-error"
         />

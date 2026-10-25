@@ -833,6 +833,8 @@
     "loading": "Loading…",
     "errorTitle": "Could not load",
     "errorBody": "We could not reach the server. Try again.",
+    "serverConnectionTitle": "Failed to Connect to Server",
+    "serverConnectionBody": "Could not connect to the server. Please check your connection and try again.",
     "emptyGeneric": "Nothing here yet",
     "retry": "Try again",
     "organizerAlone": "Start here: add the first proposal",

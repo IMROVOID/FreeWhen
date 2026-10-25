@@ -22,18 +22,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Alert } from 'react-native';
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { LanguageToggle } from '@/src/features/events/components/LanguageToggle';
 import { JoinForm } from '@/src/features/participants/components/JoinForm';
 import { joinEvent } from '@/src/features/participants/services/join';
 import { resolveInvite } from '@/src/features/events/services/invite';
-import { isApiFailure } from '@/src/lib/api';
+import { isApiFailure, isNetworkError } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { InviteResolution } from '@/src/types/event';
 
-type Phase = 'loading' | 'ready' | 'invalid' | 'full';
+type Phase = 'loading' | 'ready' | 'invalid' | 'full' | 'error';
 
 export default function JoinScreen() {
   const { t, i18n } = useTranslation();
@@ -55,29 +56,27 @@ export default function JoinScreen() {
   const [openedAt] = useState(() => new Date().toISOString());
   const [userId, setUserId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const resolve = useCallback(async () => {
+    setPhase('loading');
+    const stored = await getStoredUserId();
+    setUserId(stored);
 
-    void (async () => {
-      const stored = await getStoredUserId();
-      if (cancelled) return;
-      setUserId(stored);
-
-      try {
-        const resolved = await resolveInvite(token, stored);
-        if (cancelled) return;
-        setEvent(resolved);
-        setPhase('ready');
-      } catch (error) {
-        if (cancelled) return;
-        setPhase(isApiFailure(error) && error.code === 'EVENT_FULL' ? 'full' : 'invalid');
+    try {
+      const resolved = await resolveInvite(token, stored);
+      setEvent(resolved);
+      setPhase('ready');
+    } catch (error) {
+      if (isNetworkError(error)) {
+        setPhase('error');
+        return;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+      setPhase(isApiFailure(error) && error.code === 'EVENT_FULL' ? 'full' : 'invalid');
+    }
   }, [token]);
+
+  useEffect(() => {
+    void resolve();
+  }, [resolve]);
 
   const submit = useCallback(async () => {
     const trimmed = name.trim();
@@ -118,7 +117,11 @@ export default function JoinScreen() {
       // A transport failure keeps the form and its input: the join may still
       // succeed on a retry, and losing the typed name would be a worse outcome
       // than the failed request itself.
-      setNameError('errors.unknown');
+      if (isNetworkError(error)) {
+        setNameError('states.serverConnectionBody');
+      } else {
+        setNameError('errors.unknown');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -151,6 +154,15 @@ export default function JoinScreen() {
     >
       {/* ★ A SKELETON, NOT A SPINNER (§6) — the form's shape is what arrives. */}
       {phase === 'loading' && <ListSkeleton rows={2} testID="join-loading" />}
+
+      {phase === 'error' && (
+        <ErrorState
+          titleKey="states.serverConnectionTitle"
+          messageKey="states.serverConnectionBody"
+          onRetry={() => void resolve()}
+          testID="join-error"
+        />
+      )}
 
       {phase === 'invalid' && (
         <EmptyState

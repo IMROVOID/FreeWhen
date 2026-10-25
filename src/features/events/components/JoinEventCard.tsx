@@ -41,7 +41,7 @@ export function JoinEventCard({ onJoin, testID = 'join-event-card' }: JoinEventC
   }, [errorKey]);
 
   return (
-    <Card variant="raised" style={styles.card} testID={testID}>
+    <Card variant="raised" testID={testID}>
       <Text variant="h3" align="start">
         {t('events.join.heading')}
       </Text>
@@ -72,10 +72,6 @@ export function JoinEventCard({ onJoin, testID = 'join-event-card' }: JoinEventC
 }
 
 const styles = StyleSheet.create({
-  card: {
-    padding: space[4],
-    gap: space[2],
-  },
   subheading: {
     marginBottom: space[2],
   },

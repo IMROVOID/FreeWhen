@@ -41,7 +41,7 @@ export default function EventListScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { events, isLoading, errorKey, reload } = useMyEvents();
+  const { events, isLoading, errorKey, errorTitleKey, reload } = useMyEvents();
   const { isOffline } = useOffline();
 
   const openEvent = useCallback(
@@ -65,7 +65,12 @@ export default function EventListScreen() {
   const state: ScreenState = isLoading
     ? { kind: 'loading', rows: 3 }
     : errorKey
-      ? { kind: 'error', messageKey: errorKey, onRetry: () => void reload() }
+      ? {
+          kind: 'error',
+          messageKey: errorKey,
+          titleKey: errorTitleKey ?? undefined,
+          onRetry: () => void reload(),
+        }
       : events.length === 0
         ? {
             kind: 'empty',
