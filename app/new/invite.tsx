@@ -4,12 +4,6 @@
  * Reached immediately after creation, because creating and sharing are one
  * continuous intent: an organizer who has to navigate to find the link is an
  * organizer who shares it late.
- *
- * ★ THE LINK ARRIVES THROUGH NAVIGATION PARAMS, NOT A REFETCH.
- *
- * The server returns the plaintext URL exactly once and cannot hand it back.
- * Passing it here is the only way to show it, and it is why a lost response
- * means a rotation rather than a retrieval.
  */
 
 import { useCallback, useState } from 'react';
@@ -21,7 +15,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '@/src/components/ui/Button';
 import { Text } from '@/src/components/ui/Text';
 import { InviteShareCard } from '@/src/features/events/components/InviteShareCard';
-import { revokeInvite, rotateInvite } from '@/src/features/events/services/invite';
+import { rotateInvite } from '@/src/features/events/services/invite';
+import { extractInviteToken } from '@/src/features/events/utils/invite-token';
 import { isApiFailure } from '@/src/lib/api';
 import { formatDate } from '@/src/lib/format';
 import { getStoredUserId } from '@/src/lib/session';
@@ -34,7 +29,12 @@ export default function InviteShareScreen() {
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ event_id?: string; url?: string; expires_at?: string }>();
+  const params = useLocalSearchParams<{
+    event_id?: string;
+    url?: string;
+    expires_at?: string;
+    code?: string;
+  }>();
 
   const locale: Language = i18n.language === 'en' ? 'en' : 'fa';
 
@@ -44,8 +44,14 @@ export default function InviteShareScreen() {
     typeof params.expires_at === 'string' ? params.expires_at : '',
   );
   const [isBusy, setIsBusy] = useState(false);
-  const [revoked, setRevoked] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const inviteCode =
+    typeof params.code === 'string' && params.code
+      ? params.code
+      : url
+        ? extractInviteToken(url)
+        : null;
 
   const expiresLabel = expiresAt
     ? t('invite.expiresAt', { date: formatDate(expiresAt, locale).primary })
@@ -72,23 +78,6 @@ export default function InviteShareScreen() {
         const result = await rotateInvite(eventId, userId);
         setUrl(result.invite.url);
         setExpiresAt(result.invite.expires_at);
-        setRevoked(false);
-      } catch (error) {
-        setActionError(isApiFailure(error) ? error.messageKey : 'errors.unknown');
-      } finally {
-        setIsBusy(false);
-      }
-    })();
-  }, [eventId]);
-
-  const revoke = useCallback(() => {
-    void (async () => {
-      setIsBusy(true);
-      setActionError(null);
-      try {
-        const userId = await getStoredUserId();
-        await revokeInvite(eventId, userId);
-        setRevoked(true);
       } catch (error) {
         setActionError(isApiFailure(error) ? error.messageKey : 'errors.unknown');
       } finally {
@@ -106,46 +95,22 @@ export default function InviteShareScreen() {
       ]}
       testID="invite-share"
     >
-      {revoked ? (
-        <>
-          <InviteShareCard
-            url={''}
-            expiresLabel={t('invite.revoked')}
-            canRevoke={false}
-            canRotate={!isBusy}
-            onRevoke={revoke}
-            onRotate={rotate}
-            testID="invite-share-card"
-          />
-          <Button
-            label={t('invite.goToEvent')}
-            onPress={() => router.replace(`/event/${eventId}`)}
-            variant="primary"
-            testID="invite-go-to-event"
-            style={styles.action}
-          />
-        </>
-      ) : (
-        <>
-          <InviteShareCard
-            url={url}
-            expiresLabel={expiresLabel}
-            canRevoke={!isBusy}
-            canRotate={!isBusy}
-            onRevoke={revoke}
-            onRotate={rotate}
-            testID="invite-share-card"
-          />
-          <Button
-            label={t('invite.goToEvent')}
-            onPress={() => router.replace(`/event/${eventId}`)}
-            variant="secondary"
-            size="medium"
-            testID="invite-go-to-event"
-            style={styles.action}
-          />
-        </>
-      )}
+      <InviteShareCard
+        url={url}
+        code={inviteCode}
+        expiresLabel={expiresLabel}
+        canRotate={!isBusy}
+        onRotate={rotate}
+        testID="invite-share-card"
+      />
+      <Button
+        label={t('invite.goToEvent')}
+        onPress={() => router.replace(`/event/${eventId}`)}
+        variant="secondary"
+        size="medium"
+        testID="invite-go-to-event"
+        style={styles.action}
+      />
 
       {/* The failure replaces the dialog that used to report it. */}
       {actionError !== null && (

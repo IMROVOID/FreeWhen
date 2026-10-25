@@ -64,14 +64,13 @@ import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 
 /**
- * The empty-state card and the composer's send control.
+ * The empty-state card.
  *
- * Style Guide §11 sizes buttons, chips and steppers; it has no entry for either
- * of these, and a raw literal in a style object is what `gate:design` rejects.
+ * Style Guide §11 sizes buttons, chips and steppers; it has no entry for this
+ * box, and a raw literal in a style object is what `gate:design` rejects.
  */
 const EMPTY_BOX_WIDTH = 180;
 const EMPTY_BOX_HEIGHT = 160;
-const SEND_BUTTON = 38;
 
 /** The scroll mask's band, in px. Roughly one text line — enough to dissolve. */
 const MASK_HEIGHT = 26;
@@ -692,8 +691,8 @@ const styles = StyleSheet.create({
   },
   sendIconBtn: { padding: space[1] },
   sendIconCircle: {
-    width: SEND_BUTTON,
-    height: SEND_BUTTON,
+    width: size.buttonSmall,
+    height: size.buttonSmall,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',

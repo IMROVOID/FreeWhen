@@ -43,6 +43,7 @@ import { Pressy } from '@/src/components/ui/Pressy';
 import { Stepper } from '@/src/components/ui/Stepper';
 import { Text } from '@/src/components/ui/Text';
 import { createEvent } from '@/src/features/events/services/create-event';
+import { extractInviteToken } from '@/src/features/events/utils/invite-token';
 import { formatDate } from '@/src/lib/format';
 import { getStoredUserId } from '@/src/lib/session';
 import { isApiFailure } from '@/src/lib/api';
@@ -178,6 +179,7 @@ export default function CreateEventScreen() {
           event_id: result.event.id,
           url: result.invite.url,
           expires_at: result.invite.expires_at,
+          code: extractInviteToken(result.invite.url) ?? '',
         },
       });
     } catch (error) {

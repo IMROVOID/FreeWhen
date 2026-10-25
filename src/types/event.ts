@@ -254,6 +254,9 @@ export interface EventSummary {
    */
   notifications_muted: boolean;
   created_at: string;
+  is_organizer?: boolean;
+  invite_code?: string | null;
+  invite_url?: string | null;
 }
 
 export interface ParticipantSummary {

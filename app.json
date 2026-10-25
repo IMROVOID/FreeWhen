@@ -17,6 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ir.freewhen.app",
+      "associatedDomains": ["applinks:freewhen.app"],
       "icon": {
         "light": "./assets/images/icon-light.png",
         "dark": "./assets/images/icon.png",
@@ -34,7 +35,39 @@
         "monochromeImage": "./assets/images/monochrome-icon.png"
       },
       "edgeToEdgeEnabled": true,
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "freewhen.app",
+              "pathPrefix": "/e"
+            },
+            {
+              "scheme": "http",
+              "host": "freewhen.app",
+              "pathPrefix": "/e"
+            },
+            {
+              "scheme": "https",
+              "host": "freewhen.app",
+              "pathPrefix": "/event"
+            },
+            {
+              "scheme": "http",
+              "host": "freewhen.app",
+              "pathPrefix": "/event"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",

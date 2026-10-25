@@ -17,7 +17,15 @@
 
 import { EventCreateSchema } from '@/src/types/event';
 
-import { createEvent, getEventFor, listMyEvents } from '../lib/event-service';
+import {
+  createEvent,
+  deleteEvent,
+  getEventFor,
+  leaveEvent,
+  listMyEvents,
+  removeParticipant,
+  renameEvent,
+} from '../lib/event-service';
 import { track } from '../lib/funnel';
 import {
   callerIdFrom,
@@ -173,7 +181,7 @@ export async function getEventHandler(
   const eventId = params.id ?? '';
   if (!isUuid(eventId)) return wireError('NOT_PARTICIPANT');
 
-  const event = await getEventFor(caller, eventId);
+  const event = await getEventFor(caller, eventId, publicBaseUrl(request));
 
   // A non-participant and a nonexistent event answer identically: the read
   // policy is `is_event_participant()`, so an id that is not yours does not
@@ -181,4 +189,98 @@ export async function getEventHandler(
   if (!event) return wireError('NOT_PARTICIPANT');
 
   return withIdentity(json({ event }), caller.userId);
+}
+
+/** `PATCH /api/events/:id` — rename the event */
+export async function patchEventHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const userId = callerIdFrom(request);
+  const caller = userId && isUuid(userId) ? await resolveCaller(userId) : null;
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const eventId = params.id ?? '';
+  if (!isUuid(eventId)) return wireError('NOT_PARTICIPANT');
+
+  const body = await readJsonBody(request);
+  if (!body || typeof body.title !== 'string') {
+    return validationFailed([{ path: ['title'], message: 'events.validation.titleRequired' }]);
+  }
+
+  const title = body.title.trim();
+  if (title.length === 0) {
+    return validationFailed([{ path: ['title'], message: 'events.validation.titleRequired' }]);
+  }
+  if (title.length > 80) {
+    return validationFailed([{ path: ['title'], message: 'events.validation.titleTooLong' }]);
+  }
+
+  const updated = await renameEvent(caller, eventId, title, publicBaseUrl(request));
+  if (!updated) return wireError('NOT_ORGANIZER');
+
+  return withIdentity(json({ event: updated }), caller.userId);
+}
+
+/** `DELETE /api/events/:id` — delete event */
+export async function deleteEventHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const userId = callerIdFrom(request);
+  const caller = userId && isUuid(userId) ? await resolveCaller(userId) : null;
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const eventId = params.id ?? '';
+  if (!isUuid(eventId)) return wireError('NOT_PARTICIPANT');
+
+  const deleted = await deleteEvent(caller, eventId);
+  if (!deleted) return wireError('NOT_ORGANIZER');
+
+  return withIdentity(json({ deleted: true }), caller.userId);
+}
+
+/** `DELETE /api/events/:id/participants/:participantId` */
+export async function removeParticipantHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const userId = callerIdFrom(request);
+  const caller = userId && isUuid(userId) ? await resolveCaller(userId) : null;
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const eventId = params.id ?? '';
+  const participantId = params.participantId ?? '';
+  if (!isUuid(eventId) || !isUuid(participantId)) return wireError('NOT_PARTICIPANT');
+
+  const outcome = await removeParticipant(caller, eventId, participantId);
+  if (!outcome.ok) {
+    if (outcome.reason === 'NOT_ORGANIZER') return wireError('NOT_ORGANIZER');
+    return validationFailed([{ path: ['participantId'], message: 'errors.cannotRemoveSelf' }]);
+  }
+
+  return withIdentity(json({ removed: true }), caller.userId);
+}
+
+/** `POST /api/events/:id/leave` */
+export async function leaveEventHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const userId = callerIdFrom(request);
+  const caller = userId && isUuid(userId) ? await resolveCaller(userId) : null;
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const eventId = params.id ?? '';
+  if (!isUuid(eventId)) return wireError('NOT_PARTICIPANT');
+
+  const outcome = await leaveEvent(caller, eventId);
+  if (!outcome.ok) {
+    if (outcome.reason === 'IS_ORGANIZER') {
+      return validationFailed([{ path: ['role'], message: 'errors.organizerCannotLeave' }]);
+    }
+    return wireError('NOT_PARTICIPANT');
+  }
+
+  return withIdentity(json({ left: true }), caller.userId);
 }

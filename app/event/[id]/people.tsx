@@ -21,9 +21,11 @@ import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CaretLeft, CaretRight } from 'phosphor-react-native';
+import { CaretLeft, CaretRight, SignOut, Trash } from 'phosphor-react-native';
 
+import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { ConfirmSheet } from '@/src/components/ui/ConfirmSheet';
 import { EmptyState } from '@/src/components/ui/EmptyState';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
@@ -32,6 +34,7 @@ import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { StartPointCard } from '@/src/features/participants/components/StartPointCard';
 import { VisibilityToggle } from '@/src/features/participants/components/VisibilityToggle';
+import { leaveEvent, removeParticipant } from '@/src/features/events/services/event-management';
 import { useStartPoint } from '@/src/features/participants/hooks/useStartPoint';
 import { useParticipants } from '@/src/features/participants/hooks/useParticipants';
 import { patchProfile } from '@/src/features/participants/services/start-point';
@@ -104,7 +107,38 @@ export default function PeopleScreen() {
     await reload();
   }, [startPoint, reload]);
 
+  const isOwner = self?.role === 'organizer';
+
+  /** The confirmation waiting on the user: removing a member, or leaving. */
+  const [pending, setPending] = useState<
+    { kind: 'remove'; participantId: string; name: string } | { kind: 'leave' } | null
+  >(null);
+
+  const handleRemoveParticipant = useCallback((targetParticipantId: string, displayName: string) => {
+    setPending({ kind: 'remove', participantId: targetParticipantId, name: displayName });
+  }, []);
+
+  const handleLeaveEvent = useCallback(() => {
+    setPending({ kind: 'leave' });
+  }, []);
+
+  const runPending = useCallback(async () => {
+    const action = pending;
+    setPending(null);
+    if (action === null) return;
+
+    if (action.kind === 'remove') {
+      await removeParticipant(eventId, action.participantId, userId);
+      await reload();
+      return;
+    }
+
+    await leaveEvent(eventId, userId);
+    router.replace('/');
+  }, [eventId, pending, reload, router, userId]);
+
   return (
+    <>
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
@@ -168,23 +202,73 @@ export default function PeopleScreen() {
 
         {participants.map((entry) => (
           <Card key={entry.id} variant="surface" testID={`people-row-${entry.id}`}>
-            <View style={styles.row}>
-              <Text variant="body" weight={600} style={styles.name}>
-                {entry.display_name}
-              </Text>
+            <View style={styles.participantRow}>
+              <View style={styles.row}>
+                <Text variant="body" weight={600} style={styles.name}>
+                  {entry.display_name}
+                </Text>
 
-              <Text variant="caption" color="textMuted">
-                {entry.start_point_state === 'not_shared'
-                  ? t('privacy.notShared')
-                  : entry.start_point_state === 'none'
-                    ? t('privacy.noStartPoint')
-                    : t('privacy.approxAreaLabel')}
-              </Text>
+                <Text variant="caption" color="textMuted">
+                  {entry.start_point_state === 'not_shared'
+                    ? t('privacy.notShared')
+                    : entry.start_point_state === 'none'
+                      ? t('privacy.noStartPoint')
+                      : t('privacy.approxAreaLabel')}
+                </Text>
+              </View>
+
+              {isOwner && !entry.is_self && (
+                <Button
+                  label={t('events.management.removeUser')}
+                  onPress={() => handleRemoveParticipant(entry.id, entry.display_name)}
+                  variant="ghost"
+                  size="small"
+                  icon={<Trash size={16} color={theme.danger} />}
+                  testID={`remove-participant-${entry.id}`}
+                />
+              )}
             </View>
           </Card>
         ))}
+
+        {!isOwner && participants.length > 0 && (
+          <Button
+            label={t('events.management.leave')}
+            onPress={handleLeaveEvent}
+            variant="danger"
+            size="medium"
+            icon={<SignOut size={18} color={theme.onDanger} />}
+            testID="people-leave-event"
+            style={styles.leaveButton}
+          />
+        )}
       </View>
     </ScrollView>
+
+    <ConfirmSheet
+      visible={pending !== null}
+      title={
+        pending?.kind === 'remove'
+          ? t('events.management.removeUserTitle')
+          : t('events.management.leaveTitle')
+      }
+      body={
+        pending?.kind === 'remove'
+          ? t('events.management.removeUserBody', { name: pending.name })
+          : t('events.management.leaveBody')
+      }
+      confirmLabel={
+        pending?.kind === 'remove'
+          ? t('events.management.removeUser')
+          : t('events.management.leave')
+      }
+      cancelLabel={t('common.cancel')}
+      tone="danger"
+      onConfirm={() => void runPending()}
+      onDismiss={() => setPending(null)}
+      testID="people-confirm"
+    />
+    </>
   );
 }
 
@@ -209,6 +293,14 @@ const styles = StyleSheet.create({
   },
   section: { gap: space[3] },
   loading: { marginVertical: space[6], alignItems: 'center' },
-  row: { gap: space[1] },
+  participantRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  row: { gap: space[1], flex: 1 },
   name: { flexShrink: 1 },
+  leaveButton: {
+    marginTop: space[4],
+  },
 });

@@ -210,6 +210,25 @@ describe('the error state is plain language plus retry', () => {
     assert.ok(screen.has('بارگیری نشد'), 'the heading renders');
     assert.ok(screen.has('ارتباط برقرار نشد'), 'so does the reason');
   });
+
+  test('a server connection failure renders server error title and body through ScreenStateGate', async () => {
+    // Arrange
+    const { ScreenStateGate } = await import('@/src/components/states/ScreenStateGate');
+    const state = {
+      kind: 'error' as const,
+      titleKey: 'states.serverConnectionTitle',
+      messageKey: 'states.serverConnectionBody',
+      onRetry: () => undefined,
+    };
+
+    // Act
+    const screen = renderComponent(ScreenStateGate, { state });
+
+    // Assert
+    assert.ok(screen.has('خطا در اتصال به سرور'), 'the server connection title rendered');
+    assert.ok(screen.has('امکان برقراری ارتباط با سرور وجود ندارد'), 'the server connection body rendered');
+    assert.ok(screen.has('تلاش دوباره'), 'the retry is offered');
+  });
 });
 
 // ── Permission denied ─────────────────────────────────────────────────────

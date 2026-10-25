@@ -215,12 +215,13 @@ export async function issueInvite(
 
   await scopedQueryable().query(
     `update event
-        set invite_token_hash = $1,
-            invite_expires_at = $2,
+        set invite_token = $1,
+            invite_token_hash = $2,
+            invite_expires_at = $3,
             status = case when status = 'DRAFT' then 'OPEN' else status end,
             updated_at = now()
-      where id = $3`,
-    [hashToken(plaintext), expiresAt, eventId],
+      where id = $4`,
+    [plaintext, hashToken(plaintext), expiresAt, eventId],
   );
 
   return {
@@ -260,7 +261,8 @@ export async function revokeInvite(
 
   await scopedQueryable().query(
     `update event
-        set invite_token_hash = null,
+        set invite_token = null,
+            invite_token_hash = null,
             invite_expires_at = null,
             updated_at = now()
       where id = $1`,

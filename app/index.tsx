@@ -29,6 +29,7 @@ import { Button } from '@/src/components/ui/Button';
 import { Text } from '@/src/components/ui/Text';
 import { ScreenStateGate, type ScreenState } from '@/src/components/states/ScreenStateGate';
 import { EventRow } from '@/src/features/events/components/EventRow';
+import { JoinEventCard } from '@/src/features/events/components/JoinEventCard';
 import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
 import { space } from '@/src/theme/tokens';
@@ -40,7 +41,7 @@ export default function EventListScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { events, isLoading, errorKey, reload } = useMyEvents();
+  const { events, isLoading, errorKey, errorTitleKey, reload } = useMyEvents();
   const { isOffline } = useOffline();
 
   const openEvent = useCallback(
@@ -64,7 +65,12 @@ export default function EventListScreen() {
   const state: ScreenState = isLoading
     ? { kind: 'loading', rows: 3 }
     : errorKey
-      ? { kind: 'error', messageKey: errorKey, onRetry: () => void reload() }
+      ? {
+          kind: 'error',
+          messageKey: errorKey,
+          titleKey: errorTitleKey ?? undefined,
+          onRetry: () => void reload(),
+        }
       : events.length === 0
         ? {
             kind: 'empty',
@@ -103,6 +109,8 @@ export default function EventListScreen() {
       <Text variant="h1" align="start">
         {t('events.list.heading')}
       </Text>
+
+      <JoinEventCard onJoin={(token) => router.push(`/e/${token}`)} />
 
       <ScreenStateGate state={state} offline={isOffline} testID="event-list-states" />
     </ScrollView>

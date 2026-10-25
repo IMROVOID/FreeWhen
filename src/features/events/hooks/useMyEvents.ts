@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { isApiFailure } from '@/src/lib/api';
+import { isApiFailure, isNetworkError } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import type { EventSummary } from '@/src/types/event';
 
@@ -27,6 +27,8 @@ export interface UseMyEventsResult {
   isLoading: boolean;
   /** A catalogue key, or `null`. */
   errorKey: string | null;
+  /** When set, overrides the generic error title. */
+  errorTitleKey: string | null;
   reload: () => Promise<void>;
 }
 
@@ -34,6 +36,7 @@ export function useMyEvents(): UseMyEventsResult {
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [errorTitleKey, setErrorTitleKey] = useState<string | null>(null);
 
   // Stops a reload from landing after unmount and setting state on a dead tree.
   const mounted = useRef(true);
@@ -41,6 +44,7 @@ export function useMyEvents(): UseMyEventsResult {
   const reload = useCallback(async () => {
     setIsLoading(true);
     setErrorKey(null);
+    setErrorTitleKey(null);
 
     try {
       const userId = await getStoredUserId();
@@ -54,7 +58,16 @@ export function useMyEvents(): UseMyEventsResult {
       // stranger again — an empty list is the honest answer, not an error
       // banner over a list the user cannot act on.
       setEvents([]);
-      setErrorKey(isApiFailure(error) && error.status === 403 ? null : 'events.list.loadFailed');
+      if (isApiFailure(error) && error.status === 403) {
+        setErrorKey(null);
+        setErrorTitleKey(null);
+      } else if (isNetworkError(error)) {
+        setErrorTitleKey('states.serverConnectionTitle');
+        setErrorKey('states.serverConnectionBody');
+      } else {
+        setErrorKey('events.list.loadFailed');
+        setErrorTitleKey(null);
+      }
     } finally {
       if (mounted.current) setIsLoading(false);
     }
@@ -69,5 +82,5 @@ export function useMyEvents(): UseMyEventsResult {
     };
   }, [reload]);
 
-  return { events, isLoading, errorKey, reload };
+  return { events, isLoading, errorKey, errorTitleKey, reload };
 }

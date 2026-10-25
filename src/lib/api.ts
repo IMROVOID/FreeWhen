@@ -17,7 +17,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { resolveBaseUrlFrom } from './api-base-url';
-import { ApiFailure, FALLBACK_KEY } from './api-failure';
+import { ApiFailure, FALLBACK_KEY, isApiFailure } from './api-failure';
 import type { ApiErrorCode } from './errors';
 import { REQUEST_PLATFORM, type RequestPlatform } from './platform-tag';
 
@@ -141,4 +141,15 @@ export async function apiRequest<T>(
     response.status,
     envelope.fields ?? {},
   );
+}
+
+/**
+ * Whether an error indicates failure to reach the server (connection refused,
+ * network offline, DNS failure, or gateway/proxy 502/503/504).
+ */
+export function isNetworkError(error: unknown): boolean {
+  if (isApiFailure(error)) {
+    return error.status === 502 || error.status === 503 || error.status === 504;
+  }
+  return error instanceof Error;
 }
