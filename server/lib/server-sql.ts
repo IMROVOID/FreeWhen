@@ -43,6 +43,16 @@ export { serverSqlFiles };
 let applied: Promise<void> | undefined;
 
 /**
+ * The in-flight verification, so concurrent callers share ONE of them.
+ *
+ * Separate from `applied` because a verification is not just the apply: it
+ * reads the catalogue and may retry. Sharing only `applied` let two callers
+ * each run a retry, and two concurrent `create or replace function` calls for
+ * the same signature collide in `pg_proc`.
+ */
+let ensured: Promise<void> | undefined;
+
+/**
  * The functions `server/sql/` is expected to have created.
  *
  * ★ THE EXISTENCE CHECK IS NOT AN OPTIMISATION.
@@ -144,6 +154,29 @@ async function missingFunctions(): Promise<string[]> {
 }
 
 export async function ensureServerSql(): Promise<void> {
+  // ★ ONE IN-FLIGHT VERIFICATION, NOT ONE PER CALLER.
+  //
+  // The memo used to guard only `apply()`. The verification (and its retry)
+  // ran OUTSIDE it, so every caller that entered while a retry was in flight
+  // started its own `apply()`. Postgres then answered
+  // `duplicate key value violates unique constraint "pg_proc_proname_args_nsp_index"`
+  // — because two concurrent `create or replace function` for the same
+  // signature race on the catalogue insert.
+  //
+  // The concurrency is real: `node --test` runs every database suite in ONE
+  // process, and each file's `before` hook calls this function. On a freshly
+  // migrated database none of them sees the functions yet, so all of them
+  // retried at once and the suite failed in a different file each run.
+  if (!ensured) {
+    ensured = ensure().finally(() => {
+      ensured = undefined;
+    });
+  }
+
+  return ensured;
+}
+
+async function ensure(): Promise<void> {
   if (!applied) {
     applied = apply();
     applied.catch(() => {
@@ -155,6 +188,20 @@ export async function ensureServerSql(): Promise<void> {
   // ★ THE STEADY-STATE EXIT. A timestamp comparison instead of a round-trip.
   if (verificationIsFresh()) return applied;
 
+  // ★ WAIT FOR THE APPLY BEFORE CHECKING WHAT IT CREATED.
+  //
+  // `missingFunctions()` used to run while the first `apply()` was still in
+  // flight. On a fresh database the catalogue therefore looked empty, the
+  // "schema was rebuilt under us" branch fired, and a SECOND `apply()` started
+  // alongside the first. Two concurrent `create or replace function` calls for
+  // the same signature race on the catalogue insert and Postgres answers
+  // `duplicate key value violates unique constraint "pg_proc_proname_args_nsp_index"`
+  // — the applier colliding with itself, reported as if the SQL were wrong.
+  //
+  // Awaiting first is what makes the check mean "the apply finished and these
+  // are still missing", which is the only reading the retry is for.
+  await applied;
+
   const missing = await missingFunctions();
   if (missing.length > 0) {
     // ★ ONE RETRY, NOT A LOOP.
@@ -163,9 +210,16 @@ export async function ensureServerSql(): Promise<void> {
     // deliberately: if `join_event` is still missing after the DDL ran, the
     // .sql itself is wrong and a recursive re-check would spin forever — a
     // hang that looks like a network problem and is not.
-    applied = undefined;
-    verifiedAt = 0;
-    await apply();
+    applied = apply();
+    const retry = applied;
+
+    try {
+      await retry;
+    } catch (error) {
+      applied = undefined;
+      verifiedAt = 0;
+      throw error;
+    }
 
     const stillMissing = await missingFunctions();
     if (stillMissing.length > 0) {
@@ -177,9 +231,8 @@ export async function ensureServerSql(): Promise<void> {
       );
     }
 
-    applied = Promise.resolve();
     verifiedAt = Date.now();
-    return;
+    return retry;
   }
 
   verifiedAt = Date.now();

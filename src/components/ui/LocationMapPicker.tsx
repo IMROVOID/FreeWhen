@@ -395,8 +395,8 @@ const styles = StyleSheet.create({
   centerPinContainer: {
     position: 'absolute',
     top: '50%',
-    left: '50%',
-    marginLeft: -19,
+    start: '50%',
+    marginStart: -19,
     marginTop: -38,
     alignItems: 'center',
     justifyContent: 'center',
@@ -417,8 +417,8 @@ const styles = StyleSheet.create({
   searchBarWrapper: {
     position: 'absolute',
     top: space[3],
-    left: space[3],
-    right: space[3],
+    start: space[3],
+    end: space[3],
     zIndex: 10,
   },
   searchBar: {
@@ -435,7 +435,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.persian[500],
     paddingVertical: 0,
-    textAlign: 'right',
+    textAlign: 'end',
   },
   clearBtn: {
     padding: space[1],
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   floatingControls: {
     position: 'absolute',
     bottom: space[3],
-    right: space[3],
+    end: space[3],
     gap: space[2],
     zIndex: 5,
   },

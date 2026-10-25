@@ -305,8 +305,8 @@ const styles = StyleSheet.create({
   },
   middleWindow: {
     position: 'absolute',
-    left: space[2],
-    right: space[2],
+    start: space[2],
+    end: space[2],
     top: ITEM_HEIGHT,
     height: ITEM_HEIGHT,
     borderRadius: radius.md,
