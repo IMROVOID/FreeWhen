@@ -261,9 +261,16 @@ jobs:
 
       - name: Build
         env:
-          # Empty for the universal build: `reactNativeArchitectures` absent is
-          # what makes Gradle emit the un-suffixed all-ABI `app-release.apk`.
-          APK_ARCHS: ${{ matrix.arch == 'universal' && '' || matrix.arch }}
+          # ★ NOT `cond && '' || other`. An empty string is FALSY in GitHub
+          # expressions, so `matrix.arch == 'universal' && '' || matrix.arch`
+          # fell through to the right-hand side and passed the literal string
+          # `universal` — which then reached
+          # `-PreactNativeArchitectures=universal`, and Gradle refused the whole
+          # build with `[CXX1201] ABIs [universal] are not supported`.
+          #
+          # `build-apk.sh` treats `universal` as "every ABI, un-suffixed
+          # output", so the value is passed through as-is and the script decides.
+          APK_ARCHS: ${{ matrix.arch }}
           UNIVERSAL_APK: ${{ matrix.arch == 'universal' && '1' || '0' }}
           FREE_WHEN_RELEASE_STORE_FILE: ${{ env.KEYSTORE_PATH }}
           FREE_WHEN_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

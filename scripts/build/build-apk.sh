@@ -64,6 +64,24 @@ cd "$(dirname "$0")/../.."
 OUT_DIR=web/dl
 OUT_APK="$OUT_DIR/freewhen.apk"
 
+# ★ `UNIVERSAL` IS NOT AN ABI, AND GRADLE SAYS SO.
+#
+# The workflow's matrix names the fifth build `universal`, and it arrives here as
+# `APK_ARCHS=universal`. Passed through to `-PreactNativeArchitectures`, Gradle
+# refuses the whole project:
+#
+#   [CXX1201] ABIs [universal] are not supported
+#   Supported ABIs are [arm64-v8a, armeabi-v7a, riscv64, x86, x86_64]
+#
+# So the sentinel is normalised to "no arch filter" here, which is what actually
+# produces the all-ABI artifact. Doing it in the script rather than in a GitHub
+# expression is deliberate: `cond && '' || value` cannot yield an empty string,
+# because an empty string is falsy in those expressions.
+if [[ "${APK_ARCHS:-}" == "universal" ]]; then
+  APK_ARCHS=""
+  UNIVERSAL_APK=1
+fi
+
 # The output this run is expected to produce. Resolved BEFORE the Gradle call so
 # the failure path can list what *was* produced against what was expected.
 APK_OUTPUT_DIR=android/app/build/outputs/apk/release
