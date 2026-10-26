@@ -67,20 +67,26 @@ case "$TARGET" in
     # per-route output is reachable only at `/start.html`, and a catch-all
     # rewrite would serve the home page instead — which is what happened on the
     # first attempt and looked like a 200.
-    # ★ THE DESTINATIONS MUST NOT CONTAIN `[`.
+    # ★ THE DESTINATION MUST NOT CONTAIN `[` AND MUST NOT END IN `.html`.
     #
-    # `expo export` writes a dynamic route's template to its literal name —
-    # `e/[token].html` — and BOTH hosts refuse a rewrite whose destination has a
-    # bracket in it. The rewrite was present in the deployed `vercel.json` and
-    # the target file was present in the deployment, and `/e/<token>` still
-    # 404'd while `/privacy` (no bracket) rewrote correctly.
+    # Two separate failures, both found by testing the live deployment rather
+    # than the exit code:
     #
-    # So `compose-static.sh` writes a bracket-free alias for each template and
-    # these rules address the alias.
+    #   1. A destination containing `[` — `e/[token].html` — never resolves.
+    #      `compose-static.sh` writes a bracket-free alias for it.
+    #   2. With `cleanUrls: true`, a destination ending in `.html` also never
+    #      matches. `/e/:token -> /e/_token.html` returned 404 while
+    #      `/e/:token -> /e/_token` returned 200 against the same file, on a
+    #      preview deployment built from the same tree.
+    #
+    # `cleanUrls` already maps an extension-less path onto its `.html`, so the
+    # destinations below omit it. `/privacy` also needed no rule at all — it
+    # was `cleanUrls` resolving the directory, which is why the first deploy
+    # looked like rewrites worked.
     #
     # Rewrites are matched IN ORDER, so the longer patterns come first: with
     # `/event/:id/:tab` above `/event/:id/venue/:vid`, a venue URL would match
-    # the tab rule and ask for `venue.html`, which does not exist.
+    # the tab rule and ask for a file that does not exist.
     cat > "$STATIC/vercel.json" <<'JSON'
 {
   "version": 2,
@@ -88,12 +94,11 @@ case "$TARGET" in
   "trailingSlash": false,
   "rewrites": [
     { "source": "/dl/(.*)", "destination": "/dl/$1" },
-    { "source": "/privacy", "destination": "/privacy/index.html" },
-    { "source": "/e/:token/location", "destination": "/e/_token/location.html" },
-    { "source": "/e/:token", "destination": "/e/_token.html" },
-    { "source": "/event/:id/venue/:vid", "destination": "/event/_id/venue/_vid.html" },
-    { "source": "/event/:id/:tab", "destination": "/event/_id/:tab.html" },
-    { "source": "/event/:id", "destination": "/event/_id/index.html" }
+    { "source": "/e/:token/location", "destination": "/e/_token/location" },
+    { "source": "/e/:token", "destination": "/e/_token" },
+    { "source": "/event/:id/venue/:vid", "destination": "/event/_id/venue/_vid" },
+    { "source": "/event/:id/:tab", "destination": "/event/_id/:tab" },
+    { "source": "/event/:id", "destination": "/event/_id" }
   ]
 }
 JSON
@@ -160,12 +165,18 @@ JSON
 
     # ★ NETLIFY'S EQUIVALENT OF THE VERCEL REWRITES.
     #
-    # Same reasoning as the Vercel block: the destination is the bracket-free
-    # alias `compose-static.sh` writes, because a destination containing `[`
-    # does not resolve. First match wins, longest first.
+    # Same bracket-free aliases as the Vercel block — a destination containing
+    # `[` does not resolve on either host.
+    #
+    # ★ THE `.html` STAYS HERE, UNLIKE ON VERCEL.
+    #
+    # Netlify has no `cleanUrls`: its `200` rewrites are served as written, so
+    # an extension-less destination would ask for a file with no extension.
+    # Vercel omits it precisely because `cleanUrls` supplies that mapping.
+    #
+    # First match wins, longest first.
     cat > "$STATIC/_redirects" <<'RULES'
 /dl/*        /dl/:splat        200
-/privacy     /privacy/index.html 200
 /e/:token/location  /e/_token/location.html  200
 /e/:token    /e/_token.html   200
 /event/:id/venue/:vid  /event/_id/venue/_vid.html  200
