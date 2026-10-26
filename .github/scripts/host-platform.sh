@@ -67,6 +67,16 @@ case "$TARGET" in
     # per-route output is reachable only at `/start.html`, and a catch-all
     # rewrite would serve the home page instead — which is what happened on the
     # first attempt and looked like a 200.
+    # ★ THE DYNAMIC ROUTES NEED AN EXPLICIT REWRITE.
+    #
+    # `expo export` writes a dynamic route's template to its literal name —
+    # `e/[token].html` — because there are no static params to enumerate. A
+    # static host has nothing that turns `/e/<anything>` into that file, so the
+    # reviewer's own link 404'd while `/e/[token]` answered 200.
+    #
+    # Rewrites are matched IN ORDER, so the longer patterns come first: with
+    # `/event/:id/:tab` above `/event/:id/venue/:vid`, a venue URL would match
+    # the tab rule and ask for `venue.html`, which does not exist.
     cat > "$STATIC/vercel.json" <<'JSON'
 {
   "version": 2,
@@ -74,7 +84,12 @@ case "$TARGET" in
   "trailingSlash": false,
   "rewrites": [
     { "source": "/dl/(.*)", "destination": "/dl/$1" },
-    { "source": "/privacy", "destination": "/privacy/index.html" }
+    { "source": "/privacy", "destination": "/privacy/index.html" },
+    { "source": "/e/:token/location", "destination": "/e/[token]/location.html" },
+    { "source": "/e/:token", "destination": "/e/[token].html" },
+    { "source": "/event/:id/venue/:vid", "destination": "/event/[id]/venue/[vid].html" },
+    { "source": "/event/:id/:tab", "destination": "/event/[id]/[tab].html" },
+    { "source": "/event/:id", "destination": "/event/[id]/index.html" }
   ]
 }
 JSON
@@ -138,6 +153,21 @@ JSON
       [ -n "$SITE_ID" ] || { printf '%s\n' "$CREATED"; echo "::error::Netlify did not return a site id."; exit 1; }
       log "created $SITE_ID"
     fi
+
+    # ★ NETLIFY'S EQUIVALENT OF THE VERCEL REWRITES.
+    #
+    # `expo export` writes a dynamic route's template to its literal name
+    # (`e/[token].html`), so without these rules the reviewer's own link is a
+    # 404 on a perfectly correct deployment. First match wins, longest first.
+    cat > "$STATIC/_redirects" <<'RULES'
+/dl/*        /dl/:splat        200
+/privacy     /privacy/index.html 200
+/e/:token/location  /e/[token]/location.html  200
+/e/:token    /e/[token].html   200
+/event/:id/venue/:vid  /event/[id]/venue/[vid].html  200
+/event/:id/:tab  /event/[id]/[tab].html  200
+/event/:id   /event/[id]/index.html  200
+RULES
 
     # A ZIP deploy is one request; the documented cap is 25,000 extracted files.
     log "zip + deploy"
