@@ -376,10 +376,14 @@ jobs:
     #
     # `needs: [build]` skips this job unless EVERY matrix job succeeded, so a
     # single cancelled or failed ABI discarded four good APKs — a run that had
-    # already done the work published nothing. The checksums step below still
-    # refuses to publish an empty or unverifiable set, so this widens what MAY be
+    # already done the work published nothing.
+    #
+    # The check is on `build` having FINISHED, not on it having succeeded. A
+    # bare `always()` is wrong: it starts this job the moment `resolve` is done,
+    # so it tried to publish before any APK existed. The checksums step below
+    # still refuses an empty or unverifiable set, so this widens what MAY be
     # published, not what is ALLOWED to be.
-    if: always() && needs.resolve.result == 'success'
+    if: always() && needs.resolve.result == 'success' && needs.build.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
