@@ -29,6 +29,25 @@ export { resolveBaseUrlFrom };
 export type { ApiEnv } from './api-base-url';
 
 /**
+ * The origin of the page this bundle is running in, on web only.
+ *
+ * ★ READ AT RUNTIME, NOT BAKED AT BUILD TIME.
+ *
+ * `process.env.EXPO_PUBLIC_*` is inlined by Metro, so a deployed build is
+ * frozen to whichever host it was built for. Reading `location.origin` instead
+ * means a verified custom domain works immediately, with no rebuild and no
+ * redeploy — the app calls the host it was actually loaded from.
+ *
+ * `undefined` under static rendering, where `expo export` runs in Node and
+ * there is no `window`; the resolver then falls back to the configured value.
+ */
+function pageOrigin(): string | undefined {
+  if (Platform.OS !== 'web') return undefined;
+  if (typeof window === 'undefined') return undefined;
+  return window.location?.origin || undefined;
+}
+
+/**
  * The API origin for this bundle.
  *
  * On a physical device `127.0.0.1` is the phone, not the developer's machine,
@@ -51,6 +70,7 @@ function resolveBaseUrl(): string {
     },
     Constants.expoConfig?.hostUri,
     Platform.OS,
+    pageOrigin(),
   );
 }
 

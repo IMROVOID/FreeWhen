@@ -379,7 +379,18 @@ jobs:
           NESHAN_DIRECTION_API_KEY: ${{ secrets.NESHAN_DIRECTION_API_KEY }}
           ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
 
-          APP_ORIGIN: ${{ needs.validate.outputs.site }}
+          # ★ THE CUSTOM DOMAIN HAS TO BE ALLOWLISTED, OR CORS KILLS THE API.
+          #
+          # `FREEWHEN_SERVER_URL` names ONE origin, so the app served from a
+          # verified custom domain sent an `Origin` the API did not recognise.
+          # The preflight came back 204 with no `access-control-allow-origin`,
+          # the browser refused the request, and every screen showed a load
+          # failure on the custom domain while working on the platform domain.
+          #
+          # `APP_ORIGIN` is read as a COMMA-SEPARATED allowlist, so any extra
+          # hosts go in `vars.FREEWHEN_EXTRA_ORIGINS`. Optional: empty means
+          # only the primary origin is allowed, which is the previous behaviour.
+          APP_ORIGIN: ${{ needs.validate.outputs.site }}${{ vars.FREEWHEN_EXTRA_ORIGINS != '' && format(',{0}', vars.FREEWHEN_EXTRA_ORIGINS) || '' }}
 
           # ★ WITHOUT THIS THE API HALF IS SILENTLY SKIPPED.
           #

@@ -23,32 +23,50 @@ export interface ApiEnv {
 }
 
 /**
- * The API origin, from the environment, dev-server host, and platform.
+ * The API origin, from the environment, the page's own origin, the dev-server
+ * host, and platform.
  *
- * ★ `EXPO_PUBLIC_APP_BASE_URL` IS THE SECOND RUNG, AND IT IS THE ONE THAT MATTERS.
+ * ★ ON WEB, THE PAGE ORIGIN WINS — AND THAT IS THE CUSTOM-DOMAIN FIX.
  *
- * `EXPO_PUBLIC_API_URL` was the only supported name, and it appeared in no
+ * `EXPO_PUBLIC_API_URL` is INLINED at build time. Deploying therefore bakes in
+ * whichever host the build named (`*.vercel.app`), and a page later served from
+ * a verified custom domain kept calling that old origin: cross-origin, and
+ * refused by CORS because the allowlist named a single host.
+ *
+ * The API is served SAME-ORIGIN on every supported host (behind Caddy on the
+ * VPS, and by a rewrite on the serverless targets), so the page's own origin is
+ * always the right answer. Deriving it at RUNTIME means adding or changing a
+ * domain needs no rebuild and no redeploy — the app simply calls the host it
+ * was loaded from.
+ *
+ * `pageOrigin` is `undefined` during static rendering (`expo export` runs in
+ * Node, with no `location`) and on native, where there is no page to derive
+ * from; both fall through to the configured value.
+ *
+ * ★ `EXPO_PUBLIC_APP_BASE_URL` IS THE NATIVE RUNG THAT MATTERS.
+ *
+ * `EXPO_PUBLIC_API_URL` was the only supported name and it appeared in no
  * document in this repository — not `.env.example`, not `docs/ENV.md`, not the
  * README. A release APK built from the documented variable set therefore fell
  * through to the dev branch and shipped pointing at `http://<dev host>:8787`,
  * which on a participant's phone is the phone itself.
  *
- * The API is served same-origin behind Caddy (`Caddyfile`: `handle /api/*`), so
- * the app's own public origin *is* the API origin. `/api` is deliberately not
- * appended: every call site already prefixes its path, and appending here would
- * produce `/api/api/events`.
+ * `/api` is deliberately not appended: every call site already prefixes its
+ * path, and appending here would produce `/api/api/events`.
  *
- * The dev-server host stays as the third rung, because an Android emulator
- * reaching the host machine through `10.0.2.2` has no configured origin at all.
- *
- * In a release build or when dev-server host is absent, Android uses `10.0.2.2`
- * to reach the local development server on the host machine.
+ * The dev-server host stays as the next rung, because an Android emulator
+ * reaching the host machine through `10.0.2.2` has no configured origin.
  */
 export function resolveBaseUrlFrom(
   env: ApiEnv,
   hostUri: string | undefined,
   platform?: string,
+  pageOrigin?: string,
 ): string {
+  // ★ FIRST, BECAUSE IT IS THE ONLY RUNTIME-TRUTHFUL ANSWER ON WEB.
+  // A trailing slash is stripped so call sites can concatenate directly.
+  if (platform === 'web' && pageOrigin) return pageOrigin.replace(/\/$/, '');
+
   // An empty string is a variable that exists and was left blank — treated as
   // unset rather than as an empty origin, which would produce `/api/events`
   // against the app's own page.
