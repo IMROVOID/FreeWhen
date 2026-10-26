@@ -7,9 +7,9 @@ import { Copy, ShareNetwork } from 'phosphor-react-native';
 import { BottomSheet } from '@/src/components/ui/BottomSheet';
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { OverlayToast } from '@/src/components/ui/OverlayToast';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
-import { Toast } from '@/src/components/ui/Toast';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -67,7 +67,6 @@ export function EventShareModal({
       <BottomSheet
         visible={visible}
         onDismiss={onDismiss}
-        snapPoints={['50%']}
         testID={testID}
       >
         <View style={styles.container}>
@@ -135,7 +134,9 @@ export function EventShareModal({
         </View>
       </BottomSheet>
 
-      <Toast
+      {/* Sits above the sheet, so the confirmation is visible without the sheet
+          growing to make room for it. */}
+      <OverlayToast
         message={toastMessage ?? ''}
         visible={toastMessage !== null}
         onDismiss={() => setToastMessage(null)}

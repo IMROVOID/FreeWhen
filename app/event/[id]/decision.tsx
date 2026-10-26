@@ -584,12 +584,19 @@ export default function DecisionScreen() {
           />
         )}
 
+        {/* ★ THE BACK ACTION IS LAST, AND IT LOOKS LIKE A BUTTON.
+            `variant="ghost"` drew it with a transparent fill, so on a page with
+            no card behind it the label floated as bare text in the middle of
+            the screen — readable, but not obviously tappable. `secondary` gives
+            it the same filled surface the other secondary actions use, and it
+            stays last so the screen's own actions come first. */}
         <Button
           label={t('common.back')}
           onPress={() => router.back()}
-          variant="ghost"
+          variant="secondary"
           size="medium"
           testID="decision-back"
+          style={styles.backAction}
         />
       </ScrollView>
 
@@ -710,5 +717,9 @@ const styles = StyleSheet.create({
   },
   followThrough: {
     gap: space[4],
+  },
+  /** Separated from the decision actions, so Back reads as a distinct exit. */
+  backAction: {
+    marginTop: space[2],
   },
 });

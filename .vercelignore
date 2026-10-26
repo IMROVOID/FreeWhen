@@ -1,0 +1,23 @@
+# Files Vercel must NOT skip.
+#
+# ★ THE BUG THIS EXISTS FOR.
+#
+# `static/` is the composed single-root deploy tree, and `.gitignore` excludes it
+# because it is generated. But `vercel deploy` falls back to `.gitignore` when no
+# `.vercelignore` is present, so the whole tree was filtered out of the UPLOAD.
+#
+# The failure was asymmetric, which is why it read as a font bug rather than a
+# deploy bug: the HTML in `static/` was small enough to have been published
+# already, but every file under `static/assets/` 404'd — including all 24 font
+# files. The browser reported success on the page and 404 on the typeface, so
+# English text fell back to a system font and looked like a missing `fontFamily`.
+#
+# `!` re-includes a path that an inherited rule would otherwise drop.
+!static/
+!static/**
+
+# `dist/` is the raw Expo export that compose-static.sh merges into `static/`.
+# It is kept for the same reason: the merge and the upload read it, and the
+# deploy must not depend on a previously committed copy.
+!dist/
+!dist/**

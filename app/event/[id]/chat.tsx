@@ -307,7 +307,15 @@ export default function ChatScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.screen, { backgroundColor: theme.bg, padding: space[5] }]}>
+      // ★ `padding: space[5]` alone put the rows flush under the status bar;
+      // the top inset has to be added to it, not replaced by it.
+      <View
+        style={[
+          styles.screen,
+          { backgroundColor: theme.bg, paddingHorizontal: space[5], paddingBottom: space[5] },
+          { paddingTop: insets.top + space[3] },
+        ]}
+      >
         <ListSkeleton rows={4} testID="chat-loading" />
       </View>
     );

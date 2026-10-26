@@ -10,7 +10,19 @@ export interface BottomSheetProps {
   /** Whether the sheet is presented. */
   visible: boolean;
   onDismiss: () => void;
-  /** The snap points, as fractions of the screen height. */
+  /**
+   * Explicit snap points, for a sheet whose height genuinely cannot come from
+   * its content.
+   *
+   * Omit it for a short, fixed sheet — that is the common case, and omitting it
+   * is what makes the sheet fit rather than leaving a dead band.
+   *
+   * ★ PASS IT WHEN THE CONTENT HAS NO INTRINSIC HEIGHT.
+   *
+   * A child with `flex: 1` (a scrolling list, which is what `CommentSheet`
+   * holds) measures as zero under content sizing, so its list would collapse to
+   * its own padding. Those sheets must name a height.
+   */
   snapPoints?: string[];
   testID?: string;
   style?: StyleProp<ViewStyle>;
@@ -20,19 +32,30 @@ export interface BottomSheetProps {
  * A sheet with a grabber and velocity-based snapping. Top corners `r.xl`,
  * `surface1` fill (Style Guide §11.8).
  *
+ * ★ DYNAMIC SIZING IS THE DEFAULT, AND IT IS NOT A LUXURY.
+ *
+ * The sheet used to hardcode `enableDynamicSizing={false}` and take a snap-point
+ * percentage from every caller. The share sheet's content is two rows and a
+ * button, so its `'50%'` left a large dead band above the action, and the page
+ * underneath showed through the uncovered area. A percentage can only be right
+ * for one screen at one font scale.
+ *
  * The library is controlled through the snap-point `index`: `-1` means
- * closed, `0` is the first snap point.
+ * closed, `0` is the first snap point — or, under dynamic sizing, the measured
+ * content height.
  */
 export function BottomSheet({
   children,
   visible,
   onDismiss,
-  snapPoints = ['55%'],
+  snapPoints,
   testID,
   style,
 }: BottomSheetProps) {
   const { t } = useTheme();
   const sheetRef = useRef<ComponentRef<typeof GorhomBottomSheet>>(null);
+
+  const isDynamic = snapPoints === undefined;
 
   // Drive the sheet from the `visible` prop.
   useEffect(() => {
@@ -50,9 +73,11 @@ export function BottomSheet({
     <GorhomBottomSheet
       ref={sheetRef}
       index={-1}
+      // `undefined` lets the library measure the content; passing an array is
+      // what pins it to fractions of the screen.
       snapPoints={snapPoints}
       enablePanDownToClose
-      enableDynamicSizing={false}
+      enableDynamicSizing={isDynamic}
       onClose={onDismiss}
       backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
       handleComponent={Grabber}

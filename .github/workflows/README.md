@@ -70,15 +70,32 @@ consumed by the **build step**, not by the host.
 | `FREEWHEN_DEMO_TOKEN` | reviewer path | `/start` has no demo event to open; `/e/<token>` is not checked |
 | `FREEWHEN_MAPBOX_PUBLIC_TOKEN` | the map | the map degrades to list-only |
 | `FREEWHEN_TILE_STYLE_URL` | no | the default style is used |
+| `FREEWHEN_EXTRA_ORIGINS` | no | a custom domain gets no CORS headers and the whole API fails there — see below |
 | `FREEWHEN_SUPABASE_URL` | CI gates | `gate:web` scans a bundle built without a Supabase origin |
 | `FREEWHEN_SUPABASE_PUBLISHABLE_KEY` | CI gates | same |
 
 > **`FREEWHEN_SERVER_URL` and `FREEWHEN_APP_BASE_URL` are the same origin in the
 > deployment this repo targets.** The API is served same-origin behind Caddy
 > (`handle /api/*`), so the app's own public origin *is* the API origin.
-> `src/lib/api-base-url.ts` resolves `EXPO_PUBLIC_API_URL` →
-> `EXPO_PUBLIC_APP_BASE_URL`, so either name works and the second is the one that
-> is documented.
+> `src/lib/api-base-url.ts` resolves the page's own origin on web, then
+> `EXPO_PUBLIC_API_URL` → `EXPO_PUBLIC_APP_BASE_URL`, so either name works and
+> the second is the one that is documented.
+
+> **Adding a custom domain: set `FREEWHEN_EXTRA_ORIGINS`, comma-separated.**
+> The deploy publishes the app on two hosts whenever a domain is attached — the
+> platform URL and the custom one — and `APP_ORIGIN` is the API's CORS
+> allowlist.
+>
+> Because it was a single exact-match value, the custom domain sent an `Origin`
+> the API did not recognise. The preflight returned 204 with no
+> `access-control-allow-origin`, the browser refused every request, and the
+> whole app failed to load on the custom domain while working perfectly on the
+> platform one. `APP_ORIGIN` is now read as a comma-separated list, which
+> `server/lib/cors.ts` parses (trimming, trailing slashes, failing closed).
+>
+> The web build itself needs no rebuild for this: `src/lib/api.ts` reads
+> `location.origin` at runtime, so a page always calls the host it was served
+> from. Only the server's allowlist has to name the extra hosts.
 
 ### 2.2 Defaults for the resolvers
 

@@ -12,6 +12,7 @@
  */
 
 import { healthHandler } from './routes/health';
+import { isAllowedOrigin, parseAllowedOrigins } from './lib/cors';
 import { wireError } from './lib/http';
 import {
   createEventHandler,
@@ -206,16 +207,34 @@ function match(segments: string[], path: string[]): Record<string, string> | nul
   return params;
 }
 
-/** The CORS origin, when one is configured. Never `*` — see below. */
+/**
+ * The CORS headers for this request, when its origin is allowlisted.
+ *
+ * ★ `APP_ORIGIN` MAY HOLD A COMMA-SEPARATED LIST.
+ *
+ * It was compared with `===` against a single string, so a deployment serving
+ * the app from both a `*.vercel.app` URL and a verified custom domain accepted
+ * only the one the variable named. The other host got no
+ * `access-control-allow-origin`, the preflight failed, and the entire API
+ * appeared dead on the custom domain while working on the platform domain.
+ *
+ * ★ STILL ENUMERATED, NEVER REFLECTED.
+ *
+ * The API authenticates with a header rather than a cookie, so echoing any
+ * incoming `Origin` (or answering `*`) would let any site read authenticated
+ * responses. Unlisted origins get no headers, and an unset variable allows
+ * nothing — the rule fails closed.
+ */
 function corsHeaders(request: Request): Record<string, string> {
-  const allowed = process.env.APP_ORIGIN;
-  if (!allowed) return {};
-
+  const allowed = parseAllowedOrigins(process.env.APP_ORIGIN);
   const origin = request.headers.get('origin');
-  if (!origin || origin !== allowed) return {};
+
+  if (!isAllowedOrigin(allowed, origin)) return {};
 
   return {
-    'access-control-allow-origin': allowed,
+    // Echo the caller's exact origin — not the whole allowlist, which browsers
+    // reject as an invalid single-origin value.
+    'access-control-allow-origin': origin as string,
     'access-control-allow-headers': 'content-type, x-user-id, x-platform',
     'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     vary: 'origin',

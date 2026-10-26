@@ -1,11 +1,11 @@
-import { useEffect } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Text } from './Text';
+import { OverlayToast, type OverlayToastTone } from './OverlayToast';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
-export type ToastTone = 'neutral' | 'success' | 'warning' | 'danger';
+export type ToastTone = OverlayToastTone;
 
 export interface ToastProps {
   message: string;
@@ -15,53 +15,28 @@ export interface ToastProps {
   /** The auto-dismiss delay in milliseconds. */
   duration?: number;
   testID?: string;
-  style?: StyleProp<ViewStyle>;
 }
 
 /**
- * A pill toast that slides down from the top inset and auto-dismisses after
- * three seconds (Style Guide §11.9).
+ * The one confirmation toast, as an overlay.
+ *
+ * ★ THIS IS A RE-EXPORT, NOT A SECOND IMPLEMENTATION.
+ *
+ * The original pill was rendered in the page flow, so it pushed the content
+ * around while it was visible. Every call site now uses `OverlayToast`; this
+ * alias exists so the import name stays stable and there is exactly one
+ * behaviour to maintain.
  */
-export function Toast({
-  message,
-  visible,
-  onDismiss,
-  tone = 'neutral',
-  duration = 3000,
-  testID,
-  style,
-}: ToastProps) {
-  const { t } = useTheme();
-
-  useEffect(() => {
-    if (!visible) return;
-    const timer = setTimeout(onDismiss, duration);
-    return () => clearTimeout(timer);
-  }, [visible, duration, onDismiss]);
-
-  if (!visible) return null;
-
-  const toneColor =
-    tone === 'success'
-      ? t.success
-      : tone === 'warning'
-        ? t.warning
-        : tone === 'danger'
-          ? t.danger
-          : t.textMuted;
-
+export function Toast({ message, visible, onDismiss, tone = 'neutral', duration = 3000, testID }: ToastProps) {
   return (
-    <View
+    <OverlayToast
+      message={message}
+      visible={visible}
+      onDismiss={onDismiss}
+      tone={tone}
+      duration={duration}
       testID={testID}
-      accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
-      style={[styles.toast, { backgroundColor: t.surface1 }, style]}
-    >
-      <View style={[styles.iconTile, { backgroundColor: toneColor }]} />
-      <Text variant="body" color={t.text} numberOfLines={2}>
-        {message}
-      </Text>
-    </View>
+    />
   );
 }
 
@@ -120,19 +95,6 @@ export function Banner({
 }
 
 const styles = StyleSheet.create({
-  toast: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
-    borderRadius: radius.pill,
-    paddingHorizontal: space[4],
-    paddingVertical: space[3],
-  },
-  iconTile: {
-    width: space[5],
-    height: space[5],
-    borderRadius: radius.pill,
-  },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',

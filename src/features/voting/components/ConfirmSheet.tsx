@@ -64,7 +64,6 @@ export function ConfirmSheet({
     <BottomSheet
       visible={visible}
       onDismiss={onDismiss}
-      snapPoints={warning ? ['62%'] : ['50%']}
       testID={testID}
     >
       <View style={styles.content}>
