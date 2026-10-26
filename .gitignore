@@ -76,3 +76,9 @@ Thumbs.db
 # Logo exploration and build scratch. The shipped assets live in assets/images/;
 # this folder is local working material and is not part of the repository.
 /design/
+
+# Generated deploy artifacts. api/ is the bundled serverless function and
+# static/ is the composed single-root tree; both are produced at deploy time by
+# scripts/build/bundle-api.mjs and .github/scripts/compose-static.sh.
+/api/
+/static/

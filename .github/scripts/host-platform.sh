@@ -87,21 +87,59 @@ case "$TARGET" in
     # Rewrites are matched IN ORDER, so the longer patterns come first: with
     # `/event/:id/:tab` above `/event/:id/venue/:vid`, a venue URL would match
     # the tab rule and ask for a file that does not exist.
-    cat > "$STATIC/vercel.json" <<'JSON'
+    # ★ THE `/health` RULE EXISTS ONLY WHEN THE FUNCTION DOES.
+    #
+    # Vercel already serves `api/index.mjs` at `/api/health`. The APK's
+    # preflight and `verify-deployment.sh` both check `/health` (no prefix), so
+    # that path needs a rule — but a static-only deploy has no function to send
+    # it to, and a rewrite to a non-existent destination is worse than a plain
+    # 404.
+    HEALTH_RULE=""
+    if [ "${WANT_API:-false}" = "true" ]; then
+      HEALTH_RULE=$',\n    { "source": "/health", "destination": "/api" }'
+    fi
+
+    cat > "$STATIC/vercel.json" <<JSON
 {
   "version": 2,
   "cleanUrls": true,
   "trailingSlash": false,
   "rewrites": [
-    { "source": "/dl/(.*)", "destination": "/dl/$1" },
+    { "source": "/dl/(.*)", "destination": "/dl/\$1" },
     { "source": "/e/:token/location", "destination": "/e/_token/location" },
     { "source": "/e/:token", "destination": "/e/_token" },
     { "source": "/event/:id/venue/:vid", "destination": "/event/_id/venue/_vid" },
     { "source": "/event/:id/:tab", "destination": "/event/_id/:tab" },
-    { "source": "/event/:id", "destination": "/event/_id" }
+    { "source": "/event/:id", "destination": "/event/_id" }${HEALTH_RULE}
   ]
 }
 JSON
+
+    # ★ THE API IS A FUNCTION, AND ONLY WHEN `api=true`.
+    #
+    # `server/runtime/README.md` says the function directory "belongs to the
+    # host, not to this project", so nothing in the repository is named for
+    # Vercel. A Vercel function is one file exporting
+    # `default (request: Request) => Promise<Response>` — exactly the
+    # `web-fetch.ts` convention — so `scripts/build/bundle-api.mjs` emits that
+    # file from the real adapter and this script places it next to the
+    # `vercel.json` it already writes for the same reason.
+    #
+    # `pg` stays external in the bundle, so the function directory needs its own
+    # `package.json` for the platform to install it.
+    if [ "${WANT_API:-false}" = "true" ]; then
+      log "bundling the API function"
+      node scripts/build/bundle-api.mjs
+      mkdir -p "$STATIC/api"
+      cp api/index.mjs "$STATIC/api/index.mjs"
+      cat > "$STATIC/package.json" <<'JSON'
+{
+  "type": "module",
+  "dependencies": { "pg": "^8.13.1" }
+}
+JSON
+      log "api/index.mjs placed ($(wc -c < "$STATIC/api/index.mjs" | tr -d ' ') bytes)"
+    fi
 
     log "vercel deploy --prod"
     OUT="$(cd "$STATIC" && VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
