@@ -78,11 +78,15 @@ env:
 
 jobs:
   # ── 0. Resolve the target, with the same precedence as every other knob ───
+  #
+  # ★ A `uses:` JOB MAY NOT ALSO DECLARE `runs-on` OR `steps`.
+  #
+  # This called the reusable workflow AND set `runs-on`, so GitHub refused the
+  # whole file with `Unexpected value 'uses'` — and because the rejection
+  # happens at parse time, every dispatch died before a single job started. The
+  # reusable workflow brings its own runner.
   resolve:
     name: Resolve config
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
     uses: ./.github/workflows/_resolve-config.yml
     with:
       scope: deploy
