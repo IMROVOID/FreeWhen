@@ -277,5 +277,16 @@ fi
 
 echo "  OK   sha256 $SUM"
 # The publish job re-verifies from this line after downloading every artifact.
-echo "SHA256 $SUM $(basename "$APK")" >> "${SUMS_FILE:-SHA256SUMS.txt}"
+#
+# ★ THE FORMAT IS `sha256sum -c`'s, EXACTLY.
+#
+# This wrote `SHA256 <sum> <name>`, and `sha256sum -c` rejected the whole
+# manifest:
+#
+#   sha256sum: SHA256SUMS.txt: no properly formatted checksum lines found
+#
+# A leading label is not part of the format — `<sum>` then TWO spaces then the
+# filename, or `<sum> *<name>` for binary mode. Anything else is "not a checksum
+# line", so the release could never be published.
+printf '%s  %s\n' "$SUM" "$(basename "$APK")" >> "${SUMS_FILE:-SHA256SUMS.txt}"
 exit 0
