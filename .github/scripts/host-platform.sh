@@ -67,12 +67,16 @@ case "$TARGET" in
     # per-route output is reachable only at `/start.html`, and a catch-all
     # rewrite would serve the home page instead — which is what happened on the
     # first attempt and looked like a 200.
-    # ★ THE DYNAMIC ROUTES NEED AN EXPLICIT REWRITE.
+    # ★ THE DESTINATIONS MUST NOT CONTAIN `[`.
     #
     # `expo export` writes a dynamic route's template to its literal name —
-    # `e/[token].html` — because there are no static params to enumerate. A
-    # static host has nothing that turns `/e/<anything>` into that file, so the
-    # reviewer's own link 404'd while `/e/[token]` answered 200.
+    # `e/[token].html` — and BOTH hosts refuse a rewrite whose destination has a
+    # bracket in it. The rewrite was present in the deployed `vercel.json` and
+    # the target file was present in the deployment, and `/e/<token>` still
+    # 404'd while `/privacy` (no bracket) rewrote correctly.
+    #
+    # So `compose-static.sh` writes a bracket-free alias for each template and
+    # these rules address the alias.
     #
     # Rewrites are matched IN ORDER, so the longer patterns come first: with
     # `/event/:id/:tab` above `/event/:id/venue/:vid`, a venue URL would match
@@ -85,11 +89,11 @@ case "$TARGET" in
   "rewrites": [
     { "source": "/dl/(.*)", "destination": "/dl/$1" },
     { "source": "/privacy", "destination": "/privacy/index.html" },
-    { "source": "/e/:token/location", "destination": "/e/[token]/location.html" },
-    { "source": "/e/:token", "destination": "/e/[token].html" },
-    { "source": "/event/:id/venue/:vid", "destination": "/event/[id]/venue/[vid].html" },
-    { "source": "/event/:id/:tab", "destination": "/event/[id]/[tab].html" },
-    { "source": "/event/:id", "destination": "/event/[id]/index.html" }
+    { "source": "/e/:token/location", "destination": "/e/_token/location.html" },
+    { "source": "/e/:token", "destination": "/e/_token.html" },
+    { "source": "/event/:id/venue/:vid", "destination": "/event/_id/venue/_vid.html" },
+    { "source": "/event/:id/:tab", "destination": "/event/_id/:tab.html" },
+    { "source": "/event/:id", "destination": "/event/_id/index.html" }
   ]
 }
 JSON
@@ -156,17 +160,17 @@ JSON
 
     # ★ NETLIFY'S EQUIVALENT OF THE VERCEL REWRITES.
     #
-    # `expo export` writes a dynamic route's template to its literal name
-    # (`e/[token].html`), so without these rules the reviewer's own link is a
-    # 404 on a perfectly correct deployment. First match wins, longest first.
+    # Same reasoning as the Vercel block: the destination is the bracket-free
+    # alias `compose-static.sh` writes, because a destination containing `[`
+    # does not resolve. First match wins, longest first.
     cat > "$STATIC/_redirects" <<'RULES'
 /dl/*        /dl/:splat        200
 /privacy     /privacy/index.html 200
-/e/:token/location  /e/[token]/location.html  200
-/e/:token    /e/[token].html   200
-/event/:id/venue/:vid  /event/[id]/venue/[vid].html  200
-/event/:id/:tab  /event/[id]/[tab].html  200
-/event/:id   /event/[id]/index.html  200
+/e/:token/location  /e/_token/location.html  200
+/e/:token    /e/_token.html   200
+/event/:id/venue/:vid  /event/_id/venue/_vid.html  200
+/event/:id/:tab  /event/_id/:tab.html  200
+/event/:id   /event/_id/index.html  200
 RULES
 
     # A ZIP deploy is one request; the documented cap is 25,000 extracted files.

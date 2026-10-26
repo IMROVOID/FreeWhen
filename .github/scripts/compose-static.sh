@@ -40,13 +40,46 @@ if [ ! -s "$OUT/dl/freewhen.apk" ]; then
   echo "note: $WEB/dl/freewhen.apk is absent or empty — wrote a placeholder"
 fi
 
+# ★ DYNAMIC ROUTES GET A BRACKET-FREE ALIAS.
+#
+# `expo export` writes a dynamic route's template to its literal name —
+# `e/[token].html` — because there are no static params to enumerate. Vercel and
+# Netlify both REFUSE to rewrite TO a destination containing `[`: `/privacy`
+# rewrote correctly while `/e/:token -> /e/[token].html` returned 404, with the
+# rewrite present in the deployed `vercel.json` and the target file present in
+# the deployment.
+#
+# So each template is copied to a name a rewrite destination can address, and
+# the host rules point at the copy. The originals stay, because the app's own
+# router links to `/e/[token]` only in its development form; nothing serves them
+# in production and leaving them costs a few kilobytes.
+alias_one() {
+  local from="$1" to="$2"
+  if [ -f "$OUT/$from" ]; then
+    mkdir -p "$(dirname "$OUT/$to")"
+    cp "$OUT/$from" "$OUT/$to"
+    echo "  alias   $from -> $to"
+  else
+    echo "  MISSING $from (cannot alias to $to)"
+    missing=1
+  fi
+}
+
+missing=0
+alias_one 'e/[token].html' 'e/_token.html'
+alias_one 'e/[token]/location.html' 'e/_token/location.html'
+alias_one 'event/[id]/index.html' 'event/_id/index.html'
+alias_one 'event/[id]/venue/[vid].html' 'event/_id/venue/_vid.html'
+for tab in activity chat decision map people propose time; do
+  alias_one "event/[id]/$tab.html" "event/_id/$tab.html"
+done
+
 # ★ A MISSING PAGE IS A FAILURE HERE, NOT AT SMOKE-TEST TIME.
 #
 # `dist/` cannot contain `/privacy` and `web/` cannot contain `/start`; if the
 # merge silently produced neither, the deploy would publish a site that 404s the
 # one page a store listing links to.
-missing=0
-for required in index.html start.html privacy/index.html dl/index.html; do
+for required in index.html start.html privacy/index.html dl/index.html e/_token.html; do
   if [ -f "$OUT/$required" ]; then
     echo "  ok      $required"
   else
