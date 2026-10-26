@@ -19,10 +19,14 @@
  * an ESM wrapper. esbuild's CJS output keeps them working, and the Vercel Node
  * runtime loads a CommonJS function natively.
  *
- * ★ `server/runtime/web-fetch.ts` IS THE ENTRY, UNCHANGED.
+ * ★ `server/runtime/fetch-entry.ts` IS THE ENTRY, NOT `web-fetch.ts`.
  *
- * It already implements `default (request: Request) => Promise<Response>`,
- * which is Vercel's convention. Nothing host-specific is added here.
+ * `web-fetch.ts` exports a default handler, and Vercel's Node runtime reads a
+ * default export as `(req, res) => void` — it DISCARDS the returned `Response`.
+ * The function ran, its result went nowhere, and every request hung until the
+ * 30 s timeout. Its own warning names the fix: export a `fetch` function.
+ * `fetch-entry.ts` is three lines that do exactly that and delegate to the
+ * unchanged adapter.
  */
 import { build } from 'esbuild';
 import { mkdirSync } from 'node:fs';
@@ -30,23 +34,19 @@ import { mkdirSync } from 'node:fs';
 mkdirSync('api', { recursive: true });
 
 await build({
-  entryPoints: ['server/runtime/web-fetch.ts'],
+  entryPoints: ['server/runtime/fetch-entry.ts'],
   outfile: 'api/index.js',
   bundle: true,
   platform: 'node',
   target: 'node24',
   format: 'cjs',
   external: ['pg-native'],
-  // ★ THE DEFAULT EXPORT MUST BECOME `module.exports`.
+  // ★ THE `fetch` EXPORT MUST SURVIVE AS A NAMED PROPERTY.
   //
-  // `web-fetch.ts` uses `export default handler`. esbuild's CJS output would put
-  // that on `exports.default`, but a Vercel Node function is the MODULE ITSELF —
-  // it calls `module.exports` as the handler. Without this footer the built file
-  // exports `{ default: [Function] }`, Vercel calls an object, and the request
-  // hangs with nothing in the log.
-  footer: {
-    js: 'module.exports = module.exports.default ?? module.exports;',
-  },
+  // esbuild's CJS output already puts `fetch` on `exports`, and Vercel's Node
+  // runtime looks for exactly that name. Nothing needs moving — an earlier
+  // version reassigned `module.exports` to the default export, which would
+  // remove `fetch` now that the entry exports one.
   logLevel: 'info',
 });
 
