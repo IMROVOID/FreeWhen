@@ -47,7 +47,7 @@ export function ConfirmSheet({
   const { t: theme } = useTheme();
 
   return (
-    <BottomSheet visible={visible} onDismiss={onDismiss} snapPoints={['38%']} testID={testID}>
+    <BottomSheet visible={visible} onDismiss={onDismiss} testID={testID}>
       <View style={styles.content}>
         <Text variant="h2" align="start">
           {title}

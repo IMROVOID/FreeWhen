@@ -36,16 +36,9 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  CalendarCheck,
-  ChatCircleDots,
-  ClockCounterClockwise,
-  Gear,
-  ShareNetwork,
-} from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
-import { Pressy } from '@/src/components/ui/Pressy';
+import { ScreenHeader } from '@/src/components/ui/ScreenHeader';
 import { Text } from '@/src/components/ui/Text';
 import { Banner } from '@/src/components/ui/Toast';
 import { EmptyState } from '@/src/components/states/EmptyState';
@@ -54,6 +47,7 @@ import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { EventManagementModal } from '@/src/features/events/components/EventManagementModal';
 import { EventShareModal } from '@/src/features/events/components/EventShareModal';
+import { QuickActionsGrid } from '@/src/features/events/components/QuickActionsGrid';
 import { deleteEvent, leaveEvent, renameEvent } from '@/src/features/events/services/event-management';
 import { rotateInvite } from '@/src/features/events/services/invite';
 import { extractInviteToken } from '@/src/features/events/utils/invite-token';
@@ -286,7 +280,9 @@ export default function EventHomeScreen() {
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[3], paddingBottom: insets.bottom + space[10] },
+        // No `insets.top` here: `ScreenHeader` applies it, and adding it twice
+        // would double the notch gap.
+        { paddingTop: 0, paddingBottom: insets.bottom + space[10] },
       ]}
       testID="event-home"
     >
@@ -294,9 +290,14 @@ export default function EventHomeScreen() {
           stays readable while it is showing. */}
       {isOffline && <OfflineBanner pendingCount={pendingCount} testID="event-home-offline" />}
 
-      <Text variant="h1" align="start" numberOfLines={3}>
-        {event.title}
-      </Text>
+      {/* ★ A WAY BACK EXISTS. The router header is off for this whole subtree,
+          so before `ScreenHeader` the event home had no exit at all beyond the
+          OS gesture — which a desktop web build does not have. */}
+      <ScreenHeader
+        title={event.title}
+        onBack={() => router.replace('/')}
+        testID="event-home-header"
+      />
 
       <View style={styles.statusRow}>
         <Text variant="caption" color={theme.brand} align="start">
@@ -414,85 +415,18 @@ export default function EventHomeScreen() {
         />
       )}
 
-      {/* Modern, clean Quick Actions grid */}
-      <View style={styles.actionGrid}>
-        <Pressy
-          onPress={() =>
-            router.push({ pathname: '/event/[id]/time', params: { id: event.id, homeTz } })
-          }
-          testID="event-home-slots"
-          accessibilityRole="button"
-          accessibilityLabel={t('slots.heading')}
-          style={styles.actionTile}
-        >
-          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
-            <ClockCounterClockwise size={22} color={theme.text} weight="bold" />
-            <Text variant="caption" color={theme.text} align="center">
-              {t('slots.heading')}
-            </Text>
-          </View>
-        </Pressy>
-
-        <Pressy
-          onPress={() => setShareModalVisible(true)}
-          testID="event-home-share"
-          accessibilityRole="button"
-          accessibilityLabel={t('invite.share')}
-          style={styles.actionTile}
-        >
-          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
-            <ShareNetwork size={22} color={theme.text} weight="bold" />
-            <Text variant="caption" color={theme.text} align="center">
-              {t('invite.share')}
-            </Text>
-          </View>
-        </Pressy>
-
-        <Pressy
-          onPress={() => router.push({ pathname: '/event/[id]/activity', params: { id: event.id } })}
-          testID="event-home-activity"
-          accessibilityRole="button"
-          accessibilityLabel={t('a11y.openActivity')}
-          style={styles.actionTile}
-        >
-          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
-            <CalendarCheck size={22} color={theme.text} weight="bold" />
-            <Text variant="caption" color={theme.text} align="center">
-              {t('a11y.openActivity')}
-            </Text>
-          </View>
-        </Pressy>
-
-        <Pressy
-          onPress={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
-          testID="event-home-chat"
-          accessibilityRole="button"
-          accessibilityLabel={t('chat.title')}
-          style={styles.actionTile}
-        >
-          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
-            <ChatCircleDots size={22} color={theme.text} weight="bold" />
-            <Text variant="caption" color={theme.text} align="center">
-              {t('chat.open')}
-            </Text>
-          </View>
-        </Pressy>
-
-        <Pressy
-          onPress={() => setManagementModalVisible(true)}
-          testID="event-home-management"
-          accessibilityRole="button"
-          accessibilityLabel={t('events.management.title')}
-          style={styles.actionTile}
-        >
-          <View style={[styles.actionTileInner, { backgroundColor: theme.surface2 }]}>
-            <Gear size={22} color={theme.text} weight="bold" />
-            <Text variant="caption" color={theme.text} align="center">
-              {t('events.management.title')}
-            </Text>
-          </View>
-        </Pressy>
-      </View>
+      <QuickActionsGrid
+        onOpenSlots={() =>
+          router.push({ pathname: '/event/[id]/time', params: { id: event.id, homeTz } })
+        }
+        onShare={() => setShareModalVisible(true)}
+        onOpenActivity={() =>
+          router.push({ pathname: '/event/[id]/activity', params: { id: event.id } })
+        }
+        onOpenChat={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
+        onOpenManagement={() => setManagementModalVisible(true)}
+        onOpenSettings={() => router.push('/settings')}
+      />
 
       <EventShareModal
         visible={shareModalVisible}
@@ -550,24 +484,6 @@ const styles = StyleSheet.create({
   action: {
     marginTop: space[6],
     borderRadius: radius.pill,
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space[3],
-    marginTop: space[4],
-  },
-  actionTile: {
-    flex: 1,
-    minWidth: '45%',
-  },
-  actionTileInner: {
-    borderRadius: radius.lg,
-    paddingVertical: space[4],
-    paddingHorizontal: space[3],
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space[2],
   },
   missingAction: {
     marginTop: space[2],

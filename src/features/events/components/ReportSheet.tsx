@@ -73,7 +73,7 @@ export function ReportSheet({ messageId, visible, onDismiss, testID }: ReportShe
   }, [onDismiss]);
 
   return (
-    <BottomSheet visible={visible} onDismiss={close} snapPoints={['50%']} testID={testID}>
+    <BottomSheet visible={visible} onDismiss={close} testID={testID}>
       <View style={styles.body}>
         {done ? (
           <>

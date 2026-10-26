@@ -87,7 +87,7 @@ export function ReopenSheet({
   const shownError = fieldError ?? errorKey;
 
   return (
-    <BottomSheet visible={visible} onDismiss={onDismiss} snapPoints={['55%']} testID={testID}>
+    <BottomSheet visible={visible} onDismiss={onDismiss} testID={testID}>
       <View style={styles.content}>
         <Text variant="h2">{t('reopen.sheetTitle')}</Text>
 
