@@ -250,6 +250,35 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
+      # ★ GRADLE PLUS FOUR ABIs DOES NOT FIT IN THE DEFAULT RUNNER IMAGE.
+      #
+      # The universal build died with
+      #
+      #   System.IO.IOException: No space left on device
+      #
+      # after compiling, which then cancelled the job and took `Publish` with it.
+      # The default Ubuntu image ships ~14 GB free and about half of it is
+      # preinstalled toolchains this project never uses. Removing the largest of
+      # them frees several gigabytes for the NDK/Gradle caches the build needs.
+      #
+      # This is a reclaim, not a gamble: everything listed is re-installable and
+      # the job would otherwise be operating at the edge of the disk the whole
+      # time.
+      - name: Reclaim disk space
+        run: |
+          set -euo pipefail
+          df -h / | tail -1
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /opt/microsoft \
+            2>/dev/null || true
+          sudo apt-get clean || true
+          echo "--- after reclaim ---"
+          df -h / | tail -1
+
       - name: Install dependencies
         run: npm ci
 
