@@ -98,14 +98,13 @@ case "$TARGET" in
     FUNCTIONS_RULE=""
     if [ "${WANT_API:-false}" = "true" ]; then
       HEALTH_RULE=$',\n    { "source": "/health", "destination": "/api" }'
-      FUNCTIONS_RULE=$',\n  "functions": { "api/index.js": { "runtime": "nodejs22.x", "memory": 1024, "maxDuration": 30 } }'
+      FUNCTIONS_RULE=$'"functions": { "api/index.js": { "runtime": "nodejs22.x", "memory": 1024, "maxDuration": 30 } },\n  '
     fi
-
     cat > "$STATIC/vercel.json" <<JSON
 {
   "cleanUrls": true,
-  "trailingSlash": false,${FUNCTIONS_RULE}
-  "rewrites": [
+  "trailingSlash": false,
+  ${FUNCTIONS_RULE}"rewrites": [
     { "source": "/dl/(.*)", "destination": "/dl/\$1" },
     { "source": "/e/:token/location", "destination": "/e/_token/location" },
     { "source": "/e/:token", "destination": "/e/_token" },
