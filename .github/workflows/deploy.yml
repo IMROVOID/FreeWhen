@@ -380,6 +380,15 @@ jobs:
           ORS_API_KEY: ${{ secrets.ORS_API_KEY }}
 
           APP_ORIGIN: ${{ needs.validate.outputs.site }}
+
+          # ★ WITHOUT THIS THE API HALF IS SILENTLY SKIPPED.
+          #
+          # `host-platform.sh` gates the serverless function on `WANT_API`, and
+          # an unset variable reads as "false". A run with `api=true` therefore
+          # deployed a static-only site and the verification then failed on the
+          # missing `/api/health` — the flag looked ignored rather than miswired.
+          WANT_API: ${{ inputs.api }}
+          WANT_WEB: ${{ inputs.web }}
         run: bash .github/scripts/host-platform.sh "$TARGET" "$SHAPE"
 
   # ── 4. Prove the deployment actually works ──────────────────────────────

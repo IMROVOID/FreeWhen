@@ -89,7 +89,7 @@ case "$TARGET" in
     # the tab rule and ask for a file that does not exist.
     # ★ THE `/health` RULE EXISTS ONLY WHEN THE FUNCTION DOES.
     #
-    # Vercel already serves `api/index.mjs` at `/api/health`. The APK's
+    # Vercel already serves `api/index.js` at `/api/health`. The APK's
     # preflight and `verify-deployment.sh` both check `/health` (no prefix), so
     # that path needs a rule — but a static-only deploy has no function to send
     # it to, and a rewrite to a non-existent destination is worse than a plain
@@ -131,14 +131,14 @@ JSON
       log "bundling the API function"
       node scripts/build/bundle-api.mjs
       mkdir -p "$STATIC/api"
-      cp api/index.mjs "$STATIC/api/index.mjs"
+      cp api/index.js "$STATIC/api/index.js"
       cat > "$STATIC/package.json" <<'JSON'
 {
   "type": "module",
   "dependencies": { "pg": "^8.13.1" }
 }
 JSON
-      log "api/index.mjs placed ($(wc -c < "$STATIC/api/index.mjs" | tr -d ' ') bytes)"
+      log "api/index.js placed ($(wc -c < "$STATIC/api/index.js" | tr -d ' ') bytes)"
     fi
 
     log "vercel deploy --prod"
@@ -507,3 +507,4 @@ JSON
 esac
 
 echo "deployed $TARGET ($SHAPE) -> ${SITE:-$PUBLIC_ORIGIN}"
+

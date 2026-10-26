@@ -24,7 +24,7 @@ mkdirSync('api', { recursive: true });
 
 await build({
   entryPoints: ['server/runtime/web-fetch.ts'],
-  outfile: 'api/index.mjs',
+  outfile: 'api/index.js',
   bundle: true,
   platform: 'node',
   target: 'node22',
@@ -37,4 +37,5 @@ await build({
   logLevel: 'info',
 });
 
-console.log('api/index.mjs written');
+console.log('api/index.js written');
+
