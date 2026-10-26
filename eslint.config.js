@@ -171,9 +171,21 @@ export default tseslint.config(
     },
   },
   {
-    files: ['scripts/**/*.{ts,tsx}'],
+    files: ['scripts/**/*.{ts,tsx,mjs}'],
     rules: {
       'no-console': 'off',
+    },
+  },
+  {
+    // A `.mjs` build script has no TypeScript block above to declare its Node
+    // globals, so `console` reads as undefined. Declaring them here rather than
+    // ignoring the directory keeps every real error in `scripts/` reportable.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+      },
     },
   },
   {

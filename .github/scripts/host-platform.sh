@@ -125,19 +125,17 @@ JSON
     # file from the real adapter and this script places it next to the
     # `vercel.json` it already writes for the same reason.
     #
-    # `pg` stays external in the bundle, so the function directory needs its own
-    # `package.json` for the platform to install it.
+    # `pg` is INLINED, so no package.json ships.
+    #
+    # An earlier version left it external and wrote a package.json for the
+    # platform to install. Vercel restored a build cache, printed
+    # `Installing dependencies... up to date in 456ms`, installed nothing, and
+    # the function then hung on its first request with no error in the log.
     if [ "${WANT_API:-false}" = "true" ]; then
       log "bundling the API function"
       node scripts/build/bundle-api.mjs
       mkdir -p "$STATIC/api"
       cp api/index.js "$STATIC/api/index.js"
-      cat > "$STATIC/package.json" <<'JSON'
-{
-  "type": "module",
-  "dependencies": { "pg": "^8.13.1" }
-}
-JSON
       log "api/index.js placed ($(wc -c < "$STATIC/api/index.js" | tr -d ' ') bytes)"
     fi
 
