@@ -212,9 +212,9 @@ jobs:
   # ── 3. One job per ABI, plus the universal build ─────────────────────────
   build:
     name: Build ${{ matrix.arch }}
-    needs: [resolve, preflight]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # A universal build compiles FOUR ABIs in one Gradle run and exceeded the old
+    # 60-minute ceiling, which cancelled the job AFTER it had done the work.
+    timeout-minutes: 120
     permissions:
       contents: read
     strategy:
@@ -371,6 +371,14 @@ jobs:
   release:
     name: Publish ${{ needs.resolve.outputs.release_mode }}
     needs: [resolve, build]
+    # ★ ONE FAILED ABI MUST NOT VOID THE ONES THAT BUILT.
+    #
+    # `needs: [build]` skips this job unless EVERY matrix job succeeded, so a
+    # single cancelled or failed ABI discarded four good APKs — a run that had
+    # already done the work published nothing. The checksums step below still
+    # refuses to publish an empty or unverifiable set, so this widens what MAY be
+    # published, not what is ALLOWED to be.
+    if: always() && needs.resolve.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
