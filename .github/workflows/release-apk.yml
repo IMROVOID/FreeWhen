@@ -403,6 +403,14 @@ jobs:
           EXPECTED_HOST: ${{ needs.resolve.outputs.mode == 'production' && vars.FREEWHEN_SERVER_URL || '' }}
           REQUIRE_RELEASE_SIGNING: '1'
           ANDROID_HOME: ${{ steps.sdk.outputs.sdk }}
+          # ★ EACH JOB WRITES ITS OWN MANIFEST.
+          #
+          # All five wrote `SHA256SUMS.txt` into their own artifact, and
+          # `download-artifact` with `merge-multiple` puts same-named files in
+          # one directory — so four were silently overwritten and the published
+          # manifest carried a single line. A manifest that names one of five
+          # APKs is worse than none: it looks like a verification aid.
+          SUMS_FILE: SHA256SUMS-${{ matrix.arch }}.txt
         run: |
           set -euo pipefail
           bash .github/scripts/validate-apk.sh \
@@ -419,7 +427,7 @@ jobs:
           # job boundary.
           path: |
             ${{ steps.name.outputs.path }}
-            SHA256SUMS.txt
+            SHA256SUMS-${{ matrix.arch }}.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -471,13 +479,23 @@ jobs:
           fi
           cd release
           ls -la
-          if [ ! -f SHA256SUMS.txt ]; then
-            echo "::error::no SHA256SUMS.txt was uploaded — refusing to publish"
+
+          # ★ COMBINE THE PER-ABI MANIFESTS INTO ONE.
+          #
+          # Each matrix job writes `SHA256SUMS-<arch>.txt`. Merging them here is
+          # what makes the published manifest cover every APK — reading a single
+          # shared name would have kept whichever job finished last.
+          shopt -s nullglob
+          parts=(SHA256SUMS-*.txt)
+          if [ "${#parts[@]}" -eq 0 ]; then
+            echo "::error title=Nothing to publish::no per-ABI checksum manifest was uploaded."
             exit 1
           fi
-          # Every matrix job appends its own line; duplicates are harmless to
-          # `-c` but make the file unreadable as a manifest.
-          sort -u SHA256SUMS.txt -o SHA256SUMS.txt
+          cat "${parts[@]}" | sort -u > SHA256SUMS.txt
+          rm -f "${parts[@]}"
+
+          echo "--- SHA256SUMS.txt ---"
+          cat SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
           echo "verified $(ls -1 ./*.apk 2>/dev/null | wc -l | tr -d ' ') APK(s)"
 
