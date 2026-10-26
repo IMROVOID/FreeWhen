@@ -95,15 +95,16 @@ case "$TARGET" in
     # it to, and a rewrite to a non-existent destination is worse than a plain
     # 404.
     HEALTH_RULE=""
+    FUNCTIONS_RULE=""
     if [ "${WANT_API:-false}" = "true" ]; then
       HEALTH_RULE=$',\n    { "source": "/health", "destination": "/api" }'
+      FUNCTIONS_RULE=$',\n  "functions": { "api/index.js": { "runtime": "nodejs22.x", "memory": 1024, "maxDuration": 30 } }'
     fi
 
     cat > "$STATIC/vercel.json" <<JSON
 {
-  "version": 2,
   "cleanUrls": true,
-  "trailingSlash": false,
+  "trailingSlash": false,${FUNCTIONS_RULE}
   "rewrites": [
     { "source": "/dl/(.*)", "destination": "/dl/\$1" },
     { "source": "/e/:token/location", "destination": "/e/_token/location" },
