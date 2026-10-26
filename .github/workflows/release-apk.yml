@@ -398,9 +398,9 @@ jobs:
               echo "draft $TAG exists — replacing its assets"
               gh release delete-asset "$TAG" --yes '*FreeWhen-*.apk' 2>/dev/null || true
               gh release delete-asset "$TAG" --yes 'SHA256SUMS.txt' 2>/dev/null || true
-              gh release edit "$TAG" --draft --title "FreeWhen $TAG" --notes-file "$NOTES"
+              gh release edit "$TAG" --draft --prerelease --title "FreeWhen $TAG" --notes-file "$NOTES"
             else
-              gh release create "$TAG" --draft --title "FreeWhen $TAG" --notes-file "$NOTES"
+              gh release create "$TAG" --draft --prerelease --title "FreeWhen $TAG" --notes-file "$NOTES"
             fi
             gh release upload "$TAG" release/*.apk release/SHA256SUMS.txt --clobber
           else

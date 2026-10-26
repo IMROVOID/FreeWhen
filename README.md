@@ -274,18 +274,20 @@ a name nobody predicted" is how the wrong artifact ships.
 [`release-apk.yml`](.github/workflows/release-apk.yml) does this in one dispatch:
 
 ```
-FreeWhen-v1.0.0-armeabi-v7a.apk
-FreeWhen-v1.0.0-arm64-v8a.apk
-FreeWhen-v1.0.0-x86.apk
-FreeWhen-v1.0.0-x86_64.apk
-FreeWhen-v1.0.0-universal.apk
+FreeWhen-v0.1.0-armeabi-v7a.apk
+FreeWhen-v0.1.0-arm64-v8a.apk
+FreeWhen-v0.1.0-x86.apk
+FreeWhen-v0.1.0-x86_64.apk
+FreeWhen-v0.1.0-universal.apk
 SHA256SUMS.txt
 ```
 
 Three properties are load-bearing and none of them existed before:
 
-- **A draft is the default.** `release_mode=publish` is a separate, deliberate
-  choice. Overwriting an existing published tag needs
+- **A draft prerelease is the default.** `release_mode=publish` is a separate,
+  deliberate choice. A draft is also flagged `--prerelease`, so a `v0.x.0` tag
+  never presents itself to `--latest` consumers as a stable release.
+  Overwriting an existing published tag needs
   `FREEWHEN_OVERWRITE_RELEASE=true` as well, so re-publishing cannot happen by
   accident.
 - **Every APK is verified before it is uploaded.** `verify-apk` checks the file

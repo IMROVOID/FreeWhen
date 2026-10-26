@@ -128,6 +128,51 @@ echo "== 3/4  prebuild + assembleRelease =="
 # every build.
 npx expo prebuild --platform android --no-install
 
+# ★ `-PreactNativeArchitectures` NO LONGER SELECTS WHAT LANDS IN THE APK.
+#
+# React Native 0.81+ links its native code from PREBUILT artifacts, so the
+# `reactNativeArchitectures` property stopped gating packaging. A build invoked
+# with `-PreactNativeArchitectures=x86_64` still produced a 52 MB
+# `app-release.apk` carrying no `lib/x86_64/` at all, which `validate-apk.sh`
+# correctly refused:
+#
+#   is labelled x86_64 but contains no lib/x86_64/ — the architecture was not built in
+#
+# `ndk.abiFilters` is the supported mechanism and is what the packaging step
+# actually reads. It is injected into the generated `app/build.gradle` because
+# `android/` is produced by `prebuild` on every build and is not tracked, so a
+# committed edit there would not survive.
+#
+# When `APK_ARCHS` is empty (the universal build) nothing is filtered and every
+# ABI is packaged.
+if [[ -n "${APK_ARCHS:-}" ]]; then
+  ABI_LIST="$(printf '%s' "$APK_ARCHS" | tr ',' '\n' | sed 's/^/"/; s/$/"/' | paste -sd, -)"
+  echo "   abiFilters: [$ABI_LIST]"
+
+  python3 - "$ABI_LIST" <<'PY'
+import re
+import sys
+
+abis, = sys.argv[1:]
+path = 'android/app/build.gradle'
+source = open(path, encoding='utf-8').read()
+
+# Anchored immediately after the opening brace of `defaultConfig`, which is the
+# block every Android app module has exactly one of.
+marker = re.search(r'^\s*defaultConfig\s*\{', source, re.M)
+if marker is None:
+    sys.exit('build-apk.sh: no defaultConfig block in android/app/build.gradle')
+
+insertion = (
+    '\n        // Injected by scripts/build/build-apk.sh — select the packaged ABIs.\n'
+    f'        ndk {{ abiFilters {abis} }}\n'
+)
+source = source[: marker.end()] + insertion + source[marker.end():]
+open(path, 'w', encoding='utf-8').write(source)
+print('   injected ndk.abiFilters into android/app/build.gradle')
+PY
+fi
+
 # The signing config is written into gradle.properties, which is gitignored.
 # A committed keystore password is the single worst credential to leak here: it
 # is unrotatable without shipping an app update that nobody can install.
