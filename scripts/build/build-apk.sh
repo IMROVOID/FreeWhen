@@ -82,14 +82,20 @@ if [[ "${APK_ARCHS:-}" == "universal" ]]; then
   UNIVERSAL_APK=1
 fi
 
-# The output this run is expected to produce. Resolved BEFORE the Gradle call so
-# the failure path can list what *was* produced against what was expected.
+# ★ THE OUTPUT IS ALWAYS `app-release.apk`, WHATEVER `APK_ARCHS` SAYS.
+#
+# This used to expect `app-${APK_ARCHS}-release.apk`, on the theory that Gradle
+# suffixes the artifact per ABI. It does not: the template `expo prebuild`
+# generates has no `splits` block and no `archivesBaseName` of its own, so
+# `assembleRelease` writes one un-suffixed APK in every case. `-P
+# reactNativeArchitectures=x86` selects WHICH ABIs go INSIDE that APK; it does not
+# rename it.
+#
+# The old expectation made every per-ABI run fail after a successful build
+# ("expected app-x86-release.apk and it is not there — the Gradle task did not
+# run") on a run whose log ended in BUILD SUCCESSFUL.
 APK_OUTPUT_DIR=android/app/build/outputs/apk/release
-if [[ -n "${APK_ARCHS:-}" ]]; then
-  DIST_APK="$APK_OUTPUT_DIR/app-${APK_ARCHS}-release.apk"
-else
-  DIST_APK="$APK_OUTPUT_DIR/app-release.apk"
-fi
+DIST_APK="$APK_OUTPUT_DIR/app-release.apk"
 
 echo "== 1/4  release gates =="
 # Both artifacts are built from the same source, and a key that reaches the APK
@@ -148,13 +154,21 @@ else
   echo "   architectures: all (universal) -> $(basename "$DIST_APK")"
 fi
 
+# ★ A STALE APK WOULD PASS THE EXISTENCE CHECK.
+#
+# The artifact name is the same for every run now, so a previous build's
+# `app-release.apk` sitting in the output directory would satisfy the check below
+# even if THIS run produced nothing — and the wrong ABI mix would ship under the
+# right name. Clearing it first makes the file's presence proof that Gradle wrote
+# it.
+rm -f "$DIST_APK"
+
 if [[ "${SKIP_GRADLE:-0}" == "1" ]]; then
   echo "   skipped (SKIP_GRADLE=1) — no artifact was produced"
   exit 0
 fi
 
 ( cd android && ./gradlew assembleRelease ${ARCH_ARGS[@]+"${ARCH_ARGS[@]}"} )
-
 echo "== 4/4  stage the artifact =="
 if [[ ! -f "$DIST_APK" ]]; then
   echo "expected ${DIST_APK} and it is not there — the Gradle task did not run" >&2
