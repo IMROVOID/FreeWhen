@@ -82,3 +82,8 @@ Thumbs.db
 # scripts/build/bundle-api.mjs and .github/scripts/compose-static.sh.
 /api/
 /static/
+
+# Metro/Expo dev-server output. Written wherever `expo start` is run;
+# untracked build noise, never part of the repository.
+metro.log
+metro.err
