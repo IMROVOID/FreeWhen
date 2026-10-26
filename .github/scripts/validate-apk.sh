@@ -53,6 +53,52 @@ PY
   fi
 }
 
+# ★ ASK THE ARCHIVE, DO NOT PIPE A STRING OF EVERY ENTRY.
+#
+# The membership checks used to be `printf '%s\n' "$ENTRIES" | grep -q …`.
+# That is correct for a small file and wrong for a universal APK: it carries
+# every ABI's native libraries and tens of thousands of entries, the captured
+# string reaches shell limits, and `grep -q` closes the pipe early — the run
+# reported
+#
+#   printf: write error: Broken pipe
+#   FreeWhen-v0.1.0-universal.apk is missing classes.dex
+#
+# on a 147 MB APK that plainly contained `classes.dex`. The artifact was fine;
+# the check was not. This asks the archive one name at a time, so size stops
+# mattering.
+has_member() {
+  local apk="$1" pattern="$2"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -Z1 "$apk" 2>/dev/null | grep -qxF "$pattern"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$apk" "$pattern" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    sys.exit(0 if sys.argv[2] in z.namelist() else 1)
+PY
+  else
+    return 2
+  fi
+}
+
+# Whether ANY entry matches a substring — for `lib/<abi>/`, where the exact
+# member name varies with every native dependency.
+has_member_matching() {
+  local apk="$1" pattern="$2"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -Z1 "$apk" 2>/dev/null | grep -qF "$pattern"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$apk" "$pattern" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    sys.exit(0 if any(sys.argv[2] in name for name in z.namelist()) else 1)
+PY
+  else
+    return 2
+  fi
+}
+
 read_member() {
   if command -v unzip >/dev/null 2>&1; then
     unzip -p "$1" "$2" 2>/dev/null
@@ -96,7 +142,7 @@ ENTRIES="$(list_entries "$APK")" || fail "$(basename "$APK") is not a readable z
 [ "$SIZE_BYTES" -gt 1048576 ] || fail "$(basename "$APK") is ${SIZE_BYTES} bytes; an installable APK is never under 1 MB"
 
 for required in AndroidManifest.xml classes.dex resources.arsc; do
-  printf '%s\n' "$ENTRIES" | grep -qxF "$required" \
+  has_member "$APK" "$required" \
     || fail "$(basename "$APK") is missing $required"
 done
 pass "archive contains AndroidManifest.xml, classes.dex, resources.arsc"
@@ -114,7 +160,7 @@ else
 fi
 
 for abi in $REQUIRED_ABIS; do
-  printf '%s\n' "$ENTRIES" | grep -q "lib/$abi/" \
+  has_member_matching "$APK" "lib/$abi/" \
     || fail "$(basename "$APK") is labelled $ARCH but contains no lib/$abi/ — the architecture was not built in"
 done
 pass "native libraries present for: $REQUIRED_ABIS"
@@ -122,7 +168,7 @@ pass "native libraries present for: $REQUIRED_ABIS"
 if [ "$ARCH" != "universal" ]; then
   for other in arm64-v8a armeabi-v7a x86 x86_64; do
     [ "$other" = "$ARCH" ] && continue
-    if printf '%s\n' "$ENTRIES" | grep -q "lib/$other/"; then
+    if has_member_matching "$APK" "lib/$other/"; then
       fail "$(basename "$APK") claims to be $ARCH but also contains lib/$other/; a per-ABI APK carries one ABI"
     fi
   done
@@ -205,8 +251,10 @@ fi
 if [ -n "$EXPECTED_HOST" ]; then
   found=0
   # Hermes emits `assets/index.android.bundle`; a non-Hermes build puts the JS
-  # in `classes.dex`. Check whichever is present rather than requiring one.
-  for member in $(printf '%s\n' "$ENTRIES" | grep -oE 'assets/index\.android\.bundle|classes\.dex' || true); do
+  # in `classes.dex`. Check whichever is present rather than requiring one — and
+  # try both names directly, rather than filtering a 147 MB entry list through
+  # `grep -o` first.
+  for member in assets/index.android.bundle classes.dex; do
     if read_member "$APK" "$member" | grep -qaF "$EXPECTED_HOST"; then
       found=1
       break

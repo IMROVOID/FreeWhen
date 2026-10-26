@@ -177,6 +177,15 @@ fi
 # A committed keystore password is the single worst credential to leak here: it
 # is unrotatable without shipping an app update that nobody can install.
 GRADLE_PROPS=android/gradle.properties
+
+# Gradle takes the LAST value for a duplicated key, so appending would work — but
+# a file that states two different memory ceilings is a file nobody can read.
+# The generated originals are removed before the overrides are appended.
+sed -i.bak -E \
+  -e '/^org\.gradle\.(jvmargs|parallel|workers\.max|caching|daemon)=/d' \
+  "$GRADLE_PROPS"
+rm -f "$GRADLE_PROPS.bak"
+
 {
   echo ""
   echo "# Written by scripts/build/build-apk.sh — gitignored, never committed."
@@ -184,6 +193,19 @@ GRADLE_PROPS=android/gradle.properties
   echo "FREE_WHEN_RELEASE_STORE_PASSWORD=${FREE_WHEN_RELEASE_STORE_PASSWORD:-}"
   echo "FREE_WHEN_RELEASE_KEY_ALIAS=${FREE_WHEN_RELEASE_KEY_ALIAS:-freewhen}"
   echo "FREE_WHEN_RELEASE_KEY_PASSWORD=${FREE_WHEN_RELEASE_KEY_PASSWORD:-${FREE_WHEN_RELEASE_STORE_PASSWORD:-}}"
+  # ★ THE DAEMON MUST FIT BESIDE THE BUILD.
+  #
+  # The template asks for a 2 GB heap plus a 512 MB metaspace ceiling, and the
+  # daemon was being restarted mid-run ("The daemon will restart for the next
+  # build, which may increase subsequent build times") — a restart re-runs
+  # configuration for nothing. The ceiling is raised so the daemon survives a
+  # multi-ABI compile, and parallelism is capped so the heap is not shared by
+  # more workers than it can hold.
+  echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError"
+  echo "org.gradle.parallel=true"
+  echo "org.gradle.workers.max=2"
+  echo "org.gradle.caching=true"
+  echo "org.gradle.daemon=true"
 } >> "$GRADLE_PROPS"
 
 # ★ THE GENERATED GRADLE SIGNS RELEASE BUILDS WITH THE DEBUG KEY.

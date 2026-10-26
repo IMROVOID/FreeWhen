@@ -245,6 +245,20 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
+      # ★ THE FIVE JOBS ARE INDEPENDENT, SO THE EXPENSIVE PART IS NOT CPU — IT IS
+      # THE FIRST RUN OF A COLD BUILD.
+      #
+      # Every matrix job used to compile the Expo/React Native Gradle plugin
+      # stack from source before touching the app: roughly ten minutes of the
+      # twenty-five, repeated five times. `setup-gradle` restores that from a
+      # cache keyed on the build files, and reads and writes the cache across
+      # jobs in the same run.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          # A shared key so the per-ABI jobs warm each other rather than five
+          # independent cold caches.
+          cache-read-only: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
