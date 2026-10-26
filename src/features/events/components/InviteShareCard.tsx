@@ -13,9 +13,9 @@ import { Copy, ShareNetwork } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { OverlayToast } from '@/src/components/ui/OverlayToast';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
-import { Toast } from '@/src/components/ui/Toast';
 import { border, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import { extractInviteToken } from '@/src/features/events/utils/invite-token';
@@ -151,7 +151,11 @@ export function InviteShareCard({
         />
       )}
 
-      <Toast
+      {/* ★ AN OVERLAY, NOT A ROW IN THIS CARD.
+          Rendered in place, the confirmation appeared BETWEEN the URL card and
+          the next button and pushed them apart for three seconds. It now floats
+          over the screen and leaves the layout untouched. */}
+      <OverlayToast
         message={toastMessage ?? ''}
         visible={toastMessage !== null}
         onDismiss={() => setToastMessage(null)}

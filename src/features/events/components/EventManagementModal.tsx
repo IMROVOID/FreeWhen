@@ -8,7 +8,7 @@ import { Button } from '@/src/components/ui/Button';
 import { ConfirmSheet } from '@/src/components/ui/ConfirmSheet';
 import { Input } from '@/src/components/ui/Input';
 import { Text } from '@/src/components/ui/Text';
-import { Toast } from '@/src/components/ui/Toast';
+import { OverlayToast } from '@/src/components/ui/OverlayToast';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -102,12 +102,7 @@ export function EventManagementModal({
 
   return (
     <>
-      <BottomSheet
-        visible={visible}
-        onDismiss={onDismiss}
-        snapPoints={isOwner ? ['65%'] : ['40%']}
-        testID={testID}
-      >
+      <BottomSheet visible={visible} onDismiss={onDismiss} testID={testID}>
         <View style={styles.container}>
           <Text variant="h3" align="start">
             {t('events.management.title')}
@@ -180,7 +175,7 @@ export function EventManagementModal({
         testID="event-management-confirm"
       />
 
-      <Toast
+      <OverlayToast
         message={toastMessage ?? ''}
         visible={toastMessage !== null}
         onDismiss={() => setToastMessage(null)}

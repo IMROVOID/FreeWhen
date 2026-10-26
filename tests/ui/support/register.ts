@@ -46,6 +46,10 @@ const ALIASES: Record<string, string> = {
   'react-native-reanimated': JOIN_SUPPORT('reanimated-stub.ts'),
   'expo-clipboard': JOIN_SUPPORT('clipboard-stub.ts'),
   'react-native-svg': JOIN_SUPPORT('svg-stub.ts'),
+  // Reaches for `NativeModules.getEnforcing` at import time, which Node lacks.
+  'react-native-gesture-handler': JOIN_SUPPORT('gesture-handler-stub.ts'),
+  // Loads a native view through `codegenNativeComponent`, which Node cannot parse.
+  'react-native-safe-area-context': JOIN_SUPPORT('safe-area-stub.ts'),
 };
 
 /** An absolute path to a file in this directory, for the resolver. */
