@@ -76,10 +76,15 @@ export function Input({
           style={[
             styles.input,
             multiline ? styles.inputMultiline : null,
+            hiddenOutline,
             {
               color: t.text,
               fontFamily: isFa ? fonts.persian[500] : fonts.latin[500],
-              textAlign: isFa ? 'right' : 'left',
+              // `start` rather than a literal side: the field already declares
+              // `direction` from its content, so the caret follows the text
+              // instead of a hardcoded side that would not mirror.
+              textAlign: 'start',
+              writingDirection: isFa ? 'rtl' : 'ltr',
             },
           ]}
         />
@@ -93,6 +98,22 @@ export function Input({
     </View>
   );
 }
+
+/**
+ * ★ ONLY THE COMPONENT'S OWN FOCUS BORDER.
+ *
+ * On web the `<input>` drew the browser's default outline AND the field's
+ * styled `borderWidth: 2` on focus, so a black box framed the themed one.
+ *
+ * Two constraints shape this: `outline` is a rejected shortform in
+ * react-native-web's validator (longhands only), and React Native types
+ * `outlineStyle` without a `none` member, so the value is asserted locally.
+ * Native ignores both keys.
+ */
+const hiddenOutline = {
+  outlineStyle: 'none',
+  outlineWidth: 0,
+} as unknown as import('react-native').TextStyle;
 
 const styles = StyleSheet.create({
   container: {

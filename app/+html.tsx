@@ -3,7 +3,7 @@
 import { ScrollViewStyleReset, useServerDocumentContext } from 'expo-router/html';
 
 import { resolveLanguage } from '@/src/app-bootstrap';
-import { palette } from '@/src/theme/tokens';
+import { palette, themes } from '@/src/theme/tokens';
 
 /**
  * This file is web-only and configures the root HTML for every web page
@@ -14,6 +14,16 @@ import { palette } from '@/src/theme/tokens';
  * runtime `applyDirection()` alone would produce a document that paints LTR
  * and then flips — visible on a slow connection, and exactly the bug PRD-10
  * D11 exists to prevent (PRD-18 AC-18.7.1).
+ *
+ * ★ THE DOCUMENT ITSELF NEEDS A BACKGROUND.
+ *
+ * `ScrollViewStyleReset` ships `#root,body,html{height:100%}` and no colour, so
+ * the canvas stayed browser-white. The app paints `t.bg` on its content
+ * container, which covers the viewport only while content fills it — leaving
+ * white bands on a short screen (the event list) and behind every overscroll.
+ *
+ * The media query means the pre-hydration canvas already matches the user's OS
+ * preference, which is the same rule `useTheme` applies once React is running.
  */
 export default function Root({ children }: { children: React.ReactNode }) {
   const { bodyAttributes, bodyNodes, htmlAttributes, headNodes } = useServerDocumentContext();
@@ -37,9 +47,35 @@ export default function Root({ children }: { children: React.ReactNode }) {
         <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
         <meta name="theme-color" content={palette.espresso} />
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="FreeWhen" />
+
+        {/* ★ THE CANVAS COLOUR AND THE FOCUS RING.
+            Dark is the default because `useTheme` treats an unknown scheme as
+            dark; the light block only overrides it. `color-scheme` is set with
+            it so form controls and scrollbars follow the same choice instead of
+            rendering a white input on a dark page.
+
+            ★ THE FOCUS RULE IS AN ACCESSIBILITY REQUIREMENT, NOT POLISH.
+            Every control suppresses the browser's default outline (it drew a
+            second ring around buttons that already paint their own surface),
+            which left keyboard users with NO visible focus indicator at all —
+            a WCAG 2.4.7 failure. `:focus-visible` restores one for keyboard
+            navigation only, so a mouse click stays clean while Tab is always
+            visible. It is declared here because react-native-web's style
+            resolver has no pseudo-class support, so no component can express it. */}
+        <style
+          id="freewhen-canvas"
+          dangerouslySetInnerHTML={{
+            __html: [
+              `html,body{background-color:${themes.dark.bg};color-scheme:dark}`,
+              `@media (prefers-color-scheme: light){html,body{background-color:${themes.light.bg};color-scheme:light}}`,
+              `:focus-visible{outline:2px solid ${palette.volt};outline-offset:2px}`,
+            ].join(''),
+          }}
+        />
 
         <ScrollViewStyleReset />
         {headNodes}

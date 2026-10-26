@@ -57,9 +57,32 @@ export function Text({
     ? fonts.persian[resolvedWeight]
     : fonts.latin[resolvedWeight];
 
+  /**
+   * ★ THE CONTAINER NEEDS BOTH `dir` AND `direction`.
+   *
+   * The style's `writingDirection` IS compiled to CSS `direction` by
+   * react-native-web, so the layout direction was never the broken part. What
+   * was missing is the DOM `dir` ATTRIBUTE: RNW reads it from the `dir` PROP and
+   * defaults every non-root container to `dir="auto"`.
+   *
+   * The two are not redundant. `dir` drives bidi resolution for selection,
+   * caret movement, and the default alignment of descendants; `auto` makes the
+   * browser infer direction from the first strong character, which infers wrong
+   * for a Latin code or URL sitting inside a Persian paragraph.
+   *
+   * React Native's own `TextProps` does not declare `dir` (it is a
+   * react-native-web extension), so the component type is widened once here
+   * rather than at every call site. Native ignores the prop.
+   */
+  const dir = type.isPersian ? 'rtl' : 'ltr';
+  const WebText = RNText as unknown as React.ComponentType<
+    RNTextProps & { dir?: 'rtl' | 'ltr' }
+  >;
+
   return (
-    <RNText
+    <WebText
       {...rest}
+      dir={dir}
       maxFontSizeMultiplier={fontScaleCap(variant)}
       style={[
         {
@@ -68,6 +91,7 @@ export function Text({
           lineHeight: type.lineHeight,
           letterSpacing: type.letterSpacing,
           textAlign: align,
+          // Kept for native, where the style is what the layout manager reads.
           writingDirection: type.isPersian ? 'rtl' : 'ltr',
           color: resolveColor(color, theme as unknown as Record<string, string>, theme.text),
         },
@@ -75,6 +99,6 @@ export function Text({
       ]}
     >
       {numeric ? digits(content, digitLocale(i18n.language)) : children}
-    </RNText>
+    </WebText>
   );
 }

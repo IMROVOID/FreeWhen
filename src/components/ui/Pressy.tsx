@@ -138,6 +138,7 @@ export function Pressy({
           hasFlex && styles.fillFlex,
           hasHeight && styles.fillHeight,
           hasWidth && styles.fillWidth,
+          styles.noOutline,
           innerStyle,
         ]}
         onPressIn={(event) => {
@@ -161,6 +162,27 @@ export function Pressy({
   );
 }
 
+/**
+ * ★ NO BROWSER FOCUS RING.
+ *
+ * On web a focused `Pressable` becomes a real `<button>`, and the browser
+ * draws its default outline around it — a second ring on top of the surface
+ * the component already paints. Every Button, chip and tile in the app showed
+ * it, which made focus look like a rendering fault rather than a state.
+ *
+ * ★ TWO CONSTRAINTS THIS SHAPE WORKS AROUND.
+ *
+ *  - `outline` is a rejected SHORTFORM in react-native-web's style validator,
+ *    so the longhands are used or the value is dropped.
+ *  - React Native types `outlineStyle` as `solid | dotted | dashed`, which has
+ *    no `none` member, so the value is asserted rather than widened globally.
+ *    Native ignores both keys, which is why this is safe to send everywhere.
+ */
+const hiddenOutline = {
+  outlineStyle: 'none',
+  outlineWidth: 0,
+} as unknown as ViewStyle;
+
 const styles = StyleSheet.create({
   fillFlex: {
     flex: 1,
@@ -171,4 +193,5 @@ const styles = StyleSheet.create({
   fillWidth: {
     width: '100%',
   },
+  noOutline: hiddenOutline,
 });
