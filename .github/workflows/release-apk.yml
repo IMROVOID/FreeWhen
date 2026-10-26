@@ -295,6 +295,48 @@ jobs:
           echo "path=$TARGET" >> "$GITHUB_OUTPUT"
           echo "name=$TARGET" >> "$GITHUB_OUTPUT"
 
+      - name: Locate the Android SDK
+        id: sdk
+        run: |
+          set -euo pipefail
+          # ★ `ANDROID_HOME` IS NOT SET ON THE RUNNER, AND GRADLE DOES NOT NEED IT.
+          #
+          # Gradle provisions what it needs from the preinstalled SDK, so the
+          # BUILD succeeded while the VERIFY step reported
+          #
+          #   SKIP signature check: apksigner not found under
+          #   cannot verify a release signature without apksigner
+          #
+          # — and with REQUIRE_RELEASE_SIGNING=1 that skip is a hard failure.
+          # The signature is the whole update path, so the check must run rather
+          # than be waived: the SDK location is resolved here and passed on.
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ]; then
+            for candidate in "$HOME/Android/Sdk" /usr/local/lib/android/sdk; do
+              [ -d "$candidate" ] && SDK="$candidate" && break
+            done
+          fi
+          [ -n "$SDK" ] || { echo "::error::no Android SDK found; cannot verify the APK signature"; exit 1; }
+
+          # ★ A GUESS AT THE LOCATION IS NOT A GUARANTEE OF THE BINARY.
+          #
+          # The runner image decides which build-tools are installed, and a hard
+          # -coded list goes stale. If `apksigner` is absent it is installed now
+          # rather than skipped — a release whose signature nobody checked would
+          # install over nothing and fail to update in the field.
+          if ! ls "$SDK"/build-tools/*/apksigner >/dev/null 2>&1; then
+            echo "no apksigner under $SDK — installing build-tools"
+            SDKMANAGER="$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1)"
+            if [ -n "$SDKMANAGER" ]; then
+              yes | "$SDKMANAGER" "build-tools;35.0.0" >/dev/null 2>&1 || true
+            fi
+          fi
+
+          echo "sdk=$SDK" >> "$GITHUB_OUTPUT"
+          echo "SDK: $SDK"
+          ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1 \
+            || { echo "::error::no apksigner under $SDK — the signature check cannot run"; exit 1; }
+
       - name: Verify the APK
         env:
           # ★ THE BUNDLE-URL CHECK IS THE ONE THAT CATCHES A SILENTLY EMPTY VAR.
@@ -304,7 +346,7 @@ jobs:
           # bundle for it.
           EXPECTED_HOST: ${{ needs.resolve.outputs.mode == 'production' && vars.FREEWHEN_SERVER_URL || '' }}
           REQUIRE_RELEASE_SIGNING: '1'
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_HOME: ${{ steps.sdk.outputs.sdk }}
         run: |
           set -euo pipefail
           bash .github/scripts/validate-apk.sh \
