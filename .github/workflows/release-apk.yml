@@ -212,6 +212,18 @@ jobs:
   # ── 3. One job per ABI, plus the universal build ─────────────────────────
   build:
     name: Build ${{ matrix.arch }}
+    # ★ `build` DEPENDS ON `preflight`, AND THAT WAS MISSING.
+    #
+    # Without it the job had no dependency in the graph, so `release` could reach
+    # `needs.build.result` while `build` had not been scheduled — the result read
+    # as neither `success` nor `skipped`, the `always()` guard passed, and
+    # `Publish` ran against an empty `release/` directory:
+    #
+    #   cd: release: No such file or directory
+    #
+    # Preflight exists to refuse a build that cannot work; running the build
+    # before it decided was the bug behind the bug.
+    needs: [resolve, preflight]
     runs-on: ubuntu-latest
     # A universal build compiles FOUR ABIs in one Gradle run and exceeded the old
     # 60-minute ceiling, which cancelled the job AFTER it had done the work.
@@ -405,6 +417,15 @@ jobs:
       - name: Re-verify every checksum
         run: |
           set -euo pipefail
+          # ★ SAY WHY, RATHER THAN LETTING `cd` FAIL.
+          #
+          # The directory is absent when no build produced an artifact — every
+          # matrix job failed, or none ran. `cd: release: No such file or
+          # directory` names a path instead of the problem.
+          if [ ! -d release ]; then
+            echo "::error title=Nothing to publish::no build uploaded an artifact, so there is no release to create."
+            exit 1
+          fi
           cd release
           ls -la
           if [ ! -f SHA256SUMS.txt ]; then
