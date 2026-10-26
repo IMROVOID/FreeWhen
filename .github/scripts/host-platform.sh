@@ -98,7 +98,7 @@ case "$TARGET" in
     FUNCTIONS_RULE=""
     if [ "${WANT_API:-false}" = "true" ]; then
       HEALTH_RULE=$',\n    { "source": "/health", "destination": "/api" }'
-      FUNCTIONS_RULE=$'"functions": { "api/index.js": { "runtime": "nodejs22.x", "memory": 1024, "maxDuration": 30 } },\n  '
+      FUNCTIONS_RULE=$'"functions": { "api/index.js": { "memory": 1024, "maxDuration": 30 } },\n  '
     fi
     cat > "$STATIC/vercel.json" <<JSON
 {

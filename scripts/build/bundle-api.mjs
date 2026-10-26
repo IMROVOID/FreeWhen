@@ -34,7 +34,7 @@ await build({
   outfile: 'api/index.js',
   bundle: true,
   platform: 'node',
-  target: 'node22',
+  target: 'node24',
   format: 'cjs',
   external: ['pg-native'],
   // ★ THE DEFAULT EXPORT MUST BECOME `module.exports`.
