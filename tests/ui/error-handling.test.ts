@@ -12,8 +12,8 @@
  */
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { before, describe, test } from 'node:test';
 
 import { initI18n } from '@/src/i18n';
@@ -83,10 +83,7 @@ describe('the server answers a failure with a code, never internals', () => {
     // time. What is asserted is that the 500 path no longer claims the input
     // was invalid.
     const root = join(import.meta.dirname, '..', '..');
-    const read = (file: string): string =>
-      execFileSync(process.execPath, ['-e', `process.stdout.write(require('fs').readFileSync(${JSON.stringify(file)},'utf8'))`], {
-        encoding: 'utf8',
-      });
+    const read = (file: string): string => readFileSync(file, 'utf8');
 
     const adapter = read(join(root, 'server', 'index.ts'));
     const dispatcher = read(join(root, 'server', 'app.ts'));
@@ -203,23 +200,40 @@ describe('★ no native confirmation dialog is raised anywhere in the app', () =
     // explain why it is gone, so the pattern matches an invocation.
     const root = join(import.meta.dirname, '..', '..');
 
-    // The repo's own ripgrep, so this runs on Windows and Unix alike.
-    const binary = process.env.MIMO_RIPGREP_PATH ?? 'rg';
+    // ★ NO EXTERNAL BINARY.
+    //
+    // This used to shell out to `rg` (or `$MIMO_RIPGREP_PATH`). That binary is
+    // not installed on a GitHub runner, so the test died with
+    // `spawnSync rg ENOENT` — a red suite that said nothing about the code it
+    // was checking. A source scan over two directories is a few hundred files;
+    // reading them in-process is both portable and honest.
+    const offenders: string[] = [];
+    const callPattern = /Alert\.alert\s*\(/;
+    // Build output and dependencies are not source. `src/` is the only place
+    // these could appear, but a stray `dist/` inside it would make the scan
+    // walk thousands of files for nothing.
+    const skipped = new Set(['node_modules', 'dist', '.expo', 'build']);
 
-    let output = '';
-    try {
-      output = execFileSync(
-        binary,
-        ['-n', 'Alert\\.alert\\s*\\(', 'app', 'src', '--glob', '*.ts', '--glob', '*.tsx'],
-        { cwd: root, encoding: 'utf8' },
-      );
-    } catch (error) {
-      // Exit code 1 is "no matches" — the passing case.
-      const status = (error as { status?: number }).status;
-      if (status !== 1) throw error;
-      output = '';
-    }
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (!skipped.has(entry.name)) walk(full);
+          continue;
+        }
+        if (!/\.tsx?$/.test(entry.name)) continue;
 
-    assert.equal(output.trim(), '', `no Alert.alert call may remain:\n${output}`);
+        const lines = readFileSync(full, 'utf8').split(/\r?\n/);
+        lines.forEach((line, index) => {
+          if (callPattern.test(line)) {
+            offenders.push(`${relative(root, full)}:${index + 1}: ${line.trim()}`);
+          }
+        });
+      }
+    };
+
+    for (const dir of ['app', 'src']) walk(join(root, dir));
+
+    assert.deepEqual(offenders, [], `no Alert.alert call may remain:\n${offenders.join('\n')}`);
   });
 });

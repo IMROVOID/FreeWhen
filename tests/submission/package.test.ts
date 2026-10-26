@@ -79,7 +79,26 @@ const REQUIRED_ARTIFACTS: ReadonlyArray<{ path: string; why: string }> = [
   { path: 'docs/evidence/notes/location-denied-walkthrough.md', why: 'the AC-8.1.1 evidence' },
 ];
 
-describe('the submission package contains every required artifact', () => {
+/**
+ * ★ THE SUBMISSION DOCS ARE NOT IN THIS REPOSITORY.
+ *
+ * `docs/` is excluded from git on purpose (`.git/info/exclude`: "Dont Commit or
+ * Push Document files to Remote"). A CI checkout therefore has none of it, and
+ * every assertion below would fail on an absent file rather than on a bad one —
+ * a red build that says nothing about the code.
+ *
+ * The suite still runs, in full, wherever the documents live. `describe.skip`
+ * rather than a silent `if`: the reporter prints the skip, so a reader of a CI
+ * log can see the submission package went unjudged instead of assuming it
+ * passed.
+ */
+const DOCS_AVAILABLE =
+  existsSync(`${ROOT}/docs/QA-CHECKLIST.md`) &&
+  existsSync(`${ROOT}/docs/evidence/test-output/release-gates.txt`);
+
+const suite = DOCS_AVAILABLE ? describe : describe.skip;
+
+suite('the submission package contains every required artifact', () => {
   /**
    * The one artifact this suite cannot judge while it is running.
    *
@@ -109,7 +128,7 @@ describe('the submission package contains every required artifact', () => {
   });
 });
 
-describe('the evidence files carry evidence, not just bytes', () => {
+suite('the evidence files carry evidence, not just bytes', () => {
   test('the gate output names all seven gates and says they passed', () => {
     // Arrange
     const body = assertNonEmpty('docs/evidence/test-output/release-gates.txt');
@@ -196,7 +215,7 @@ describe('the evidence files carry evidence, not just bytes', () => {
   });
 });
 
-describe('the QA checklist is complete', () => {
+suite('the QA checklist is complete', () => {
   /** The bullets that are genuinely unchecked — the standard task-list syntax. */
   function uncheckedBoxesWithText(body: string): string[] {
     return body.split('\n').filter((line) => /^- \[ \] /.test(line));
@@ -319,7 +338,7 @@ describe('the QA checklist is complete', () => {
   });
 });
 
-describe('the package states what it cannot claim', () => {
+suite('the package states what it cannot claim', () => {
   test('the user test log says plainly that the test was not run', () => {
     // Arrange
     const body = assertNonEmpty('docs/USER-TEST-LOG.md');
