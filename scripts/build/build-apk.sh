@@ -186,6 +186,68 @@ GRADLE_PROPS=android/gradle.properties
   echo "FREE_WHEN_RELEASE_KEY_PASSWORD=${FREE_WHEN_RELEASE_KEY_PASSWORD:-${FREE_WHEN_RELEASE_STORE_PASSWORD:-}}"
 } >> "$GRADLE_PROPS"
 
+# ★ THE GENERATED GRADLE SIGNS RELEASE BUILDS WITH THE DEBUG KEY.
+#
+# The template `expo prebuild` writes contains, verbatim:
+#
+#   release {
+#       // Caution! In production, you need to generate your own keystore file.
+#       signingConfig signingConfigs.debug
+#
+# Writing `FREE_WHEN_RELEASE_*` into `gradle.properties` therefore did nothing —
+# nothing read them — and every APK came out debug-signed. `validate-apk.sh`
+# caught it rather than shipping:
+#
+#   is signed with the DEBUG keystore but a release keystore was supplied
+#
+# A release `signingConfig` is injected here, after `prebuild`, because
+# `android/` is regenerated on every build and is not tracked.
+python3 - <<'PY'
+import re
+import sys
+
+path = 'android/app/build.gradle'
+source = open(path, encoding='utf-8').read()
+
+if 'FREE_WHEN_RELEASE_STORE_FILE' in source:
+    print('   signing config already present')
+    sys.exit(0)
+
+# Declare a `release` signing config beside the generated `debug` one.
+configs = re.search(r'^\s*signingConfigs\s*\{', source, re.M)
+if configs is None:
+    sys.exit('build-apk.sh: no signingConfigs block in android/app/build.gradle')
+
+release_config = (
+    '\n        // Injected by scripts/build/build-apk.sh — the real release key.\n'
+    '        release {\n'
+    "            storeFile file(findProperty('FREE_WHEN_RELEASE_STORE_FILE'))\n"
+    "            storePassword findProperty('FREE_WHEN_RELEASE_STORE_PASSWORD')\n"
+    "            keyAlias findProperty('FREE_WHEN_RELEASE_KEY_ALIAS')\n"
+    "            keyPassword findProperty('FREE_WHEN_RELEASE_KEY_PASSWORD')\n"
+    '        }\n'
+)
+source = source[: configs.end()] + release_config + source[configs.end():]
+
+# Point the release build type at it, replacing the debug reference the template
+# puts there. Anchored inside the `buildTypes { release { … } }` block so the
+# `debug` build type keeps its own signing config.
+build_types = re.search(r'^\s*buildTypes\s*\{', source, re.M)
+if build_types is None:
+    sys.exit('build-apk.sh: no buildTypes block in android/app/build.gradle')
+
+release_type = re.compile(
+    r'(^\s*release\s*\{[^}]*?signingConfig\s+)signingConfigs\.debug',
+    re.M | re.S,
+)
+source, replaced = release_type.subn(r'\1signingConfigs.release', source, count=1)
+if replaced != 1:
+    sys.exit('build-apk.sh: could not point the release build type at the release signing config')
+
+open(path, 'w', encoding='utf-8').write(source)
+print('   injected the release signingConfig into android/app/build.gradle')
+PY
+
 # ★ AN EMPTY ARRAY NEEDS THE `${ARR[@]+…}` GUARD UNDER `set -u`.
 #
 # Bash 4.4+ expands an empty `"${ARCH_ARGS[@]}"` to nothing, but bash 3.2 — which
