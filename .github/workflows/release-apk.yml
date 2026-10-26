@@ -212,6 +212,7 @@ jobs:
   # ── 3. One job per ABI, plus the universal build ─────────────────────────
   build:
     name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
     # A universal build compiles FOUR ABIs in one Gradle run and exceeded the old
     # 60-minute ceiling, which cancelled the job AFTER it had done the work.
     timeout-minutes: 120
