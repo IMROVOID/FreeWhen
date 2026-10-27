@@ -50,6 +50,10 @@ const ALIASES: Record<string, string> = {
   'react-native-gesture-handler': JOIN_SUPPORT('gesture-handler-stub.ts'),
   // Loads a native view through `codegenNativeComponent`, which Node cannot parse.
   'react-native-safe-area-context': JOIN_SUPPORT('safe-area-stub.ts'),
+  // A turbo module: importing it reaches for `NativeModules.EventEmitter`.
+  '@react-native-async-storage/async-storage': JOIN_SUPPORT('async-storage-stub.ts'),
+  // `expo-modules-core` reads `globalThis.expo.EventEmitter` at import time.
+  'expo-constants': JOIN_SUPPORT('expo-constants-stub.ts'),
 };
 
 /** An absolute path to a file in this directory, for the resolver. */

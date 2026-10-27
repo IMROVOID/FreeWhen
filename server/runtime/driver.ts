@@ -34,6 +34,7 @@ import { connectionOptions } from '@/server/lib/connection-options';
 import { handleRequest } from '../app';
 import { withRequestQueryable } from '../lib/db-scope';
 import type { Queryable } from '../lib/supabase';
+import { withConnectRetry } from './connect-retry';
 
 /**
  * A hung handshake must not outlive the request.
@@ -208,15 +209,38 @@ export async function runWithClient(
   createClient: ClientFactory,
   request: Request,
 ): Promise<Response> {
-  // ★ A NEW CLIENT PER REQUEST. See the comment above — this is the documented`n  // model for this shape of driver, not a shortcut.
-  const client = createClient(connectionString);
-
   try {
-    await client.connect();
-    // ★ The scope is opened only AFTER connect() succeeds: binding a client
-    // that failed its handshake would let a route query it first and fail with
-    // a driver error instead of the 500 below.
-    return await withRequestQueryable(client, () => handleRequest(request));
+    // ★ THE COLD HANDSHAKE IS THE ONLY PART THAT IS RETRIED.
+    //
+    // A page occasionally loaded as a 500 from `GET /api/events/:id/messages`
+    // and always worked on a second try: the first attempt from a cold isolate
+    // loses its TCP/TLS handshake, and nothing had run yet. `withConnectRetry`
+    // repeats ONLY that failure and hands back a client that connected; the
+    // handler below is invoked exactly once either way, so no work is replayed.
+    return await withConnectRetry(async () => {
+      const client = createClient(connectionString);
+
+      try {
+        await client.connect();
+        // ★ The scope is opened only AFTER connect() succeeds: binding a client
+        // that failed its handshake would let a route query it first and fail
+        // with a driver error instead of the 500 below.
+        return await withRequestQueryable(client, () => handleRequest(request));
+      } finally {
+        // ★ Unconditional, including on a failed or half-open connect.
+        //
+        // A `Client` whose handshake threw can still hold a TCP socket in
+        // `pg`'s internal queue; `end()` on a never-connected client resolves
+        // without touching the network, so there is no case where skipping this
+        // is better than calling it.
+        try {
+          await client.end();
+        } catch {
+          // A close that fails on an already-broken connection is not actionable
+          // and must not mask the original error.
+        }
+      }
+    });
   } catch (error) {
     // The message is deliberately generic: an error string from `pg` can
     // carry a host, a role, or a fragment of SQL. The redaction rule that
@@ -224,18 +248,5 @@ export async function runWithClient(
     const detail = error instanceof Error ? error.message : 'unknown error';
     process.stderr.write(`serverless: request failed: ${detail}\n`);
     return Response.json({ error: 'internal' }, { status: 500 });
-  } finally {
-    // ★ Unconditional, including on a failed or half-open connect.
-    //
-    // A `Client` whose handshake threw can still hold a TCP socket in
-    // `pg`'s internal queue; `end()` on a never-connected client resolves
-    // without touching the network, so there is no case where skipping this
-    // is better than calling it.
-    try {
-      await client.end();
-    } catch {
-      // A close that fails on an already-broken connection is not actionable
-      // and must not mask the original error.
-    }
   }
 }

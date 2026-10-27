@@ -28,9 +28,41 @@
 
 import { z } from 'zod';
 
-import { callerIdFrom, isUuid, json, readJsonBody, validationFailed, wireError } from '../lib/http';
-import { scopedQueryable, type Queryable } from '../lib/supabase';
+import {
+  callerIdFrom,
+  isUuid,
+  json,
+  readJsonBody,
+  validationFailed,
+  wireError,
+} from '../lib/http';
+import { clientIp, limiters } from '../lib/rate-limit';
+import { createAnonymousUser, resolveCaller, scopedQueryable, type Caller, type Queryable } from '../lib/supabase';
 import { DISPLAY_NAME_MAX, DISPLAY_NAME_MIN, VALIDATION } from '../../src/types/event';
+
+/**
+ * The caller, minting an anonymous identity when there is none.
+ *
+ * The same rule `POST /api/events` uses, and the same budget: an identity is
+ * a sign-in as far as abuse is concerned, so it is metered per address whether
+ * it is minted for an event or for a profile.
+ */
+async function callerOrCreate(request: Request): Promise<Caller | null> {
+  const existing = callerIdFrom(request);
+  if (existing && isUuid(existing)) {
+    const caller = await resolveCaller(existing);
+    if (caller) return caller;
+  }
+
+  const limited = limiters.signInByIp.check(`signin:${clientIp(request.headers)}`);
+  if (!limited.allowed) return null;
+
+  const userId = await createAnonymousUser();
+  const caller = await resolveCaller(userId);
+  if (!caller) throw new Error('a freshly created identity could not be resolved');
+
+  return caller;
+}
 
 /**
  * `PUT /api/profile` — one field.
@@ -51,6 +83,17 @@ export const ProfileSchema = z.object({
 /** What the client renders and gates on. */
 export interface ProfileResult {
   nickname: string | null;
+  /**
+   * The caller's identity, when this request established one.
+   *
+   * ★ A MINTED ID THE CLIENT NEVER RECEIVES IS THE SAME 403 NEXT REQUEST.
+   *
+   * Only `PUT` mints; `GET` answers `null` for an identity-less caller because it
+   * has nothing to store. The client persists this value the moment it sees it,
+   * which is what ends the identity-less window rather than deferring it to the
+   * first join.
+   */
+  userId?: string;
 }
 
 /**
@@ -85,10 +128,27 @@ export async function getProfileHandler(request: Request): Promise<Response> {
   return json({ nickname: result.rows[0]?.nickname ?? null } satisfies ProfileResult);
 }
 
-/** `PUT /api/profile` — sets or replaces the caller's nickname. */
+/**
+ * `PUT /api/profile` — sets or replaces the caller's nickname.
+ *
+ * ★ A FIRST-LAUNCH CALLER GETS AN IDENTITY, NOT A 403.
+ *
+ * The nickname gate runs BEFORE anything else in the app, by design — it sits
+ * above the router so no deep link can skip it. But an identity is minted lazily
+ * by the first join or the first event creation, so at that moment the caller has
+ * none. Answering 403 made every first launch show a failed write in the console
+ * and, worse, left `user_profile` empty: the gate fell back to its local cache,
+ * and the next screen that asked for a name had no way to know one existed.
+ *
+ * The response carries the identity it minted, so the client stores it and stops
+ * sending identity-less requests altogether. That is what the reported pair of
+ * 403s (`GET /api/events`, `PUT /api/profile`) was.
+ */
 export async function putProfileHandler(request: Request): Promise<Response> {
-  const userId = callerIdFrom(request);
-  if (!userId || !isUuid(userId)) return wireError('NOT_PARTICIPANT');
+  const caller = await callerOrCreate(request);
+  if (!caller) return wireError('RATE_LIMITED');
+
+  const userId = caller.userId;
 
   const body = await readJsonBody(request);
   if (!body) return validationFailed([{ path: [], message: 'errors.validationFailed' }]);
@@ -124,7 +184,10 @@ export async function putProfileHandler(request: Request): Promise<Response> {
     // The profile is saved; the per-event names reconcile on the next join.
   }
 
-  return json({ nickname: result.rows[0]?.nickname ?? nickname } satisfies ProfileResult);
+  return json({
+    nickname: result.rows[0]?.nickname ?? nickname,
+    userId,
+  } satisfies ProfileResult);
 }
 
 /**

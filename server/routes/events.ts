@@ -117,10 +117,29 @@ export async function createEventHandler(request: Request): Promise<Response> {
   );
 }
 
-/** `GET /api/events` — S1. */
-export async function listEventsHandler(request: Request): Promise<Response> {  const userId = callerIdFrom(request);
+/**
+ * `GET /api/events` — S1.
+ *
+ * ★ NO IDENTITY YET IS AN EMPTY LIST, NOT A 403.
+ *
+ * The home screen lists events before anything has minted an identity, so a
+ * first launch — and every incognito window, which starts with empty storage —
+ * asked this with no `x-user-id` and got 403 in the console for doing nothing
+ * wrong. A caller with no identity provably has no events, which is the same
+ * answer to this question as a caller with none, so it gets the same response.
+ * That is the rule `GET /api/profile` already documents.
+ *
+ * A malformed or unknown id is still refused: that is a bad request, not a new
+ * guest, and answering it with an empty list would hide a broken client.
+ */
+export async function listEventsHandler(request: Request): Promise<Response> {
+  const userId = callerIdFrom(request);
 
-  const caller = userId && isUuid(userId) ? await resolveCaller(userId) : null;
+  if (!userId) return json({ events: [] });
+
+  if (!isUuid(userId)) return wireError('NOT_PARTICIPANT');
+
+  const caller = await resolveCaller(userId);
   if (!caller) return wireError('NOT_PARTICIPANT');
 
   const events = await listMyEvents(caller);

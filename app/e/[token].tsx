@@ -26,7 +26,11 @@ import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { LanguageToggle } from '@/src/features/events/components/LanguageToggle';
 import { JoinForm } from '@/src/features/participants/components/JoinForm';
 import { joinEvent } from '@/src/features/participants/services/join';
-import { saveNicknameOptimistically } from '@/src/features/profile/services/profile';
+import {
+  persistNickname,
+  readCachedNickname,
+  saveNicknameOptimistically,
+} from '@/src/features/profile/services/profile';
 import { resolveInvite } from '@/src/features/events/services/invite';
 import { isApiFailure, isNetworkError } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
@@ -60,6 +64,18 @@ export default function JoinScreen() {
     setPhase('loading');
     const stored = await getStoredUserId();
     setUserId(stored);
+
+    /**
+     * ★ THE NAME FIELD OPENS WITH THE NICKNAME THIS DEVICE ALREADY HAS.
+     *
+     * The gate stands down on this route because the join form asks the same
+     * question — but that is a reason to ask ONCE, not to ask again of someone
+     * who answered the first-launch question ten seconds ago. Their answer was
+     * cached; the field starts from it, and the join is a confirm rather than a
+     * second prompt.
+     */
+    const known = await readCachedNickname();
+    if (known) setName((current) => (current.trim() === '' ? known : current));
 
     try {
       const resolved = await resolveInvite(token, stored);
@@ -98,13 +114,15 @@ export default function JoinScreen() {
 
       // ★ THE JOINED NAME BECOMES THE NICKNAME.
       //
-      // The nickname gate stands down on this route because `JoinForm` already
+      // The nickname gate stands down on this route because the join form already
       // asked the same question, and a join is the moment an identity is minted.
       // Recording the answer here is what lets the rest of the app — settings, the
       // coloured names on proposals and messages — have one before the next launch,
-      // without a second prompt. Cached locally, so a failed write cannot block the
-      // join that already succeeded.
+      // without a second prompt. Cached locally first, so a failed write cannot
+      // block the join that already succeeded, then pushed to the profile, which is
+      // the copy another device can see.
       await saveNicknameOptimistically(trimmed);
+      await persistNickname(trimmed);
 
       router.replace({
         pathname: '/e/[token]/location',

@@ -21,14 +21,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { apiRequest } from '@/src/lib/api';
-import { getStoredUserId } from '@/src/lib/session';
+import { getStoredUserId, storeUserId } from '@/src/lib/session';
 
 /** Where the last known nickname is cached, beside `freewhen.auth_user_id`. */
 export const NICKNAME_STORAGE_KEY = 'freewhen.profile.nickname';
 
 export interface ProfileResponse {
   nickname: string | null;
+  /** Present when the request established an identity the client must store. */
+  userId?: string;
 }
+
+/**
+ * The response shape, exported for the assertion that keeps `userId` on it.
+ *
+ * ★ A MINTED IDENTITY HAS TO COME BACK.
+ *
+ * `PUT /api/profile` mints an identity for a first-launch caller, because the
+ * nickname gate runs before anything that would. If the response did not carry
+ * it, the client would save the name and then send its next request with no id —
+ * which is the reported `GET /api/events` and `PUT /api/profile` 403 pair, and the
+ * reason a nickname chosen on the home page was invisible to the join form.
+ */
+export const ProfileResultShape: Readonly<Record<keyof ProfileResponse, true>> = {
+  nickname: true,
+  userId: true,
+};
 
 /** Reads the cached nickname, without a request. */
 export async function readCachedNickname(): Promise<string | null> {
@@ -84,9 +102,35 @@ export async function saveNickname(nickname: string): Promise<string> {
     body: { nickname: trimmed },
   });
 
+  // ★ THE MINTED IDENTITY IS STORED IMMEDIATELY.
+  //
+  // The profile save is the first thing a new person does, so it is where the
+  // identity is minted. Keeping the id from the response is what makes every
+  // later request — `GET /api/events`, the join, the location save — carry one.
+  if (data.userId) await storeUserId(data.userId);
+
   const stored = data.nickname ?? trimmed;
   await cacheNickname(stored);
   return stored;
+}
+
+/**
+ * Pushes a nickname to the profile after a join already minted the identity.
+ *
+ * ★ THE JOIN IS THE OTHER MOMENT THE SERVER LEARNS A NAME.
+ *
+ * `saveNicknameOptimistically` (below) writes the cache only — deliberately, so a
+ * failed write cannot block a join that already succeeded. That leaves the
+ * `user_profile` row missing for anyone whose first act was to accept an invite,
+ * so the join path is followed by this best-effort hard write. Failure is ignored
+ * for the same reason the optimistic path exists: the join is what mattered.
+ */
+export async function persistNickname(nickname: string): Promise<void> {
+  try {
+    await saveNickname(nickname);
+  } catch {
+    // The cache already holds it — see `saveNicknameOptimistically`.
+  }
 }
 
 /**

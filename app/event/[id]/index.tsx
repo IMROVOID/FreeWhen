@@ -47,6 +47,9 @@ import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { EventManagementModal } from '@/src/features/events/components/EventManagementModal';
+import { StartPointSheet } from '@/src/features/participants/components/StartPointSheet';
+import { listParticipants } from '@/src/features/participants/services/participants';
+import { shouldOfferStartPoint } from '@/src/features/participants/services/start-point-gate';
 import { EventShareModal } from '@/src/features/events/components/EventShareModal';
 import { QuickActionsGrid } from '@/src/features/events/components/QuickActionsGrid';
 import { deleteEvent, leaveEvent, renameEvent } from '@/src/features/events/services/event-management';
@@ -95,6 +98,54 @@ export default function EventHomeScreen() {
   const [event, setEvent] = useState<EventShell | null>(null);
   const [isLoadingEvent, setIsLoadingEvent] = useState(true);
   const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
+
+  /**
+   * The caller's own start-point state, and whether this visit has asked.
+   *
+   * `answered` starts false on every mount: the question is a first-entry
+   * question, and the server cannot tell "never asked" from "chose to skip"
+   * (both are `'none'`), so the local flag is what stops a skip being re-asked
+   * on every visit. The state is fetched once, alongside the participants the
+   * screens below already load.
+   */
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [startPointState, setStartPointState] = useState<string | null>(null);
+  const [startPointAnswered, setStartPointAnswered] = useState(false);
+  const [startPointKnown, setStartPointKnown] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      const stored = await getStoredUserId();
+      if (!active) return;
+      setMyUserId(stored);
+
+      if (!eventId) return;
+
+      try {
+        const entries = await listParticipants(eventId, stored);
+        if (!active) return;
+        setStartPointState(entries.find((entry) => entry.is_self)?.start_point_state ?? null);
+      } catch {
+        // A failed read is "we do not know", not "no start point" — see the gate.
+        if (!active) return;
+        setStartPointState(null);
+      } finally {
+        if (active) setStartPointKnown(true);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [eventId]);
+
+  const askForStartPoint = shouldOfferStartPoint({
+    state: startPointState,
+    ready: startPointKnown && !isLoadingEvent,
+    asked: startPointAnswered,
+  });
 
   const { proposals, isLoading, isReconnecting, errorKey, reload: reloadProposals } = useProposals(eventId);
   const { isOffline, pendingCount } = useOffline();
@@ -504,6 +555,27 @@ export default function EventHomeScreen() {
         onDeleteEvent={handleDelete}
         onLeaveEvent={handleLeave}
         testID="event-management-modal"
+      />
+
+      {/*
+        ★ THE OWNER IS ASKED FOR A STARTING POINT TOO.
+
+        The prompt only ever existed as a route the invite screen replaced itself
+        with after a join, so an organiser — a participant with an `'organizer'`
+        row and no start point, exactly like a member — was the one person in
+        their own event whose travel time the ranking left out. The condition is
+        "I am a participant here and I have not answered", never the role; see
+        `src/features/participants/services/start-point-gate.ts`.
+
+        It is a sheet rather than a redirect because this person has just arrived
+        on the event they created, and moving them off it before they have seen it
+        is a worse answer than asking over it.
+      */}
+      <StartPointSheet
+        visible={askForStartPoint}
+        eventId={eventId}
+        userId={myUserId}
+        onDismiss={() => setStartPointAnswered(true)}
       />
     </ScrollView>
     </PullToSync>
