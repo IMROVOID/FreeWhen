@@ -128,12 +128,38 @@ describe('ensureServerSql memoizes its verification', () => {
     // A raw query count no longer measures "bounded" because one DDL apply is
     // one query per `.sql` file — six now, one when this test was written. The
     // property under test is that the function verifies, applies ONCE, verifies
-    // again and then throws: two catalogue checks, one apply. Anything more
+    // again and then throws: three catalogue checks and one apply. Anything more
     // would be the unbounded retry this exists to rule out.
+    //
+    // ★ THREE CHECKS, BECAUSE THE FIRST ONE GATES THE DDL.
+    //
+    //   1. "are the functions there?" — the answer decides whether to apply at
+    //      all. This is what stops a backend that does not OWN its functions
+    //      from issuing `create or replace` it has no right to run.
+    //   2. after the apply, to see whether it took.
+    //   3. after the retry, which is the one that throws.
     const oneApply = serverSqlFiles().length;
     const catalogueChecks = state.queries - state.applied;
 
     assert.equal(state.applied, oneApply, 'the DDL must run exactly once, not in a loop');
-    assert.equal(catalogueChecks, 2, 'one check before the apply and one after the retry');
+    assert.equal(catalogueChecks, 3, 'one gating check, one after the apply, one after the retry');
+  });
+
+  it('issues no DDL at all when the functions are already present', async () => {
+    // ★ The property that keeps the applier off a backend it cannot write to.
+    //
+    // Every cold start used to re-apply all six files before asking whether it
+    // needed to. Where the server's role is not their owner, `create or replace`
+    // is refused and the first request after each deploy was a 500.
+    const { queryable, state } = countingQueryable({ present: true });
+
+    const { ensureServerSql, resetServerSqlVerification } = await import(
+      '@/server/lib/server-sql'
+    );
+    resetServerSqlVerification();
+
+    await withRequestQueryable(queryable, () => ensureServerSql());
+
+    assert.equal(state.applied, 0, 'a healthy schema must receive no DDL');
   });
 });

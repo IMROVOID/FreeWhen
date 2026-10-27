@@ -177,6 +177,48 @@ export async function ensureServerSql(): Promise<void> {
 }
 
 async function ensure(): Promise<void> {
+  // ★ THE STEADY-STATE EXIT COMES FIRST, BEFORE ANY DDL IS ISSUED.
+  //
+  // This used to be `if (!applied) applied = apply()` followed by the check, so
+  // EVERY cold start re-ran all six `server/sql/*.sql` files. On a backend where
+  // the server's role is not the owner of the functions — any managed Postgres
+  // whose migration role differs from its application role — `create or replace`
+  // is refused, and the refusal surfaced as
+  //
+  //     api: request failed: permission denied for schema public
+  //
+  // on the first request after every deploy: a 500 on join, on vote, on
+  // confirm, on the proposal list. The applier's whole purpose is to repair a
+  // schema that was wiped, and a schema that was wiped has NO functions — so
+  // asking that question first is both cheaper and the only version that needs
+  // no DDL privilege in the common case.
+  //
+  // ★ A PASSING VERIFICATION STILL SHORT-CIRCUITS WITH NO ROUND TRIP.
+  if (verificationIsFresh()) {
+    await applied;
+    return;
+  }
+
+  // ★ THE FIRST CHECK IS WHAT DECIDES WHETHER ANY DDL IS NEEDED.
+  //
+  // `await applied` used to run before this, so every cold start applied all six
+  // files. On a backend where the server's role is not their owner — any managed
+  // Postgres whose migration role differs from its application role —
+  // `create or replace` is refused and the first request after each deploy
+  // answered `permission denied for schema public`: a 500 on join, vote, confirm
+  // and the proposal list. The applier exists to repair a wiped schema, and a
+  // wiped schema has no functions, so asking first is both cheaper and the only
+  // version that needs no DDL privilege in the normal case.
+  const missing = await missingFunctions();
+
+  if (missing.length === 0) {
+    // Nothing to repair, so nothing may be issued. `applied` still has to be a
+    // resolved promise: later callers await it.
+    applied ??= Promise.resolve();
+    verifiedAt = Date.now();
+    return applied;
+  }
+
   if (!applied) {
     applied = apply();
     applied.catch(() => {
@@ -184,9 +226,6 @@ async function ensure(): Promise<void> {
       verifiedAt = 0;
     });
   }
-
-  // ★ THE STEADY-STATE EXIT. A timestamp comparison instead of a round-trip.
-  if (verificationIsFresh()) return applied;
 
   // ★ WAIT FOR THE APPLY BEFORE CHECKING WHAT IT CREATED.
   //
@@ -202,14 +241,15 @@ async function ensure(): Promise<void> {
   // are still missing", which is the only reading the retry is for.
   await applied;
 
-  const missing = await missingFunctions();
-  if (missing.length > 0) {
+  const stillMissing = await missingFunctions();
+  if (stillMissing.length > 0) {
     // ★ ONE RETRY, NOT A LOOP.
     //
-    // The schema was rebuilt under us, so re-apply. The retry is bounded
-    // deliberately: if `join_event` is still missing after the DDL ran, the
-    // .sql itself is wrong and a recursive re-check would spin forever — a
-    // hang that looks like a network problem and is not.
+    // The schema was rebuilt under us — between the check above and the apply,
+    // or the apply itself did not take. The retry is bounded deliberately: if
+    // `join_event` is still missing after the DDL ran, the .sql itself is wrong
+    // and a recursive re-check would spin forever — a hang that looks like a
+    // network problem and is not.
     applied = apply();
     const retry = applied;
 
@@ -221,11 +261,11 @@ async function ensure(): Promise<void> {
       throw error;
     }
 
-    const stillMissing = await missingFunctions();
-    if (stillMissing.length > 0) {
+    const stillAbsent = await missingFunctions();
+    if (stillAbsent.length > 0) {
       applied = undefined;
       throw new Error(
-        `server/sql did not create: ${stillMissing.join(', ')} — ` +
+        `server/sql did not create: ${stillAbsent.join(', ')} — ` +
           'the inlined SQL in server/sql/index.ts is out of date; ' +
           'run `npm run gen:server-sql`',
       );

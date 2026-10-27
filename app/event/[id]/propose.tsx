@@ -13,7 +13,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CaretLeft, CaretRight, Check, Trash } from 'phosphor-react-native';
+import { CaretLeft, CaretRight, Trash } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
@@ -26,9 +26,10 @@ import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { createProposal } from '@/src/features/proposals/services/create-proposal';
 import { trackDuplicateResolution } from '@/src/features/proposals/services/analytics';
 import { LocationMapPicker } from '@/src/components/ui/LocationMapPicker';
+import { formatCoordinates } from '@/src/components/ui/map-pan';
 import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
-import { radius, size, space } from '@/src/theme/tokens';
+import { border, radius, size, space } from '@/src/theme/tokens';
 import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { DuplicateHint, ProposalType, VenueRef } from '@/src/types/proposal';
@@ -239,7 +240,7 @@ export default function ProposeScreen() {
       </Card>
 
       {/* 2. Location Selection Section */}
-      <Card variant="surface" style={styles.section}>
+      <Card variant="surface" style={styles.placeSection}>
         <View style={styles.sectionHeader}>
           <Text variant="h3">{t('proposals.form.placeSection')}</Text>
         </View>
@@ -251,15 +252,71 @@ export default function ProposeScreen() {
         )}
 
         {venue && !showLocationPicker ? (
-          <View style={styles.chosen}>
-            <Text variant="bodyL" color={theme.text}>
-              {venue.name}
-            </Text>
-            {venue.address && (
-              <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
-                {venue.address}
+          /**
+           * ★ A CHOSEN PLACE MUST SAY WHERE IT IS, AND STAY CHANGEABLE.
+           *
+           * This block used to be the name plus, only when the provider returned
+           * one, an address — so a pin dropped by hand showed a name and nothing
+           * else. Worse, the two controls that clear and change a place were
+           * passed to the map as `cornerControls`, and the map is not rendered
+           * here: confirming a place removed every way to clear or move it, and
+           * the only escape was to leave the form.
+           *
+           * The coordinates are the line that always exists, and the two actions
+           * are now part of the row rather than decorations on a map that is not
+           * on screen.
+           */
+          <View style={[styles.chosen, { borderColor: theme.line, backgroundColor: theme.surface1 }]}>
+            <View style={styles.chosenInfo}>
+              <Text variant="bodyL" color={theme.text} numberOfLines={2}>
+                {venue.name}
               </Text>
-            )}
+              {venue.address && (
+                <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
+                  {venue.address}
+                </Text>
+              )}
+              <Text variant="caption" color={theme.textFaint} numeric>
+                {formatCoordinates(venue.lat, venue.lng)}
+              </Text>
+            </View>
+
+            <View style={styles.chosenActions}>
+              <Pressy
+                onPress={() => setShowLocationPicker(true)}
+                accessibilityRole="button"
+                accessibilityLabel={t('proposals.form.changePlace')}
+                testID="propose-change-place"
+                style={[styles.chosenAction, { borderColor: theme.line }]}
+              >
+                <Text variant="caption" color={theme.text}>
+                  {t('proposals.form.changePlace')}
+                </Text>
+              </Pressy>
+
+              {/*
+                ★ CLEAR EMPTIES THE PLACE. IT DOES NOT OPEN THE MAP.
+
+                Both actions used to call `setShowLocationPicker(true)`, so
+                "clear" and "change" were the same button with different words —
+                and clearing dropped the reader into a map centred on the default
+                city with the place they had just removed already forgotten.
+                Clearing leaves the section empty; the map is one tap away and is
+                the only thing that fills it.
+              */}
+              <Pressy
+                onPress={() => setVenue(null)}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.clear')}
+                testID="propose-clear-place"
+                style={[styles.chosenAction, { borderColor: theme.line }]}
+              >
+                <Trash size={16} color={theme.danger} />
+                <Text variant="caption" color={theme.danger}>
+                  {t('common.clear')}
+                </Text>
+              </Pressy>
+            </View>
           </View>
         ) : (
           <LocationMapPicker
@@ -268,43 +325,6 @@ export default function ProposeScreen() {
               setShowLocationPicker(false);
             }}
             onCancel={venue ? () => setShowLocationPicker(false) : undefined}
-            // ★ THE TWO PLACE ACTIONS LIVE ON THE MAP'S CORNER, NOT THE HEADER.
-            // Clearing and changing both act on the map, and they used to sit in
-            // two unrelated places — one in the section header, one below the
-            // venue name. Background-only icon buttons with no border, which is
-            // what a map overlay can carry without competing with the tiles.
-            cornerControls={
-              venue ? (
-                <>
-                  <Pressy
-                    onPress={() => {
-                      setVenue(null);
-                      setShowLocationPicker(true);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('common.clear')}
-                    testID="propose-clear-place"
-                    style={styles.mapControl}
-                  >
-                    <View style={[styles.mapControlInner, { backgroundColor: theme.surface1 }]}>
-                      <Trash size={18} color={theme.text} weight="bold" />
-                    </View>
-                  </Pressy>
-
-                  <Pressy
-                    onPress={() => setShowLocationPicker(false)}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('proposals.form.changePlace')}
-                    testID="propose-change-place"
-                    style={styles.mapControl}
-                  >
-                    <View style={[styles.mapControlInner, { backgroundColor: theme.surface1 }]}>
-                      <Check size={18} color={theme.text} weight="bold" />
-                    </View>
-                  </Pressy>
-                </>
-              ) : null
-            }
             testID="propose-map-picker"
           />
         )}
@@ -380,28 +400,50 @@ const styles = StyleSheet.create({
   section: {
     gap: space[3],
   },
+  /**
+   * ★ THE MAP NEEDED A BREATH UNDER ITS TITLE.
+   *
+   * The section's `gap` already separates the heading from its content, but the
+   * map is a bordered frame and the card's own padding is small, so the hairline
+   * read as the heading's underline. This is the section style plus that breath.
+   */
+  placeSection: {
+    gap: space[3],
+    paddingTop: space[2],
+  },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   chosen: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    borderRadius: radius.md,
+    borderWidth: border.hairline,
+    padding: space[3],
+  },
+  chosenInfo: {
+    flex: 1,
+    gap: space[1],
+  },
+  chosenActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: space[2],
   },
-  mapControl: {
-    // The project's 44pt touch-control size, named in the tokens.
-    width: size.stepperButton,
-    height: size.stepperButton,
+  chosenAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space[1],
+    minHeight: size.stepperButton,
+    paddingHorizontal: space[3],
+    borderRadius: radius.md,
+    borderWidth: border.hairline,
   },
   submitBlock: {
     paddingTop: space[4],
-  },
-  mapControlInner: {
-    flex: 1,
-    borderRadius: radius.md,
-    // Background only, no border — a map overlay cannot carry an outline without
-    // competing with the tiles behind it.
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

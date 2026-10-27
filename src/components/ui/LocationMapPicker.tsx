@@ -39,6 +39,7 @@ import {
   type PlaceResult,
 } from '@/src/features/venues/services/place-search';
 import { haptics } from '@/src/platform/haptics';
+import { formatCoordinates, translateCentre } from '@/src/components/ui/map-pan';
 import { border, radius, size, space } from '@/src/theme/tokens';
 import { fonts } from '@/src/theme/fonts';
 import { useTheme } from '@/src/theme/useTheme';
@@ -50,33 +51,12 @@ export interface LocationMapPickerProps {
   initialName?: string;
   onSelect: (venue: VenueRef) => void;
   onCancel?: () => void;
-  /**
-   * Controls drawn in the map's top-trailing corner.
-   *
-   * ★ CORNER CONTROLS, BECAUSE THE MAP IS THE THING BEING EDITED.
-   *
-   * Clearing a chosen place belonged to the section header and changing it to a
-   * button under the venue name — so the two actions that act ON the map lived in
-   * two unrelated places, one of them below the content they describe. Both are
-   * now icon buttons over the map's own corner, which is where every map
-   * application puts them, and where they are reachable without scrolling.
-   */
-  cornerControls?: React.ReactNode;
   testID?: string;
 }
 
 const TILE_SIZE = 256;
 const MAP_HEIGHT = 380;
 const DEBOUNCE_MS = 300;
-
-/**
- * The width two corner controls occupy, so the search bar can give them room.
- *
- * Two 44pt buttons plus their gap. Kept here rather than measured at runtime: the
- * buttons are a fixed size, and an `onLayout` round trip would make the search bar
- * jump on the first frame.
- */
-const CORNER_CONTROLS_WIDTH = size.stepperButton * 2 + space[2];
 
 // Conversion between (lat, lng) and slippy tile coordinates
 function latLngToTileExact(lat: number, lng: number, zoom: number): { x: number; y: number } {
@@ -93,7 +73,6 @@ export function LocationMapPicker({
   initialName = '',
   onSelect,
   onCancel,
-  cornerControls,
   testID,
 }: LocationMapPickerProps) {
   const { t } = useTranslation();
@@ -115,8 +94,51 @@ export function LocationMapPicker({
 
   const searchRequestId = useRef(0);
 
-  // Pan responder for map dragging
+  // Conversion between (lat, lng) and slippy tile coordinates
   const centerTile = useMemo(() => latLngToTileExact(lat, lng, zoom), [lat, lng, zoom]);
+
+  /**
+   * ★ THE PAN CANNOT CLOSE OVER `lat`/`lng`/`zoom`.
+   *
+   * The responder below is built once, in a `useRef`, so every value it captures
+   * is frozen at the first render for the life of the mount. It therefore reads
+   * the view from this ref, which `commitCentre` writes on every change, and the
+   * zoom from `zoomRef`.
+   *
+   * ★ AND THE DELTA IS PER-FRAME, NOT PER-GESTURE.
+   *
+   * `PanResponderGestureState.dx`/`dy` measure from where the touch STARTED. They
+   * were applied to absolute state, so frame two re-applied frame one's travel on
+   * top of a centre that had already moved by it, frame three re-applied three
+   * frames, and so on. The tile URIs only change when the centre crosses a whole
+   * tile, and a compounding offset does not move it far enough — so the numbers in
+   * the card ran while the map sat still, which is the bug this fixes.
+   *
+   * `lastPan` holds the gesture's previous position so each frame applies the
+   * difference, and the arithmetic lives in `map-pan.ts` so it can be tested.
+   */
+  const centreRef = useRef({ lat: initialLat, lng: initialLng });
+  const zoomRef = useRef(zoom);
+  const lastPan = useRef({ x: 0, y: 0 });
+
+  const commitCentre = (next: { lat: number; lng: number }) => {
+    centreRef.current = next;
+    setLat(next.lat);
+    setLng(next.lng);
+  };
+
+  /**
+   * Zoom, written to the ref as well as the state.
+   *
+   * The pan handler is built once, so `zoom` inside it is the value from the
+   * first render; `zoomRef` is what it actually reads. Keeping the two in step
+   * here is what makes a zoom followed by a drag behave.
+   */
+  const changeZoom = (delta: number) => {
+    const next = Math.max(8, Math.min(18, zoomRef.current + delta));
+    zoomRef.current = next;
+    setZoom(next);
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -124,20 +146,19 @@ export function LocationMapPicker({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         setIsDragging(true);
+        // A new gesture starts from zero, and its first move must be measured
+        // from here rather than from the previous gesture's last position.
+        lastPan.current = { x: 0, y: 0 };
         haptics.impact('light');
       },
       onPanResponderMove: (_, gestureState) => {
-        const { dx, dy } = gestureState;
-        const n = 2 ** zoom;
-        // Invert delta: moving finger right means moving map right (decreasing center lng)
-        const dLng = (-dx / (TILE_SIZE * n)) * 360;
-        const latRad = (lat * Math.PI) / 180;
-        const dLat = (dy / (TILE_SIZE * n)) * 360 * Math.cos(latRad);
+        const dx = gestureState.dx - lastPan.current.x;
+        const dy = gestureState.dy - lastPan.current.y;
+        lastPan.current = { x: gestureState.dx, y: gestureState.dy };
 
-        const newLat = Math.max(-85, Math.min(85, lat + dLat * 0.05));
-        const newLng = Math.max(-180, Math.min(180, lng + dLng * 0.05));
-        setLat(newLat);
-        setLng(newLng);
+        if (dx === 0 && dy === 0) return;
+
+        commitCentre(translateCentre(centreRef.current, dx, dy, zoomRef.current));
       },
       onPanResponderRelease: () => {
         setIsDragging(false);
@@ -181,8 +202,7 @@ export function LocationMapPicker({
   }, [searchQuery, lat, lng]);
 
   const handleSelectSearchResult = (result: PlaceResult) => {
-    setLat(result.lat);
-    setLng(result.lng);
+    commitCentre({ lat: result.lat, lng: result.lng });
     setPlaceName(result.name);
     setPlaceAddress(result.address ?? '');
     setShowResults(false);
@@ -198,8 +218,7 @@ export function LocationMapPicker({
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        setLat(pos.coords.latitude);
-        setLng(pos.coords.longitude);
+        commitCentre({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setPlaceName(t('location.currentPosition'));
         haptics.impact('medium');
       }
@@ -232,16 +251,6 @@ export function LocationMapPicker({
     <View style={styles.container} testID={testID}>
       {/* Map View Frame */}
       <View style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-        {/* ★ THE MAP'S OWN CONTROLS, IN ITS TOP TRAILING CORNER.
-            Above the search bar (`zIndex: 10`) because they act on the frame, not
-            on the query, and inset with logical edges so they land in the top-right
-            in English and the top-left in Persian. */}
-        {cornerControls ? (
-          <View style={styles.cornerControls} testID={testID ? `${testID}-corner` : undefined}>
-            {cornerControls}
-          </View>
-        ) : null}
-
         {/* Render Tile Grid */}
         <View style={styles.tileCanvas} {...panResponder.panHandlers}>
           {tileOffsets.map((oy) => {
@@ -337,7 +346,7 @@ export function LocationMapPicker({
         {/* Floating Zoom & GPS Controls */}
         <View style={styles.floatingControls}>
           <Pressy
-            onPress={() => setZoom((z) => Math.min(18, z + 1))}
+            onPress={() => changeZoom(1)}
             style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}
             accessibilityRole="button"
             accessibilityLabel={t('map.zoomIn')}
@@ -345,7 +354,7 @@ export function LocationMapPicker({
             <Plus size={18} color={theme.text} />
           </Pressy>
           <Pressy
-            onPress={() => setZoom((z) => Math.max(8, z - 1))}
+            onPress={() => changeZoom(-1)}
             style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}
             accessibilityRole="button"
             accessibilityLabel={t('map.zoomOut')}
@@ -374,7 +383,7 @@ export function LocationMapPicker({
             {placeName || t('proposals.place.customPin')}
           </Text>
           <Text variant="caption" color={theme.textMuted} align="center" numeric>
-            {`${lat.toFixed(4)}°N , ${lng.toFixed(4)}°E`}
+            {formatCoordinates(lat, lng)}
           </Text>
         </View>
 
@@ -449,23 +458,11 @@ const styles = StyleSheet.create({
     opacity: 0.4,
     marginTop: -space[1],
   },
-  cornerControls: {
-    position: 'absolute',
-    top: space[3],
-    // Logical, so the pair lands in the top-trailing corner in both directions.
-    insetInlineEnd: space[3],
-    flexDirection: 'row',
-    gap: space[2],
-    // Above the search bar, which is `zIndex: 10`.
-    zIndex: 20,
-  },
   searchBarWrapper: {
     position: 'absolute',
     top: space[3],
     start: space[3],
-    // The trailing edge stops short of the corner controls, which share this row.
-    // `CORNER_CONTROLS_WIDTH` covers two 44pt buttons and their gap.
-    end: space[3] + CORNER_CONTROLS_WIDTH,
+    end: space[3],
     zIndex: 10,
   },
   searchBar: {

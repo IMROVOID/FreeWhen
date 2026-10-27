@@ -1,18 +1,17 @@
 /**
- * The map's place controls and the submit spacing (Plan 49 T17).
+ * The map picker's controls and the submit spacing (Plan 49 T17, amended).
  *
- * ★ TWO ACTIONS ON THE MAP BELONGED IN TWO UNRELATED PLACES.
+ * ★ THE CORNER-CONTROL SLOT WAS RETIRED, NOT MOVED.
  *
- * Clearing a chosen place was a text button in the section header; changing it was
- * an outlined button UNDER the venue name, below the content it described. Both act
- * on the map, so both now sit as background-only icon buttons in the map's own
- * top-trailing corner — where every map application puts them, and reachable
- * without scrolling past the venue name first.
+ * It was added so "clear" and "change" could sit over the tiles, where a map
+ * application normally puts them. But the picker is only on screen while a place
+ * is being CHOSEN, and the moment one is chosen the picker collapses — so the
+ * controls lived in the one state that did not need them, and vanished in the
+ * state that did. Every caller stopped passing the slot, and it is gone.
  *
- * ★ AND THE SUBMIT NEEDED AIR.
- *
- * The submit sat at the same gap as every input, so the control that commits the
- * form read as a third field.
+ * What replaces it: the chosen-place row in `app/event/[id]/propose.tsx` carries
+ * both actions itself (see `map-chosen-place.test.ts`). What remains the picker's
+ * job is the map itself, its search bar, and its confirm.
  */
 
 import './support/register';
@@ -27,79 +26,35 @@ function code(path: string): string {
     .replace(/^\s*\/\/.*$/gm, '');
 }
 
-test('the picker accepts corner controls', () => {
+test('the picker no longer exposes a corner-control slot', () => {
   // Arrange
   const picker = code('src/components/ui/LocationMapPicker.tsx');
 
-  // Act / Assert
-  assert.ok(/cornerControls/.test(picker), 'the picker has no corner-control slot');
+  // Act / Assert — a slot no caller fills is dead surface that reads as a
+  // supported extension point.
+  assert.ok(!/cornerControls/.test(picker), 'the retired corner-control slot is still defined');
 });
 
-test('the corner controls sit above the search bar', () => {
-  // Arrange
-  const picker = code('src/components/ui/LocationMapPicker.tsx');
-
-  // Act
-  const corner = /cornerControls:\s*\{([\s\S]*?)\n {2}\},/.exec(picker)?.[1] ?? '';
-  const search = /searchBarWrapper:\s*\{([\s\S]*?)\n {2}\},/.exec(picker)?.[1] ?? '';
-
-  const cornerZ = Number(/zIndex:\s*(\d+)/.exec(corner)?.[1] ?? 0);
-  const searchZ = Number(/zIndex:\s*(\d+)/.exec(search)?.[1] ?? 0);
-
-  // Assert — being under the search bar would make them unclickable where the two
-  // overlap on a narrow screen.
-  assert.ok(cornerZ > searchZ, `corner zIndex ${cornerZ} is not above search ${searchZ}`);
-});
-
-test('the corner controls are placed with logical insets, so they mirror', () => {
-  // Arrange
-  const picker = code('src/components/ui/LocationMapPicker.tsx');
-
-  // Act
-  const corner = /cornerControls:\s*\{([\s\S]*?)\n {2}\},/.exec(picker)?.[1] ?? '';
-
-  // Assert — the request asks for top-right in English and top-left in Persian,
-  // which is exactly what a logical trailing inset does.
-  assert.ok(
-    /insetInlineEnd|end:/.test(corner),
-    'the corner controls are not placed with a logical trailing inset',
-  );
-});
-
-test('the search bar leaves room for the corner controls', () => {
+test('the search bar spans the frame now that nothing shares its row', () => {
   // Arrange
   const picker = code('src/components/ui/LocationMapPicker.tsx');
 
   // Act
   const search = /searchBarWrapper:\s*\{([\s\S]*?)\n {2}\},/.exec(picker)?.[1] ?? '';
 
-  // Assert — the bar spanned the full width, so it would sit UNDER the buttons.
-  assert.ok(/CORNER_CONTROLS_WIDTH/.test(search), 'the search bar runs under the corner controls');
+  // Assert — it used to stop short of the two corner buttons.
+  assert.ok(search.length > 0, 'the search bar style is missing');
+  assert.ok(/end:\s*space\[3\]/.test(search), 'the search bar still reserves room for the corner slot');
 });
 
-test('the place actions are icon buttons in the map corner, not text buttons elsewhere', () => {
+test('the picker still offers a way to confirm the dropped pin', () => {
   // Arrange
+  const picker = code('src/components/ui/LocationMapPicker.tsx');
   const propose = code('app/event/[id]/propose.tsx');
 
-  // Act — the two controls are passed TO the picker.
-  const passesCorner = /cornerControls=/.test(propose);
-  const hasBoth = /propose-clear-place/.test(propose) && /propose-change-place/.test(propose);
-
-  // Assert
-  assert.ok(passesCorner, 'the propose screen does not use the map corner');
-  assert.ok(hasBoth, 'one of the two place actions is missing');
-});
-
-test('the map controls carry no border', () => {
-  // Arrange
-  const propose = code('app/event/[id]/propose.tsx');
-
-  // Act
-  const inner = /mapControlInner:\s*\{([\s\S]*?)\n {2}\},/.exec(propose)?.[1] ?? '';
-
-  // Assert — an outline over map tiles competes with the map itself.
-  assert.ok(inner.length > 0, 'the map control style is missing');
-  assert.ok(!/borderWidth/.test(inner), 'the map control still draws a border');
+  // Act / Assert — this is the only path from "map open" to "place chosen".
+  assert.ok(/-confirm/.test(picker), 'the picker has no confirm control');
+  assert.ok(/<LocationMapPicker/.test(propose), 'the propose screen does not render the picker');
 });
 
 test('the submit has its own block with padding', () => {
