@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Modal, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import GorhomBottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 
 import { radius, size, space } from '@/src/theme/tokens';
@@ -125,22 +125,48 @@ export function BottomSheet({
 
   if (!visible && !mounted) return null;
 
+  /**
+   * ★ THE SHEET NEEDS A SIBLING MOUNT, NOT A CHILD OF THE PAGE.
+   *
+   * `@gorhom/bottom-sheet` renders an absolutely-positioned container anchored
+   * to its nearest positioned ancestor. Rendered inline — which is what every
+   * caller does, since the trigger and the sheet live in the same component —
+   * that ancestor is the screen's `ScrollView` content, so the sheet was laid out
+   * against the scroll content, positioned at `bottom: 0` of a box taller than
+   * the viewport, and drawn off-screen. That is why no sheet in the app opened:
+   * not one caller, and not on another platform's implementation, but every
+   * sheet on every caller.
+   *
+   * A `Modal` gives the sheet a screen-sized, positioned parent of its own and
+   * lifts it above the page, which is the container this component always meant
+   * to have. `transparent` keeps the page visible behind it, and
+   * `statusBarTranslucent` keeps the measured height equal to the window's so
+   * the panel is not pushed down by the status bar's inset.
+   */
   return (
-    <GorhomBottomSheet
-      ref={sheetRef}
-      index={-1}
-      // `undefined` lets the library measure the content; passing an array is
-      // what pins it to fractions of the screen.
-      snapPoints={snapPoints}
-      enablePanDownToClose
-      enableDynamicSizing={isDynamic}
-      onClose={handleClose}
-      backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
-      handleComponent={Grabber}
-      accessibilityLabel={testID}
+    <Modal
+      visible
+      transparent
+      statusBarTranslucent
+      animationType="none"
+      onRequestClose={() => sheetRef.current?.close()}
     >
-      <BottomSheetView style={styles.content}>{children}</BottomSheetView>
-    </GorhomBottomSheet>
+      <GorhomBottomSheet
+        ref={sheetRef}
+        index={-1}
+        // `undefined` lets the library measure the content; passing an array is
+        // what pins it to fractions of the screen.
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        enableDynamicSizing={isDynamic}
+        onClose={handleClose}
+        backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
+        handleComponent={Grabber}
+        accessibilityLabel={testID}
+      >
+        <BottomSheetView style={styles.content}>{children}</BottomSheetView>
+      </GorhomBottomSheet>
+    </Modal>
   );
 }
 
