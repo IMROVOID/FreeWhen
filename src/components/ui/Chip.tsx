@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import type { IconWeight } from 'phosphor-react-native';
 
 import { Text } from './Text';
 import { Pressy } from './Pressy';
@@ -57,13 +58,28 @@ export function Chip({
 export interface SegmentedOption {
   value: string;
   label: string;
+  /**
+   * An icon to draw instead of the label.
+   *
+   * ★ THE LABEL DOES NOT DISAPPEAR WHEN THERE IS AN ICON.
+   *
+   * An icon-only segment has no accessible name of its own, so `label` stays
+   * mandatory and becomes the `accessibilityLabel`. Settings' theme control is
+   * three icons wide; the words there would have made the rail a third wider
+   * than the value it sets.
+   */
+  icon?: (props: { size: number; color: string; weight: IconWeight }) => ReactNode;
 }
 
 export interface SegmentedControlProps {
   options: SegmentedOption[];
   value: string;
   onChange: (value: string) => void;
+  /** Replaces each option's own testID with this prefix. */
   testID?: string;
+  /** Per-option IDs, a second naming axis when the prefix reads badly. */
+  testIDPrefix?: string;
+  disabled?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -88,10 +104,22 @@ export function SegmentedControl({
   value,
   onChange,
   testID,
+  testIDPrefix,
+  disabled = false,
   style,
 }: SegmentedControlProps) {
   const { t } = useTheme();
   const motion = useMotion();
+
+  /**
+   * ★ BOTH LABELS ARE FULL-STRENGTH TEXT.
+   *
+   * The unselected label was `textMuted`, which is 5.47:1 on `surface2` in the
+   * dark theme and reads as disabled rather than as the other half of a choice —
+   * on "Suggested times" the unselected word was the faintest thing in the row.
+   * The indicator already carries the selection, so the only colour that has to
+   * differ is the one sitting ON the accent.
+   */
 
   const selectedIndex = Math.max(
     0,
@@ -140,26 +168,32 @@ export function SegmentedControl({
 
       {options.map((option, index) => {
         const isSelected = index === selectedIndex;
+        const tint = isSelected ? t.onPrimary : t.text;
+        const segmentTestID = testIDPrefix
+          ? `${testIDPrefix}-${option.value}`
+          : testID
+            ? `${testID}-${option.value}`
+            : undefined;
+
         return (
           <Pressy
             key={option.value}
-            onPress={() => onChange(option.value)}
-            testID={testID ? `${testID}-${option.value}` : undefined}
+            onPress={disabled ? undefined : () => onChange(option.value)}
+            disabled={disabled}
+            testID={segmentTestID}
             accessibilityRole="radio"
-            accessibilityState={{ selected: isSelected }}
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected: isSelected, disabled }}
             style={styles.segment}
           >
             <View style={styles.segmentInner}>
-              <Text
-                variant="body"
-                // The label colour still follows the selection: the indicator
-                // provides the fill, and the text on top of it has to contrast
-                // with that fill.
-                color={isSelected ? t.onPrimary : t.textMuted}
-                align="center"
-              >
-                {option.label}
-              </Text>
+              {option.icon ? (
+                option.icon({ size: 18, color: tint, weight: isSelected ? 'fill' : 'bold' })
+              ) : (
+                <Text variant="body" color={tint} align="center">
+                  {option.label}
+                </Text>
+              )}
             </View>
           </Pressy>
         );

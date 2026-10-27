@@ -48,12 +48,45 @@ import { useTheme } from '@/src/theme/useTheme';
 const TRACK_WIDTH = 52;
 const TRACK_HEIGHT = 32;
 
-/** The knob, and the gap it keeps from the track's edge. */
+/**
+ * The track's hairline. Named, because the knob's geometry depends on it.
+ *
+ * ★ THE BORDER IS INSIDE THE WIDTH.
+ *
+ * Both `react-native` and `react-native-web` put a border inside the box, so the
+ * track's usable width is `TRACK_WIDTH - 2 * TRACK_BORDER`. Leaving it out of the
+ * knob arithmetic is what made the knob sit flush at one end and inset at the
+ * other — the 2px difference showed only when the switch was OFF, which read as
+ * "the circle has no padding when it's off".
+ */
+const TRACK_BORDER = 1;
+
+/** The knob, and the gap it keeps from the track's OUTER edge. */
 const KNOB_SIZE = 24;
 const KNOB_INSET = (TRACK_HEIGHT - KNOB_SIZE) / 2;
 
-/** How far the knob travels between its two positions. */
-const KNOB_TRAVEL = TRACK_WIDTH - KNOB_SIZE - KNOB_INSET * 2;
+/**
+ * How far the knob travels between its two positions.
+ *
+ * From the leading rest to the trailing rest: the track less both borders, the
+ * knob, and the same air gap at each end.
+ */
+const KNOB_TRAVEL = TRACK_WIDTH - KNOB_SIZE - TRACK_BORDER * 2 - KNOB_INSET * 2;
+
+/**
+ * The knob's margin, measured on the track's INNER edge.
+ *
+ * ★ OFF/ON MUST BE MIRROR IMAGES, PADDING INCLUDED.
+ *
+ * The knob rests `KNOB_INSET` from the OUTER edge and the track's border takes 1
+ * of it, so the margin inside the border is `KNOB_INSET - TRACK_BORDER`. Writing
+ * the full inset here — which is what it did — pushed the lead face 1px off the
+ * pill and, combined with the border-blind travel, left 3px of air on one side
+ * against 4px on the other. Off looked like it had none.
+ *
+ * The result: 4px of air at both sides, matching the 4px above and below.
+ */
+const KNOB_MARGIN = KNOB_INSET - TRACK_BORDER;
 
 export interface AccentSwitchProps {
   value: boolean;
@@ -154,7 +187,7 @@ const styles = StyleSheet.create({
     width: TRACK_WIDTH,
     height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    borderWidth: 1,
+    borderWidth: TRACK_BORDER,
     justifyContent: 'center',
     overflow: 'hidden',
   },
@@ -162,8 +195,11 @@ const styles = StyleSheet.create({
     width: KNOB_SIZE,
     height: KNOB_SIZE,
     borderRadius: radius.pill,
-    // Logical, so the knob starts at the leading edge in both directions.
-    marginInlineStart: KNOB_INSET,
+    // Logical, so the knob starts at the leading edge in both directions. It is
+    // measured from the border's inner edge, which is why `KNOB_INSET` also
+    // subtracts the border from the travel: both rest positions sit one inset
+    // from the track's OUTER edge.
+    marginInlineStart: KNOB_MARGIN,
   },
 });
 
@@ -171,6 +207,7 @@ const styles = StyleSheet.create({
 export const ACCENT_SWITCH_METRICS = {
   width: TRACK_WIDTH,
   height: TRACK_HEIGHT,
+  border: TRACK_BORDER,
   knob: KNOB_SIZE,
   travel: KNOB_TRAVEL,
   touchHeight: TRACK_HEIGHT + space[2] * 2,

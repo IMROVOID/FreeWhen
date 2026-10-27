@@ -25,6 +25,7 @@ import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/src/components/ui/Button';
+import { SegmentedControl, type SegmentedOption } from '@/src/components/ui/Chip';
 import { Text } from '@/src/components/ui/Text';
 import { switchLanguage } from '@/src/features/settings/services/switch-language';
 import type { Language } from '@/src/i18n/types';
@@ -91,24 +92,26 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
 
   return (
     <View testID={testID ?? 'language-toggle'}>
-      <View style={styles.row} accessibilityRole="radiogroup">
-        {OPTIONS.map((option) => {
-          const selected = option.value === current;
+      {/*
+        ★ A SLIDER, NOT TWO BUTTONS.
 
-          return (
-            <Button
-              key={option.value}
-              label={t(option.labelKey)}
-              variant={selected ? 'primary' : 'secondary'}
-              size="medium"
-              disabled={busy}
-              onPress={() => void choose(option.value)}
-              testID={`language-option-${option.value}`}
-              style={styles.option}
-            />
-          );
-        })}
-      </View>
+        The choice was two `Button`s with `variant="primary"` on the current one,
+        so switching was an instantaneous repaint of both — and since the layout
+        direction cannot change under a live view tree, the control looked like it
+        had done nothing at all. It is the same choice that "Suggested times" puts
+        behind a segmented control, so it is the same control, and the pill now
+        slides to the answer the tap asked for.
+      */}
+      <SegmentedControl
+        options={OPTIONS.map(
+          (option): SegmentedOption => ({ value: option.value, label: t(option.labelKey) }),
+        )}
+        value={current}
+        onChange={(next) => void choose(next as Language)}
+        disabled={busy}
+        testID="language-option"
+        testIDPrefix={`${testID ?? 'language-toggle'}-option`}
+      />
 
       {/* ★ The restart instruction, with its reason — and it stays put. */}
       {restartAcknowledged && restartReasonKey === null && (
@@ -189,13 +192,6 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
 }
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    gap: space[2],
-  },
-  option: {
-    flex: 1,
-  },
   prompt: {
     marginTop: space[3],
     padding: space[3],

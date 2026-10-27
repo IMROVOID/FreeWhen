@@ -31,6 +31,7 @@ import { deleteAccount } from '@/src/features/privacy/services/account';
 import { DeleteAccountAction } from '@/src/features/privacy/components/DeleteAccountAction';
 import { NoticeViewer } from '@/src/features/privacy/components/NoticeViewer';
 import { LanguageToggle } from '@/src/features/settings/components/LanguageToggle';
+import { ThemeControl } from '@/src/features/settings/components/ThemeControl';
 import { NicknameRow } from '@/src/features/profile/components/NicknameRow';
 import { MuteList } from '@/src/features/follow-through/components/MuteList';
 import { GeneralNotificationsToggle } from '@/src/features/notifications/components/GeneralNotificationsToggle';
@@ -119,6 +120,16 @@ export default function SettingsScreen() {
       {/* Language — persist → flush → confirm restart (Plan 11 Task 6a). */}
       <Section title={t('settings.language')}>
         <LanguageToggle current={language} testID="settings-language" />
+      </Section>
+
+      {/* ★ Theme (Style Guide §0.1 #3, PRD-10 D11A).
+          `useAppearanceStore` has carried `themePreference` since the appearance
+          work landed, with `'system'` as its default, and `useTheme` resolves it
+          on every render — but nothing in the product ever wrote it, so the field
+          was dead and every user got whatever their OS said. This is the writer.
+          Auto is the middle of the three, because it is the default. */}
+      <Section title={t('settings.theme')}>
+        <ThemeControl testID="settings-theme" />
       </Section>
 
       {/* ★ Nickname (Plan 49 T8, FR-1.19).
