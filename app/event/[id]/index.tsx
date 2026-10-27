@@ -96,7 +96,8 @@ export default function EventHomeScreen() {
   const [isLoadingEvent, setIsLoadingEvent] = useState(true);
   const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
 
-  const { proposals, isLoading, isReconnecting, errorKey, reload: reloadProposals } = useProposals(eventId);  const { isOffline, pendingCount } = useOffline();
+  const { proposals, isLoading, isReconnecting, errorKey, reload: reloadProposals } = useProposals(eventId);
+  const { isOffline, pendingCount } = useOffline();
 
   // ★ THE VOTE STATE LIVES HERE, AND ITS PAYLOAD IS THE DECISION STATUS.
   //

@@ -25,7 +25,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, StyleSheet, View } from 'react-native';
+import { Animated, PanResponder, Platform, StyleSheet, View } from 'react-native';
 import { ArrowsClockwise } from 'phosphor-react-native';
 
 import {
@@ -84,38 +84,51 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
     }
   }, [onRefresh, settle]);
 
+  /**
+   * ★ THE GESTURE IS WEB-ONLY, AND THE COMMENT ABOVE USED TO PROMISE THAT
+   *   WITHOUT DELIVERING IT.
+   *
+   * On native, a JS `PanResponder` competes with the ScrollView's own gesture
+   * recogniser for the same vertical drag, so a pull either does nothing or steals
+   * the scroll. The platform control does this job properly there, which is why
+   * callers wrap their ScrollView in a `RefreshControl` on native instead of using
+   * this component's drag. Building the responder unconditionally is what made the
+   * header's claim false.
+   */
   const responder = useMemo(
     () =>
-      PanResponder.create({
-        // Only claim a gesture that is clearly vertical and downward, so a
-        // horizontal swipe or a normal scroll is untouched.
-        onMoveShouldSetPanResponder: (_event, gesture) =>
-          gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      Platform.OS !== 'web'
+        ? null
+        : PanResponder.create({
+            // Only claim a gesture that is clearly vertical and downward, so a
+            // horizontal swipe or a normal scroll is untouched.
+            onMoveShouldSetPanResponder: (_event, gesture) =>
+              gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
 
-        onPanResponderMove: (_event, gesture) => {
-          if (busy.current) return;
-          const next = displacementFor(gesture.dy);
-          translateY.setValue(next);
-          setDisplaced(next);
-        },
+            onPanResponderMove: (_event, gesture) => {
+              if (busy.current) return;
+              const next = displacementFor(gesture.dy);
+              translateY.setValue(next);
+              setDisplaced(next);
+            },
 
-        onPanResponderRelease: (_event, gesture) => {
-          if (busy.current) return;
+            onPanResponderRelease: (_event, gesture) => {
+              if (busy.current) return;
 
-          if (shouldRefresh(gesture.dy)) {
-            void refresh();
-            return;
-          }
+              if (shouldRefresh(gesture.dy)) {
+                void refresh();
+                return;
+              }
 
-          // Not far enough: spring back and do nothing. A refresh here would teach
-          // the reader that the threshold does not exist.
-          settle(0);
-        },
+              // Not far enough: spring back and do nothing. A refresh here would
+              // teach the reader that the threshold does not exist.
+              settle(0);
+            },
 
-        onPanResponderTerminate: () => {
-          if (!busy.current) settle(0);
-        },
-      }),
+            onPanResponderTerminate: () => {
+              if (!busy.current) settle(0);
+            },
+          }),
     [refresh, settle, translateY],
   );
 
@@ -144,7 +157,7 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
       </View>
 
       <Animated.View
-        {...responder.panHandlers}
+        {...(responder?.panHandlers ?? {})}
         style={[
           styles.page,
           {

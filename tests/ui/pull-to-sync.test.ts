@@ -11,6 +11,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import {
   BAND_HEIGHT,
@@ -83,3 +84,19 @@ test('the spinner turns as the reader pulls', () => {
   assert.equal(spinnerRotationFor(REFRESH_THRESHOLD), 360);
   assert.ok(spinnerRotationFor(2000) <= 360 * 2, 'the rotation is unbounded');
 });
+
+
+test('the drag gesture is web-only, as its own header claims', () => {
+  // Arrange — the header said native would use `RefreshControl` while the code
+  // built a `PanResponder` on every platform.
+  const source = code('src/components/ui/PullToSync.tsx');
+
+  // Act / Assert — on native a JS responder competes with the ScrollView for the
+  // same vertical drag, so a pull either does nothing or steals the scroll.
+  assert.ok(/Platform\.OS !== 'web'/.test(source), 'the responder is built on native too');
+  assert.ok(/\.\.\.\(responder\?\.panHandlers \?\? \{\}\)/.test(source), 'the null responder is spread unguarded');
+});
+
+function code(path: string): string {
+  return readFileSync(path, 'utf8');
+}
