@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -14,6 +14,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { resolveLanguage } from '@/src/app-bootstrap';
+import { NicknameGate } from '@/src/features/profile/components/NicknameGate';
 import { initI18n } from '@/src/i18n';
 import { applyDirection } from '@/src/platform/direction';
 import { useStackTransition } from '@/src/platform/stack-transition';
@@ -43,6 +44,7 @@ initI18n(language);
 export default function RootLayout() {
   const { t, name } = useTheme();
   const transition = useStackTransition();
+  const [nickname, setNickname] = useState<string | null>(null);
   const [fontsLoaded, fontError] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -83,6 +85,14 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: t.bg },
           }}
         />
+        {/* ★ THE NICKNAME GATE SITS ABOVE THE ROUTER, ON PURPOSE.
+            A per-screen check would be skippable: an invite link, a deep link or
+            a push notification opens a route directly, and the person would be
+            inside an event with no name the others can see. Here there is no
+            route to reach around it. It renders nothing once a nickname exists,
+            and nothing while it is still checking — so a returning user never
+            sees it flash. */}
+        {nickname === null ? <NicknameGate onResolved={setNickname} /> : null}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

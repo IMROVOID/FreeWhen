@@ -31,7 +31,9 @@ import { deleteAccount } from '@/src/features/privacy/services/account';
 import { DeleteAccountAction } from '@/src/features/privacy/components/DeleteAccountAction';
 import { NoticeViewer } from '@/src/features/privacy/components/NoticeViewer';
 import { LanguageToggle } from '@/src/features/settings/components/LanguageToggle';
+import { NicknameRow } from '@/src/features/profile/components/NicknameRow';
 import { MuteList } from '@/src/features/follow-through/components/MuteList';
+import { GeneralNotificationsToggle } from '@/src/features/notifications/components/GeneralNotificationsToggle';
 import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
 import { clearStoredUserId, getStoredUserId } from '@/src/lib/session';
@@ -56,6 +58,18 @@ export default function SettingsScreen() {
 
   // The mute list needs the caller's events; the flag travels on each summary.
   const { events, isLoading: eventsLoading } = useMyEvents();
+
+  /**
+   * Whether the per-event rows are interactive.
+   *
+   * The general switch owns this; the list below only reads it. Kept here rather
+   * than inside either component so the two cannot disagree about which is in
+   * charge.
+   */
+  const [generalNotificationsOn, setGeneralNotificationsOn] = useState(true);
+
+  /** The events muted individually right now — the set a restore must replay. */
+  const mutedEventIds = events.filter((event) => event.notifications_muted).map((event) => event.id);
 
   const confirmDeleteAccount = useCallback(async () => {
     setDeletingAccount(true);
@@ -107,14 +121,29 @@ export default function SettingsScreen() {
         <LanguageToggle current={language} testID="settings-language" />
       </Section>
 
-      {/* ★ Notifications (Plan 10 Task 6, FR-6.19).
-          One switch per event, because the preference is stored per
-          participant-in-event. The hint names the N4 exception where the user
-          decides, not in a help page nobody opens. */}
+      {/* ★ Nickname (Plan 49 T8, FR-1.19).
+          The same value the first-launch gate collects, editable here. It is a
+          separate control from the per-event display name on purpose: that one
+          is per event and this one seeds it, so changing this does not silently
+          rewrite a name the person chose for one particular event. */}
+      <Section title={t('profile.nicknameLabel')}>
+        <NicknameRow testID="settings-nickname-row" />
+      </Section>
+
+      {/* ★ Notifications (Plan 10 Task 6, FR-6.19; general switch Plan 49 T18).
+          The general switch comes first and greys the per-event list below it.
+          Turning it back on RESTORES exactly the events that were muted
+          individually — it does not force every event's notifications on. */}
       <Section title={t('notifications.muteList.section')}>
+        <GeneralNotificationsToggle
+          mutedEventIds={mutedEventIds}
+          onChange={setGeneralNotificationsOn}
+          testID="settings-general-notifications"
+        />
         <MuteList
           events={events}
           isLoading={eventsLoading}
+          interactive={generalNotificationsOn}
           testID="settings-mute-list"
         />
       </Section>
