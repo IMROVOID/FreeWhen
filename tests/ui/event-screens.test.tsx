@@ -234,9 +234,17 @@ describe('a sheet that was never opened draws nothing', () => {
     // Arrange
     const sheet = code('src/components/ui/BottomSheet.tsx');
 
-    // Act / Assert — the early return must not disable the open animation.
-    assert.match(sheet, /snapToIndex/, 'the sheet no longer opens');
-    assert.match(sheet, /\.close\(\)/, 'the sheet no longer closes');
+    // Act / Assert — the open must come from `index`, not `snapToIndex`.
+    // `handleSnapToIndex` returns silently while the sheet's layout is still
+    // being measured, which is exactly the commit its open was requested in, so
+    // an imperative call is a no-op with no error and no retry. `index` is
+    // applied by the library's own effect once the layout is ready.
+    assert.match(sheet, /index=\{openIndex\}/, 'the sheet is not driven by its index');
+    assert.match(sheet, /openIndex\s*=/, 'the open index is not derived');
+    assert.ok(
+      !/\.snapToIndex\(/.test(sheet),
+      'the sheet opens imperatively again, which silently does nothing before layout',
+    );
   });
 });
 

@@ -66,28 +66,35 @@ export function BottomSheet({
   const { t } = useTheme();
   const sheetRef = useRef<ComponentRef<typeof GorhomBottomSheet>>(null);
   const [mounted, setMounted] = useState(visible);
-  /**
-   * Whether the library has been asked to open.
-   *
-   * A ref, not state: it is read inside the open effect to make the open happen
-   * exactly once per `visible` transition, and changing it must not cause a
-   * render.
-   */
-  const openRequested = useRef(false);
 
   const isDynamic = snapPoints === undefined;
 
-  // ★ THE OPEN MUST WAIT FOR THE MOUNT, AND IT MUST HAPPEN ON A LATER COMMIT.
-  //
-  // A closed sheet returns `null`, so when `visible` first flips true the ref is
-  // still null. Two effects in the SAME commit cannot fix that: the second one
-  // reads `mounted` before `setMounted(true)` has been applied, so it skips, and
-  // since neither dependency changes again it never re-runs — the sheet mounts at
-  // `index={-1}` and stays shut.
-  //
-  // So the mount is applied in one commit and the open is requested in the next,
-  // gated on `mounted` having actually become true. Every caller flips `visible`
-  // in the same render as its trigger, so this is the common path.
+  /**
+   * The caller's latest intent, for the close callback.
+   *
+   * A ref, so the callback stays stable across renders and can tell "the user
+   * dismissed this" from "the library settled closed as it mounted".
+   */
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
+  /**
+   * ★ THE OPEN IS DRIVEN BY `index`, NOT BY `snapToIndex`.
+   *
+   * `handleSnapToIndex` returns silently when the sheet's own layout has not
+   * been calculated yet — `const isLayoutReady = isLayoutCalculated.get(); if
+   * (!isLayoutReady) return;` in the library. It was being called from an effect
+   * on the commit after mount, which is still before the container has measured
+   * itself, so every open was a no-op with no error and no retry. That is why
+   * the sheet mounted and never appeared.
+   *
+   * `index` is the library's supported control: it is applied by an internal
+   * effect that re-runs when the layout becomes ready, so the open survives the
+   * measurement. `-1` is closed, `0` is the first snap point — or, under dynamic
+   * sizing, the measured content height.
+   */
+  const openIndex = visible && mounted ? 0 : -1;
+
   useEffect(() => {
     if (visible) {
       setMounted(true);
@@ -95,16 +102,8 @@ export function BottomSheet({
     }
 
     // The caller closed it. The library animates out; `onClose` tears down.
-    openRequested.current = false;
-    sheetRef.current?.close();
+    setMounted(false);
   }, [visible]);
-
-  useEffect(() => {
-    if (!visible || !mounted || openRequested.current) return;
-
-    openRequested.current = true;
-    sheetRef.current?.snapToIndex(0);
-  }, [visible, mounted]);
 
   /**
    * ★ A MOUNT-TIME CLOSE IS NOT A DISMISSAL.
@@ -112,15 +111,13 @@ export function BottomSheet({
    * `@gorhom/bottom-sheet` reports `onClose` as soon as it settles at index -1,
    * which includes the moment it mounts closed. Forwarding that to `onDismiss`
    * would clear the caller's `visible` state on the same tick it set it, and the
-   * sheet would flash and vanish. Only a close the user caused counts, which is
-   * recognised by the open having already been requested.
+   * sheet would flash and vanish. Only a close while the caller still wants the
+   * sheet counts.
    */
   const handleClose = useCallback(() => {
-    if (!openRequested.current) return;
+    if (!visibleRef.current) return;
 
-    openRequested.current = false;
     onDismiss();
-    setMounted(false);
   }, [onDismiss]);
 
   if (!visible && !mounted) return null;
@@ -153,7 +150,7 @@ export function BottomSheet({
     >
       <GorhomBottomSheet
         ref={sheetRef}
-        index={-1}
+        index={openIndex}
         // `undefined` lets the library measure the content; passing an array is
         // what pins it to fractions of the screen.
         snapPoints={snapPoints}
