@@ -146,6 +146,7 @@ export default function TimeSlotsScreen() {
           messageKey={errorKey}
           onRetry={() => router.back()}
           retryKey="common.back"
+          centered
           testID="slots-error"
         />
       </View>
@@ -177,7 +178,7 @@ export default function TimeSlotsScreen() {
         <Pressy
           onPress={handleBack}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back', 'بازگشت')}
+          accessibilityLabel={t('common.back')}
           style={styles.backButton}
         >
           <BackIcon size={24} color={theme.text} weight="bold" />
@@ -247,6 +248,7 @@ export default function TimeSlotsScreen() {
           body={t('slots.emptyBody')}
           actionLabel={t('proposals.newProposal')}
           onAction={() => router.push(`/event/${eventId}/propose`)}
+          centered
           testID="slots-empty"
         />
       ) : (

@@ -44,7 +44,7 @@ import { fetchActivity } from '@/src/features/voting/services/voting-api';
 import { useOffline } from '@/src/hooks/useOffline';
 import { formatGregorian, formatJalali } from '@/src/lib/jalali';
 import { getStoredUserId } from '@/src/lib/session';
-import { border, radius, size, space } from '@/src/theme/tokens';
+import { size, space } from '@/src/theme/tokens';
 import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
@@ -107,23 +107,33 @@ export default function ActivityScreen() {
       {isOffline && <OfflineBanner pendingCount={pendingCount} testID="activity-offline" />}
 
       <View style={styles.topHeader}>
+        {/* ★ A BARE BACK CHEVRON, MATCHING THE OTHER EVENT PAGES.
+            This was a 44pt circle with a fill and a border, so the event history
+            was the one screen whose header had a raised control on it — it read
+            as a floating action rather than navigation. */}
         <Pressy
           onPress={handleBack}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back', 'بازگشت')}
+          accessibilityLabel={t('common.back')}
           style={styles.backButton}
         >
-          <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-            <BackIcon size={20} color={theme.text} weight="bold" />
-          </View>
+          <BackIcon size={22} color={theme.text} weight="bold" />
         </Pressy>
+
         <View style={styles.header}>
-          <Text variant="h1">{t('activity.title')}</Text>
+          <Text variant="h1" align="center">
+            {t('activity.title')}
+          </Text>
           {/* ★ The absence of coordinates is STATED, not merely true. */}
-          <Text variant="caption" color={theme.textMuted} testID="activity-subheading">
+          <Text variant="caption" color={theme.textMuted} align="center" testID="activity-subheading">
             {t('activity.subheading')}
           </Text>
         </View>
+
+        {/* A symmetric spacer, so the title is centred on the screen rather than
+            on the space the back button happens to leave. `map.tsx` and
+            `time.tsx` already do this. */}
+        <View style={styles.headerSpacer} />
       </View>
 
       {state.kind === 'loading' && <ListSkeleton rows={4} testID="activity-loading" />}
@@ -132,6 +142,7 @@ export default function ActivityScreen() {
         <ErrorState
           messageKey="activity.loadFailed"
           onRetry={() => void load()}
+          centered
           testID="activity-error"
         />
       )}
@@ -248,6 +259,7 @@ const styles = StyleSheet.create({
   header: {
     gap: space[1],
     flex: 1,
+    alignItems: 'center',
   },
   topHeader: {
     flexDirection: 'row',
@@ -257,13 +269,11 @@ const styles = StyleSheet.create({
   backButton: {
     padding: space[1],
   },
-  backIconCircle: {
+  headerSpacer: {
+    // The same footprint as the back button, so the centred title is centred on
+    // the screen and not offset by the control beside it.
     width: size.stepperButton,
     height: size.stepperButton,
-    borderRadius: radius.pill,
-    borderWidth: border.hairline,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   list: {
     gap: space[2],

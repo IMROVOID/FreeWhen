@@ -52,6 +52,7 @@ import {
   startsNewDay,
 } from '@/src/features/events/services/chat-rules';
 import { useRealtime } from '@/src/features/voting/hooks/useRealtime';
+import { colorForNickname } from '@/src/features/profile/services/nickname-color';
 import { isApiFailure } from '@/src/lib/api';
 import { formatDate } from '@/src/lib/format';
 import { toPersianDigits } from '@/src/lib/jalali';
@@ -352,7 +353,7 @@ export default function ChatScreen() {
         <Pressy
           onPress={handleBack}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back', 'بازگشت')}
+          accessibilityLabel={t('common.back')}
           style={styles.backButton}
         >
           <BackIcon size={24} color={theme.text} weight="bold" />
@@ -426,12 +427,17 @@ export default function ChatScreen() {
                       ]}
                     >
                       <View style={styles.bubbleHeader}>
+                        {/* ★ OTHER PEOPLE'S NAMES CARRY THEIR COLOUR; YOUR OWN DOES NOT.
+                            The colour is how a reader follows one person through a
+                            thread, and that is only needed for someone else — your
+                            own messages are already distinguished by the bubble
+                            alignment and the brand tint. */}
                         <Text
                           variant="caption"
                           weight={700}
-                          color={isMe ? theme.brand : theme.primary}
+                          color={isMe ? theme.brand : colorForNickname(message.sender_name)}
                         >
-                          {isMe ? t('chat.you', 'شما') : message.sender_name}
+                          {isMe ? t('chat.you') : message.sender_name}
                         </Text>
                         <Text variant="caption" color={theme.textFaint} numeric>
                           {formatTime(message.created_at, isFa)}
@@ -464,7 +470,7 @@ export default function ChatScreen() {
             <View style={styles.editingInfo}>
               <PencilSimple size={16} color={theme.brand} />
               <Text variant="caption" color={theme.brand}>
-                {t('chat.editing', 'در حال ویرایش پیام')}
+                {t('chat.editing')}
               </Text>
             </View>
             <Pressy
@@ -473,7 +479,7 @@ export default function ChatScreen() {
                 setDraft('');
               }}
               accessibilityRole="button"
-              accessibilityLabel={t('common.cancel', 'انصراف')}
+              accessibilityLabel={t('common.cancel')}
               style={styles.cancelEditBtn}
             >
               <X size={16} color={theme.textMuted} />
@@ -492,7 +498,7 @@ export default function ChatScreen() {
               dir={isRtl ? 'rtl' : 'ltr'}
               value={draft}
               onChangeText={setDraft}
-              placeholder={t('chat.placeholder', 'پیامی بنویسید...')}
+              placeholder={t('chat.placeholder')}
               placeholderTextColor={theme.textFaint}
               style={[
                 styles.textInput,
@@ -516,7 +522,7 @@ export default function ChatScreen() {
             onPress={() => void handleSend()}
             disabled={!canSubmit}
             accessibilityRole="button"
-            accessibilityLabel={t('chat.send', 'ارسال')}
+            accessibilityLabel={t('chat.send')}
             testID="chat-send"
             style={styles.sendIconBtn}
           >
@@ -588,13 +594,13 @@ export default function ChatScreen() {
                 <Pressy style={styles.menuOption} onPress={() => startEdit(selectedMessage)}>
                   <PencilSimple size={20} color={theme.text} />
                   <Text variant="body" color={theme.text}>
-                    {t('common.edit', 'ویرایش پیام')}
+                    {t('common.edit')}
                   </Text>
                 </Pressy>
                 <Pressy style={styles.menuOption} onPress={() => void handleDelete(selectedMessage)}>
                   <Trash size={20} color={theme.danger} />
                   <Text variant="body" color={theme.danger}>
-                    {t('common.delete', 'حذف پیام')}
+                    {t('common.delete')}
                   </Text>
                 </Pressy>
               </>
@@ -610,14 +616,14 @@ export default function ChatScreen() {
                 >
                   <Warning size={20} color={theme.warning} />
                   <Text variant="body" color={theme.warning}>
-                    {t('chat.report', 'گزارش پیام')}
+                    {t('chat.report')}
                   </Text>
                 </Pressy>
               )
             )}
 
             <Button
-              label={t('common.cancel', 'انصراف')}
+              label={t('common.cancel')}
               variant="ghost"
               size="medium"
               onPress={() => setSelectedMessage(null)}
@@ -718,7 +724,16 @@ const styles = StyleSheet.create({
   cancelEditBtn: { padding: space[1] },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    // ★ CENTRE, NOT FLEX-END.
+    //
+    // `flex-end` aligned the send control to the BOTTOM of the row, so at rest —
+    // one 40pt line against a 40pt button — it sat a few pixels low and the pair
+    // read as misaligned. Centring is correct for the resting state, which is the
+    // one the user sees almost all the time. As the field grows the row grows with
+    // it and the button stays centred on the tall box, which is a deliberate
+    // trade: a bottom-anchored send is the chat-app convention, but it is only
+    // better once the field is multi-line, and the request is about the rest state.
+    alignItems: 'center',
     gap: space[2],
   },
   inputSurface: {

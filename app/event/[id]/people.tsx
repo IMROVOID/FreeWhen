@@ -154,7 +154,7 @@ export default function PeopleScreen() {
         <Pressy
           onPress={handleBack}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back', 'بازگشت')}
+          accessibilityLabel={t('common.back')}
           style={styles.backButton}
         >
           <View style={[styles.backIconCircle, { backgroundColor: theme.surface2, borderColor: theme.line }]}>

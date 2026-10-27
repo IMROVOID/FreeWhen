@@ -20,7 +20,8 @@
     "yesterday": "Yesterday",
     "unknown": "Unknown",
     "you": "You",
-    "and": "and"
+    "and": "and",
+    "clear": "Clear"
   },
   "app": {
     "tagline": "Find a time that works for everyone",
@@ -184,6 +185,12 @@
       "coordPrecision": "A location can carry at most two decimal places",
       "travelRange": "Travel time must be between 5 and 240 minutes",
       "modesUnknown": "The selected travel mode is not valid"
+    },
+    "search": {
+      "open": "Search events",
+      "title": "Search your events",
+      "placeholder": "Event name",
+      "noResults": "No event matches “{{query}}”."
     }
   },
   "invite": {
@@ -249,7 +256,8 @@
     "longitude": "Longitude",
     "coordHint": "e.g. 35.70 and 51.40",
     "manualNote": "Coordinates are rounded; only two decimal places are stored.",
-    "done": "Continue to the event"
+    "done": "Continue to the event",
+    "currentPosition": "My current position"
   },
   "profile": {
     "heading": "Your profile",
@@ -268,7 +276,15 @@
       "walk": "Walk",
       "cycle": "Cycle",
       "taxi": "Taxi"
-    }
+    },
+    "nicknameLabel": "Your nickname",
+    "nicknamePlaceholder": "e.g. Bahar",
+    "nicknameColorHint": "Your name shows in this colour",
+    "gateTitle": "What should we call you?",
+    "gateBody": "Your nickname is what other people see on your proposals, votes and messages. You can change it later in Settings.",
+    "gateAction": "That's me",
+    "changeNickname": "Change nickname",
+    "changeNicknameHint": "Shown on your proposals, votes and messages"
   },
   "proposals": {
     "heading": "Proposals",
@@ -294,7 +310,9 @@
       "endsNextDay": "Ends the next day",
       "proposedBy": "Suggested by {{name}}",
       "lateMarker": "New suggestion — after voting started",
-      "hoursUnknown": "Opening hours unknown"
+      "hoursUnknown": "Opening hours unknown",
+      "proposedByPrefix": "Suggested by",
+      "openInMaps": "Open in another app"
     },
     "form": {
       "titleLabel": "Proposal title",
@@ -318,7 +336,10 @@
       "searchLabel": "Search for a place",
       "noResults": "No places found",
       "degraded": "Place search is unavailable. You can pick the place on the map instead.",
-      "pickOnMap": "Can’t find the place? Pick it on the map"
+      "pickOnMap": "Can’t find the place? Pick it on the map",
+      "customPin": "Selected place on the map",
+      "confirmLocation": "Confirm and use this place",
+      "searchPlaceholder": "Search a place or address…"
     },
     "validation": {
       "titleRequired": "Enter a title for the proposal",
@@ -338,6 +359,9 @@
       "coordRange": "That location is outside the supported area",
       "nothingToChange": "There is nothing to save",
       "lockedConfirmed": "Proposals cannot be edited once a final decision is recorded"
+    },
+    "list": {
+      "rankedLabel": "Ranked by votes"
     }
   },
   "slots": {
@@ -353,7 +377,11 @@
     "emptyBody": "Add the first time range.",
     "yourLocalTime": "Your local time",
     "endsNextDay": "Ends the next day",
-    "hoursWarning": "May be closed at this hour"
+    "hoursWarning": "May be closed at this hour",
+    "am": "AM",
+    "pm": "PM",
+    "chosenTime": "Selected time:",
+    "chosenDate": "Selected date"
   },
   "availability": {
     "heading": "Availability",
@@ -488,7 +516,8 @@
       "dealbreakerNotBoolean": "The dealbreaker flag is not valid",
       "proposalWithdrawn": "This proposal was withdrawn and is no longer votable",
       "eventConfirmed": "Voting is closed once the final decision is recorded"
-    }
+    },
+    "changeVote": "Change your vote"
   },
   "decision": {
     "title": "Final decision",
@@ -688,7 +717,9 @@
     "offMapVenue": "Outside the map area",
     "attribution": "Map data from the map provider",
     "unavailableOnWeb": "The map is not available in the browser",
-    "unavailableOnWebBody": "The ranked list below has everything you need: each place, its reason and its travel estimate."
+    "unavailableOnWebBody": "The ranked list below has everything you need: each place, its reason and its travel estimate.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out"
   },
   "privacy": {
     "heading": "Privacy",
@@ -777,6 +808,10 @@
       "section": "Notifications",
       "empty": "You are not in any events yet.",
       "hint": "Choose which events may notify you."
+    },
+    "general": {
+      "label": "General notifications",
+      "hint": "Turning this off silences every event. Turning it back on restores the ones you had muted."
     }
   },
   "rsvp": {
@@ -944,6 +979,8 @@
     "reportFailed": "The report was not submitted.",
     "cancel": "Cancel",
     "notParticipant": "You are not in this event.",
-    "hint": "Messages are visible to everyone in this event."
+    "hint": "Messages are visible to everyone in this event.",
+    "you": "You",
+    "editing": "Editing a message"
   }
 }

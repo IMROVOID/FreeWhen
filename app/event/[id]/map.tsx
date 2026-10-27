@@ -192,7 +192,7 @@ export default function RankedVenuesScreen() {
         <Pressy
           onPress={handleBack}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back', 'بازگشت')}
+          accessibilityLabel={t('common.back')}
           style={styles.backButton}
         >
           <BackIcon size={24} color={theme.text} weight="bold" />
