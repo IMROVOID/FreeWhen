@@ -13,7 +13,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CaretLeft, CaretRight, Trash } from 'phosphor-react-native';
+import { ArrowsClockwise, CaretLeft, CaretRight, X } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
@@ -266,67 +266,78 @@ export default function ProposeScreen() {
            * are now part of the row rather than decorations on a map that is not
            * on screen.
            */
-          <View style={[styles.chosen, { borderColor: theme.line, backgroundColor: theme.surface1 }]}>
-            <View style={styles.chosenInfo}>
-              <Text variant="bodyL" color={theme.text} numberOfLines={2}>
-                {venue.name}
-              </Text>
-              {venue.address && (
-                <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
-                  {venue.address}
+          <View style={styles.mapSlot}>
+            <View
+              style={[styles.chosen, { borderColor: theme.line, backgroundColor: theme.surface1 }]}
+            >
+              <View style={styles.chosenInfo}>
+                <Text variant="bodyL" color={theme.text} numberOfLines={2}>
+                  {venue.name}
                 </Text>
-              )}
-              <Text variant="caption" color={theme.textFaint} numeric>
-                {formatCoordinates(venue.lat, venue.lng)}
-              </Text>
-            </View>
-
-            <View style={styles.chosenActions}>
-              <Pressy
-                onPress={() => setShowLocationPicker(true)}
-                accessibilityRole="button"
-                accessibilityLabel={t('proposals.form.changePlace')}
-                testID="propose-change-place"
-                style={[styles.chosenAction, { borderColor: theme.line }]}
-              >
-                <Text variant="caption" color={theme.text}>
-                  {t('proposals.form.changePlace')}
+                {venue.address && (
+                  <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
+                    {venue.address}
+                  </Text>
+                )}
+                <Text variant="caption" color={theme.textFaint} numeric>
+                  {formatCoordinates(venue.lat, venue.lng)}
                 </Text>
-              </Pressy>
+              </View>
 
               {/*
-                ★ CLEAR EMPTIES THE PLACE. IT DOES NOT OPEN THE MAP.
+                ★ TWO ICONS, NOT TWO LABELLED PILLS.
 
-                Both actions used to call `setShowLocationPicker(true)`, so
-                "clear" and "change" were the same button with different words —
-                and clearing dropped the reader into a map centred on the default
-                city with the place they had just removed already forgotten.
-                Clearing leaves the section empty; the map is one tap away and is
-                the only thing that fills it.
+                The row already names the place twice — the name and the
+                coordinates — and the two pills repeated "Change place" and
+                "Clear" beside it, which on a phone squeezed the name to two
+                clipped lines. Both actions are single-purpose and now
+                self-evident as icons; the words survive in `accessibilityLabel`,
+                which is where a screen reader reads them anyway.
               */}
-              <Pressy
-                onPress={() => setVenue(null)}
-                accessibilityRole="button"
-                accessibilityLabel={t('common.clear')}
-                testID="propose-clear-place"
-                style={[styles.chosenAction, { borderColor: theme.line }]}
-              >
-                <Trash size={16} color={theme.danger} />
-                <Text variant="caption" color={theme.danger}>
-                  {t('common.clear')}
-                </Text>
-              </Pressy>
+              <View style={styles.chosenActions}>
+                <Pressy
+                  onPress={() => setShowLocationPicker(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('proposals.form.changePlace')}
+                  testID="propose-change-place"
+                  style={[styles.chosenAction, { borderColor: theme.line }]}
+                >
+                  <ArrowsClockwise size={18} color={theme.text} />
+                </Pressy>
+
+                {/*
+                  ★ CLEAR EMPTIES THE PLACE. IT DOES NOT OPEN THE MAP.
+
+                  Both actions used to call `setShowLocationPicker(true)`, so
+                  "clear" and "change" were the same button with different words —
+                  and clearing dropped the reader into a map centred on the default
+                  city with the place they had just removed already forgotten.
+                  Clearing leaves the section empty; the map is one tap away and is
+                  the only thing that fills it.
+                */}
+                <Pressy
+                  onPress={() => setVenue(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('common.clear')}
+                  testID="propose-clear-place"
+                  style={[styles.chosenAction, { borderColor: theme.line }]}
+                >
+                  <X size={18} color={theme.danger} />
+                </Pressy>
+              </View>
             </View>
           </View>
         ) : (
-          <LocationMapPicker
-            onSelect={(selectedVenue) => {
-              setVenue(selectedVenue);
-              setShowLocationPicker(false);
-            }}
-            onCancel={venue ? () => setShowLocationPicker(false) : undefined}
-            testID="propose-map-picker"
-          />
+          <View style={styles.mapSlot}>
+            <LocationMapPicker
+              onSelect={(selectedVenue) => {
+                setVenue(selectedVenue);
+                setShowLocationPicker(false);
+              }}
+              onCancel={venue ? () => setShowLocationPicker(false) : undefined}
+              testID="propose-map-picker"
+            />
+          </View>
         )}
       </Card>
 
@@ -403,12 +414,22 @@ const styles = StyleSheet.create({
   /**
    * ★ THE MAP NEEDED A BREATH UNDER ITS TITLE.
    *
-   * The section's `gap` already separates the heading from its content, but the
-   * map is a bordered frame and the card's own padding is small, so the hairline
-   * read as the heading's underline. This is the section style plus that breath.
+   * The section's `gap` separates the heading from the content, but the map is a
+   * bordered frame, so the hairline read as the heading's underline. This was
+   * `paddingTop` on the card, which pushed the TITLE down instead and left the
+   * map exactly as flush as before — the gap has to be on the content, below the
+   * heading, which is what `mapSlot` is for.
    */
   placeSection: {
     gap: space[3],
+  },
+  /**
+   * The map's slot, and the collapsed place row's.
+   *
+   * Both live in this one wrapper so switching between "map open" and "place
+   * chosen" cannot move the heading above it.
+   */
+  mapSlot: {
     paddingTop: space[2],
   },
   sectionHeader: {
@@ -434,13 +455,11 @@ const styles = StyleSheet.create({
     gap: space[2],
   },
   chosenAction: {
-    flexDirection: 'row',
+    width: size.stepperButton,
+    height: size.stepperButton,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: space[1],
-    minHeight: size.stepperButton,
-    paddingHorizontal: space[3],
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     borderWidth: border.hairline,
   },
   submitBlock: {

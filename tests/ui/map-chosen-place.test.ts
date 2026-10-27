@@ -87,16 +87,16 @@ test('the section gives the map room under its title', () => {
   // Arrange
   const propose = code('app/event/[id]/propose.tsx');
 
-  // Act
-  const section = /placeSection:\s*\{([\s\S]*?)\n {2}\},/.exec(propose)?.[1] ?? '';
-  const applied = /styles\.placeSection/.test(propose);
+  // Act — the breath belongs to the CONTENT, not the card. `paddingTop` on the
+  // card only pushed the heading down and left the map as flush as before.
+  const slot = /mapSlot:\s*\{([\s\S]*?)\n {2}\},/.exec(propose)?.[1] ?? '';
+  const applied = /styles\.mapSlot/.test(propose);
 
-  // Assert — the section keeps its own gap and adds padding, so the map's
-  // hairline is not flush with the heading.
-  assert.ok(section.length > 0, 'the place-section style is missing');
-  assert.ok(applied, 'the place-section style is defined but never applied');
-  assert.ok(/paddingTop/.test(section), 'the map is flush with its title');
-  assert.ok(/gap/.test(section), 'the section lost its own gap');
+  // Assert — the section keeps its own gap, and the slot supplies the breath.
+  assert.ok(slot.length > 0, 'the map slot style is missing');
+  assert.ok(applied, 'the map slot style is defined but never applied');
+  assert.ok(/paddingTop/.test(slot), 'the map is flush with its title');
+  assert.ok(/gap/.test(/placeSection:\s*\{([\s\S]*?)\n {2}\},/.exec(propose)?.[1] ?? ''), 'the section lost its own gap');
 });
 
 test('both place actions are still reachable as buttons with labels', () => {

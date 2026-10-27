@@ -39,7 +39,7 @@ import {
   type PlaceResult,
 } from '@/src/features/venues/services/place-search';
 import { haptics } from '@/src/platform/haptics';
-import { formatCoordinates, translateCentre } from '@/src/components/ui/map-pan';
+import { formatCoordinates, offsetWithinTile, translateCentre } from '@/src/components/ui/map-pan';
 import { border, radius, size, space } from '@/src/theme/tokens';
 import { fonts } from '@/src/theme/fonts';
 import { useTheme } from '@/src/theme/useTheme';
@@ -121,10 +121,22 @@ export function LocationMapPicker({
   const zoomRef = useRef(zoom);
   const lastPan = useRef({ x: 0, y: 0 });
 
+  /**
+   * ★ THE GRID CANNOT MOVE BY SWAPPING URLS.
+   *
+   * `tileIndexFor` changes only when the centre crosses a whole tile, and the 3x3
+   * grid is re-centred on the frame every render — so a drag under one tile of
+   * travel produced a coordinate readout that ran while the picture sat still.
+   * The picture moves by translating the grid by the centre's residual position
+   * inside its tile, which changes on every frame of every drag.
+   */
+  const [tileResidual, setTileResidual] = useState(() => offsetWithinTile(initialLat, initialLng, zoom));
+
   const commitCentre = (next: { lat: number; lng: number }) => {
     centreRef.current = next;
     setLat(next.lat);
     setLng(next.lng);
+    setTileResidual(offsetWithinTile(next.lat, next.lng, zoomRef.current));
   };
 
   /**
@@ -138,6 +150,8 @@ export function LocationMapPicker({
     const next = Math.max(8, Math.min(18, zoomRef.current + delta));
     zoomRef.current = next;
     setZoom(next);
+    // The residual is measured against the zoom, so a zoom step re-derives it.
+    setTileResidual(offsetWithinTile(centreRef.current.lat, centreRef.current.lng, next));
   };
 
   const panResponder = useRef(
@@ -247,34 +261,51 @@ export function LocationMapPicker({
   const tileOffsets = [-1, 0, 1];
   const tileBase = themeName === 'dark' ? 'dark_all' : 'voyager';
 
+  /**
+   * ★ THE GRID SLIDES UNDER THE PIN; THE PIN DOES NOT MOVE.
+   *
+   * The pins stays at the frame's centre and the centre coordinate is what a drag
+   * changes, so the tiles have to carry the sub-tile travel — `-residual` puts the
+   * centre tile's own origin under the centre point, which is what makes the
+   * picture follow the finger instead of jumping a whole tile at a time.
+   */
+  const tileLayerTranslate = {
+    transform: [
+      { translateX: -tileResidual.x * TILE_SIZE },
+      { translateY: -tileResidual.y * TILE_SIZE },
+    ],
+  };
+
   return (
     <View style={styles.container} testID={testID}>
       {/* Map View Frame */}
       <View style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
         {/* Render Tile Grid */}
         <View style={styles.tileCanvas} {...panResponder.panHandlers}>
-          {tileOffsets.map((oy) => {
-            const ty = Math.max(0, Math.min(maxTile, centerTileY + oy));
-            return (
-              <View key={`row-${ty}`} style={styles.tileRow}>
-                {tileOffsets.map((ox) => {
-                  const tx = (centerTileX + ox + 2 ** zoom) % (2 ** zoom);
-                  const cartoKey = process.env.EXPO_PUBLIC_CARTO_API_KEY;
-                  const uri = cartoKey
-                    ? `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png?key=${cartoKey}`
-                    : `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png`;
-                  return (
-                    <Image
-                      key={`${zoom}-${tx}-${ty}`}
-                      source={{ uri }}
-                      style={styles.tile}
-                      resizeMode="cover"
-                    />
-                  );
-                })}
-              </View>
-            );
-          })}
+          <View style={[styles.tileLayer, tileLayerTranslate]}>
+            {tileOffsets.map((oy) => {
+              const ty = Math.max(0, Math.min(maxTile, centerTileY + oy));
+              return (
+                <View key={`row-${ty}`} style={styles.tileRow}>
+                  {tileOffsets.map((ox) => {
+                    const tx = (centerTileX + ox + 2 ** zoom) % (2 ** zoom);
+                    const cartoKey = process.env.EXPO_PUBLIC_CARTO_API_KEY;
+                    const uri = cartoKey
+                      ? `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png?key=${cartoKey}`
+                      : `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png`;
+                    return (
+                      <Image
+                        key={`${zoom}-${tx}-${ty}`}
+                        source={{ uri }}
+                        style={styles.tile}
+                        resizeMode="cover"
+                      />
+                    );
+                  })}
+                </View>
+              );
+            })}
+          </View>
         </View>
 
         {/* Center Target Pin */}
@@ -426,8 +457,25 @@ const styles = StyleSheet.create({
   tileCanvas: {
     width: '100%',
     height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
+    // The layer inside is translated, so the canvas only has to clip it.
+    overflow: 'hidden',
+  },
+  /**
+   * ★ THE GRID ANCHORS ON THE FRAME'S TOP-LEFT, NOT ON ITS MIDDLE.
+   *
+   * A centred grid fights the translate: `justifyContent: 'center'` re-centres
+   * the rows on every render, so the sub-tile offset was absorbed by the layout
+   * and the picture did not move. Pinned to the corner, the translate is the only
+   * thing positioning the layer.
+   *
+   * The grid is 3x3 tiles with the centre tile in the middle, so shifting it back
+   * by one tile puts the centre tile's origin on the frame's origin — then the
+   * residual translate brings the exact centre under the crosshair.
+   */
+  tileLayer: {
+    position: 'absolute',
+    top: -TILE_SIZE,
+    start: -TILE_SIZE,
   },
   tileRow: {
     flexDirection: 'row',

@@ -51,6 +51,32 @@ export function tileIndexFor(lat: number, lng: number, zoom: number): TileIndex 
 }
 
 /**
+ * How far into its own tile the centre sits, in whole tiles.
+ *
+ * ★ THE TILE GRID ALONE CANNOT SHOW A PAN.
+ *
+ * The picker draws a 3x3 grid of 256px tiles centred on the frame and re-derives
+ * it from the centre on every render. Keying a tile on `zoom-tx-ty` swaps which
+ * URL goes in which slot, but the grid never leaves the middle of the frame, so
+ * a drag that does not cross a tile boundary changes nothing a person can see —
+ * which is exactly the "the coordinates update but the map doesn't move" report.
+ *
+ * The visible movement is the residual: the fractional part of the centre's
+ * position inside its centre tile. Translating the grid by `-residual * tileSize`
+ * slides the picture under the pin continuously, and because the residual is
+ * always in `[0, 1)` the 3x3 grid still covers the frame at every step.
+ *
+ * Both axes are wrapped into `[0, 1)`: panning west makes the exact coordinate
+ * decrease, and a residual of `-0.2` would translate the grid a fifth of a tile
+ * the wrong way and show the frame's edge.
+ */
+export function offsetWithinTile(lat: number, lng: number, zoom: number): TileIndex {
+  const exact = toTileExact(lat, lng, zoom);
+  const wrap = (value: number) => ((value % 1) + 1) % 1;
+  return { x: wrap(exact.x), y: wrap(exact.y) };
+}
+
+/**
  * How far one CSS pixel of drag moves the centre, in degrees.
  *
  * Longitude is linear — the whole world is 360° across `2^zoom` tiles. Latitude
