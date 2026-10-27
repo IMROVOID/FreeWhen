@@ -1,23 +1,74 @@
+# What `vercel deploy` uploads when it is run from the REPOSITORY ROOT.
+#
+# ★ THE DEPLOY NO LONGER RUNS FROM HERE.
+#
+# `host-platform.sh` deploys from `static/` — the composed single-root tree that
+# already holds the pages, the assets and the API bundle — because that is the
+# only directory whose CONTENTS are the site. This file is kept for two reasons:
+# a Vercel Git integration (if it is ever connected) deploys from the root, and a
+# developer running `vercel` by hand from the root should upload the same thing.
+#
+# ★ A PRESENT `.vercelignore` REPLACES `.gitignore`, IT DOES NOT EXTEND IT.
+#
+# This file used to hold only two `!` re-includes. That was enough to get the
+# generated `static/` tree into an upload, and it silently did the opposite for
+# everything else: with no `.gitignore` in play, `node_modules/` was no longer
+# excluded either, and an upload became 12,069 files and 1.2 GB. The CLI then
+# failed with "Upload aborted" beside a truncated list of missing hashes — which
+# reads like a network fault and is actually the file list.
+#
+# So every exclusion is stated here. `node_modules/` is the one that matters:
+# Vercel installs it from `package.json` during the build, and the API function is
+# a single pre-bundled file (`api/index.js`), so nothing needs it on the wire.
+
+# Dependencies. Installed by the builder, never shipped from here.
+node_modules/
+**/node_modules/
+
+# Build output the builder produces, or that compose-static merges.
+.expo/
+.vercel/
+.cache/
+
+# Local and verification artefacts, which carry credentials and screenshots.
+.verify/
+.git/
+.worktrees/
+*.log
+metro.err
+metro.log
+
+# Nothing outside the deployed surface needs to travel.
+.github/
+tests/
+docs/
+design/
+supabase/
+migrations/
+
+# ─────────────────────────────────────────────────────────────
 # Files Vercel must NOT skip.
+# ─────────────────────────────────────────────────────────────
 #
-# ★ THE BUG THIS EXISTS FOR.
+# ★ THE BUG THE `!` LINES EXIST FOR.
 #
-# `static/` is the composed single-root deploy tree, and `.gitignore` excludes it
-# because it is generated. But `vercel deploy` falls back to `.gitignore` when no
-# `.vercelignore` is present, so the whole tree was filtered out of the UPLOAD.
+# `static/` is the composed single-root deploy tree, and it is generated. When it
+# was filtered out of the upload the failure was asymmetric, which is why it read
+# as a font bug rather than a deploy bug: the HTML in `static/` was small enough
+# to have been published already, but every file under `static/assets/` 404'd —
+# including all 24 font files. The browser reported success on the page and 404 on
+# the typeface, so English text fell back to a system font and looked like a
+# missing `fontFamily`.
 #
-# The failure was asymmetric, which is why it read as a font bug rather than a
-# deploy bug: the HTML in `static/` was small enough to have been published
-# already, but every file under `static/assets/` 404'd — including all 24 font
-# files. The browser reported success on the page and 404 on the typeface, so
-# English text fell back to a system font and looked like a missing `fontFamily`.
-#
-# `!` re-includes a path that an inherited rule would otherwise drop.
+# `!` re-includes a path an earlier rule would otherwise drop.
 !static/
 !static/**
 
 # `dist/` is the raw Expo export that compose-static.sh merges into `static/`.
-# It is kept for the same reason: the merge and the upload read it, and the
-# deploy must not depend on a previously committed copy.
+# The deploy must not depend on a previously committed copy of either.
 !dist/
 !dist/**
+
+# The API function is committed as a bundle, so it must survive the excludes.
+!api/
+!api/**
