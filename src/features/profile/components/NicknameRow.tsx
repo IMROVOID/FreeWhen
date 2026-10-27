@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { PencilSimple } from 'phosphor-react-native';
 
 import { BottomSheet } from '@/src/components/ui/BottomSheet';
 import { Button } from '@/src/components/ui/Button';
@@ -23,7 +24,7 @@ import { Text } from '@/src/components/ui/Text';
 import { nicknameErrorKey, NicknameField } from '@/src/features/profile/components/NicknameField';
 import { colorForNickname } from '@/src/features/profile/services/nickname-color';
 import { loadNickname, saveNickname } from '@/src/features/profile/services/profile';
-import { space } from '@/src/theme/tokens';
+import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 export interface NicknameRowProps {
@@ -99,9 +100,18 @@ export function NicknameRow({ testID = 'nickname-row' }: NicknameRowProps) {
           </Text>
         </View>
 
-        <Text variant="caption" color={theme.brand}>
-          {t('profile.changeNickname')}
-        </Text>
+        {/* ★ AN ICON, NOT THE WORDS "تغییر نام نمایشی".
+            The hint under the name already says what this row does, so the
+            trailing label was repeating it in full and crowding the row at the
+            Persian text length. An edit glyph reads the same in both languages
+            and leaves the name room.
+
+            It is NOT its own Pressy: a pressable inside a pressable loses its
+            touch on the web build, so the whole row opens the sheet — which is
+            what a settings row does anyway — and the icon is decoration. */}
+        <View style={[styles.editInner, { backgroundColor: theme.surface2 }]} pointerEvents="none">
+          <PencilSimple size={18} color={theme.text} weight="bold" />
+        </View>
       </Pressy>
 
       <BottomSheet visible={editing} onDismiss={() => setEditing(false)} testID="nickname-sheet">
@@ -139,8 +149,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   labels: {
-    flexShrink: 1,
+    flex: 1,
     gap: space[1],
+  },
+  editInner: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sheet: {
     gap: space[4],

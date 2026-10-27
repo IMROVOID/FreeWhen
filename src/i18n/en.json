@@ -961,7 +961,14 @@
       "backToApp": "Open the app"
     },
     "documentTitle": "FreeWhen — when is the group actually free?",
-    "documentDescription": "Turn a group's scattered suggestions into one confirmed decision: time, place and travel, together."
+    "documentDescription": "Turn a group's scattered suggestions into one confirmed decision: time, place and travel, together.",
+    "siteName": "FreeWhen",
+    "tagline": "Turn a group's scattered suggestions into one confirmed decision.",
+    "keywords": "group planning, meetup, availability, venue ranking, travel time, decision, poll, event, Iran",
+    "ogImageAlt": "FreeWhen — the group's scattered suggestions become one confirmed decision",
+    "audience": "Groups of friends, families and colleagues who cannot agree on a time and a place",
+    "category": "Lifestyle",
+    "shortDescription": "Time, place and travel, decided together."
   },
   "chat": {
     "title": "In-room chat",

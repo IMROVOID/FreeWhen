@@ -370,10 +370,10 @@ export function LocationMapPicker({
       {/* Bottom Place Confirmation Card */}
       <Card variant="surface" style={styles.bottomCard}>
         <View style={styles.bottomInfo}>
-          <Text variant="bodyL" color={theme.text}>
+          <Text variant="bodyL" color={theme.text} align="center">
             {placeName || t('proposals.place.customPin')}
           </Text>
-          <Text variant="caption" color={theme.textMuted} numeric>
+          <Text variant="caption" color={theme.textMuted} align="center" numeric>
             {`${lat.toFixed(4)}°N , ${lng.toFixed(4)}°E`}
           </Text>
         </View>
@@ -472,7 +472,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: radius.pill,
-    borderWidth: border.hairline,
+    // ★ NO BORDER.
+    //
+    // An outlined pill floating over map tiles reads as a form field dropped on
+    // top of the map rather than a control belonging to it, and the hairline is
+    // the one thing on screen with a hard edge. The fill alone is enough to lift
+    // it off the tiles.
+    borderWidth: 0,
     paddingHorizontal: space[3],
     height: size.buttonSmall,
     gap: space[2],
@@ -529,11 +535,19 @@ const styles = StyleSheet.create({
   },
   bottomInfo: {
     gap: space[1],
+    // The chosen place is the card's subject, so it is centred rather than
+    // pinned to one edge — it reads the same in both directions that way.
+    alignItems: 'center',
   },
   bottomActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space[2],
+    // ★ THE CONFIRM BUTTON NEEDED AIR ABOVE IT.
+    //
+    // At the card's own gap it sat directly under the coordinate line, so the one
+    // action that commits the location read as part of the label block.
+    marginTop: space[2],
   },
   cancelBtn: {
     flex: 1,

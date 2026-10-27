@@ -35,7 +35,10 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
+import { useTranslation } from 'react-i18next';
+
 import { Pressy } from './Pressy';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { radius, size, space } from '@/src/theme/tokens';
 import { spring } from '@/src/theme/motion';
 import { useMotion } from '@/src/theme/useMotion';
@@ -71,7 +74,22 @@ export function AccentSwitch({
   testID,
 }: AccentSwitchProps) {
   const { t: theme } = useTheme();
+  const { i18n } = useTranslation();
   const motion = useMotion();
+
+  /**
+   * ★ `translateX` IS PHYSICAL; THE KNOB'S STARTING EDGE IS LOGICAL.
+   *
+   * The knob rests at `marginInlineStart`, which is the RIGHT edge in Persian. A
+   * positive `translateX` then pushed it further right — past the track's edge and
+   * out of the pill, because `overflow: hidden` clips the track but the knob is
+   * inside it and simply runs to the wall. That is the reported "the circle moved
+   * too much to the sides and is overflowing".
+   *
+   * Flipping the sign under RTL makes the travel land on the opposite edge, which
+   * is where "off" actually is in a right-to-left interface.
+   */
+  const travel = isRtlLayout(i18n.language) ? -KNOB_TRAVEL : KNOB_TRAVEL;
 
   // 0 = off, 1 = on. One value drives the knob and the track's colour progress,
   // so the two cannot disagree mid-flight.
@@ -82,12 +100,12 @@ export function AccentSwitch({
   }, [progress, value]);
 
   const knobStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * KNOB_TRAVEL }],
+    transform: [{ translateX: progress.value * travel }],
   }));
 
   // Under Reduce Motion the knob is placed rather than animated (§7.7).
   const restingKnob = motion.reduce
-    ? { transform: [{ translateX: value ? KNOB_TRAVEL : 0 }] }
+    ? { transform: [{ translateX: value ? travel : 0 }] }
     : undefined;
 
   return (

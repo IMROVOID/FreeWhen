@@ -88,7 +88,7 @@ export function MuteList({ events, isLoading, interactive = true, testID }: Mute
               rendered left-aligned inside an otherwise RTL screen. Declaring it
               puts the name on the reading edge — the right one in Persian —
               independent of what the row does. */}
-          <Text variant="body" weight={600} numberOfLines={1} align="start">
+          <Text variant="body" weight={600} numberOfLines={1} align="start" style={styles.title}>
             {event.title}
           </Text>
 
@@ -110,10 +110,20 @@ const styles = StyleSheet.create({
     gap: space[4],
   },
   row: {
-    gap: space[2],
-    // The row's own direction, so the name and its switch mirror together.
-    // `row-reverse` is NOT used: both children are block-level, so the document
-    // direction already decides where each one starts.
-    alignItems: 'stretch',
+    // ★ A ROW, WITH THE NAME TAKING THE FREE SPACE.
+    //
+    // This was a plain column, so the event name sat ABOVE its switch instead of
+    // beside it, and the name's leading edge followed the column's stretch rather
+    // than its own `align="start"`. Laying it out as a row with `flex: 1` on the
+    // name is what puts the title on the reading edge and the switch on the
+    // opposite one — mirrored automatically by the document direction, so no
+    // `row-reverse` branch is needed.
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space[3],
+  },
+  title: {
+    flex: 1,
   },
 });

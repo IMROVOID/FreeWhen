@@ -117,7 +117,6 @@ export default function EventListScreen() {
                 {events.map((event) => (
                   <EventRow key={event.id} event={event} onPress={() => openEvent(event.id)} />
                 ))}
-                {actions('secondary', 'event-list-create-secondary')}
               </>
             ),
           };
@@ -163,8 +162,17 @@ export default function EventListScreen() {
 
       <JoinEventCard onJoin={(token) => router.push(`/e/${token}`)} />
 
+      {/* ★ THE ACTIONS COME BEFORE THE LIST, NOT AFTER IT.
+          Create and Search are the two things a person opens this screen to do,
+          and at the bottom of a growing list they were reachable only by
+          scrolling past every event — furthest away exactly when the list is
+          longest. Above the heading they are in the same place on every launch.
+          The empty state still carries its own create action, so a first-time
+          user is not shown an empty list with the button somewhere else. */}
+      {state.kind === 'ready' ? actions('secondary', 'event-list-create-secondary') : null}
+
       {/* ★ The list gets its own heading, because the page title is the app now.
-          The top padding is the separation the heading needs from the join card
+          The top padding is the separation the heading needs from the actions
           above it — without it the two read as one block. */}
       <View style={styles.listHeading}>
         <Text variant="h3" align="start">
@@ -216,14 +224,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   searchControl: {
-    width: size.stepperButton,
-    height: size.stepperButton,
+    // ★ THE SAME HEIGHT AS THE CREATE BUTTON BESIDE IT, AND A CIRCLE.
+    //
+    // It was `size.stepperButton` (44) against a 48pt `medium` button, so the
+    // two controls in one row had different heights and the search icon sat 4pt
+    // short of the thing it is paired with. A pill radius on a square would read
+    // as a rounded square, which is not what a search affordance looks like.
+    width: size.buttonMedium,
+    height: size.buttonMedium,
     flexShrink: 0,
   },
   searchInner: {
     flex: 1,
-    // A rounded square, per the request: background, no border.
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },

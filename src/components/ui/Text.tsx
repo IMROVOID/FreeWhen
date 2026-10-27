@@ -45,15 +45,29 @@ export function Text({
 
   const content = String(children ?? '');
 
-  // The content decides the FONT; the locale decides the digits.
-  const isFa =
-    i18n.language === 'fa'
-      ? (numeric || isPersian(content) || !/[a-zA-Z]/.test(content))
-      : isPersian(content);
+  /**
+   * ★ FONT AND DIRECTION ARE TWO DIFFERENT QUESTIONS, AND WERE BEING ANSWERED BY
+   *   ONE FLAG.
+   *
+   * `fontLocale` — the INTERFACE decides. This used to be "Persian only when the
+   * text contains Persian", so a Persian screen fell back to Plus Jakarta Sans for
+   * every string that happened to be Latin-only (an invite code, a time, a proper
+   * noun, an empty Text), and the browser then picked a system face for anything
+   * Jakarta could not cover. Vazirmatn covers Latin, so a Persian interface can use
+   * it unconditionally; the reverse is not true, so an English interface still
+   * switches to Vazirmatn when the CONTENT is Persian.
+   *
+   * `isFa` — the CONTENT decides. It drives `dir` and the type scale, because a
+   * Latin word inside a Persian paragraph is still a left-to-right run. Making this
+   * follow the interface would put `dir="rtl"` on every Latin string in a Persian
+   * page, which is the guessing the attribute exists to avoid.
+   */
+  const fontIsPersian = i18n.language === 'fa' || isPersian(content);
+  const isFa = isPersian(content) || (i18n.language === 'fa' && numeric);
 
   const type = resolveType(content, variant, isFa);
   const resolvedWeight = resolveWeight(variant, weight);
-  const family = isFa
+  const family = fontIsPersian
     ? fonts.persian[resolvedWeight]
     : fonts.latin[resolvedWeight];
 
