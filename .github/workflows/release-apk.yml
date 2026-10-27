@@ -188,11 +188,19 @@ jobs:
           fi
           URL="${SERVER_URL%/}"
 
-          echo "checking $URL/health"
-          BODY="$(curl -fsS --retry 3 --max-time 15 "$URL/health" || true)"
+          # ★ THE PROBE MUST USE THE SAME PATH THE APP DOES.
+          #
+          # `server/app.ts` registers the handler twice: Caddy answers the bare
+          # `/health` because a reverse proxy wants a short path, and the API
+          # answers `/api/health`. The serverless targets serve the function at
+          # `/api/...` only, so probing bare `/health` found a 404 page and
+          # cancelled a perfectly healthy production build. `verify-deployment.sh`
+          # already curls `/api/health`; this now matches it.
+          echo "checking $URL/api/health"
+          BODY="$(curl -fsS --retry 3 --max-time 15 "$URL/api/health" || true)"
           if ! printf '%s' "$BODY" | grep -q '"db":"up"'; then
             echo "::error title=Server not healthy::production build cancelled: server URL not reachable, or its database is down."
-            echo "GET $URL/health answered: ${BODY:-<no response>}"
+            echo "GET $URL/api/health answered: ${BODY:-<no response>}"
             echo 'Expected a body containing "db":"up".'
             exit 1
           fi
