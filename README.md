@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="./public/banner.webp" alt="FreeWhen" width="100%" />
+
 # FreeWhen
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
@@ -12,6 +14,8 @@
 [![Locale](https://img.shields.io/badge/Locale-Persian%20RTL%20%7C%20Jalali-emerald)](https://github.com/jalaali/jalaali-js)
 [![Routing](https://img.shields.io/badge/Routing-Neshan%20%7C%20ORS-orange)](https://neshan.org/)
 [![Backend](https://img.shields.io/badge/Database-PostgreSQL%20%7C%20Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
+[![Tests](https://img.shields.io/badge/tests-1272%20(node%3Atest)-success.svg)](./package.json)
+[![Release gates](https://img.shields.io/badge/gates-7%20enforced-orange.svg)](./scripts/gate)
 
 <p align="center">
   FreeWhen turns a group's scattered time and place suggestions into <b>one clear, visible, confirmed decision</b> — and shows, with evidence, why that choice is <b>fair for everyone</b>.
@@ -31,6 +35,7 @@
   - [Guide 1 — Local Development](#guide-1--local-development)
   - [Guide 2 — Deployment](#guide-2--deployment)
 - [Decision Engine & Scoring Lenses](#decision-engine--scoring-lenses)
+- [Event Lifecycle](#event-lifecycle)
 - [Client Integration](#client-integration)
 - [Tech Stack](#tech-stack)
   - [Languages](#languages)
@@ -79,6 +84,7 @@ When a group of friends plans an outing, suggestions get lost in chat history, n
 3. **Persian & Jalali Native**: Built from the ground up for Iranian users with native RTL layout, Jalali calendar math, Persian typography, and local transit routing.
 4. **Frictionless Participation**: Participants join instantly via an invite link (`/e/:token`) on the web without installing an app or registering an account.
 5. **Privacy by Design**: Truncates location coordinates to 2 decimals (~1.1 km resolution), prohibits background location tracking, and enforces automated secret scanning gates.
+6. **Coordinated, then followed through**: proposals, per-proposal comments, an in-room chat, a dealbreaker veto, RSVP, a `.ics` export and a shareable plan — the decision is the middle of the product, not the end of it.
 
 > **Note**: FreeWhen supports both a self-hosted **Supabase** backend and a completely standalone **local PostgreSQL + PostgREST** stack (`docker-compose.local.yml`). Switching requires changing a single environment variable (`DATABASE_BACKEND`), with zero client code alterations.
 
@@ -91,6 +97,22 @@ When a group of friends plans an outing, suggestions get lost in chat history, n
 - **Dual Backend Architecture**: Full parity between cloud-ready Supabase and an independent local stack (PostgreSQL 15 + PostgREST 12 + Node.js Auth & WebSocket Bridge).
 - **Enforced Security Gates**: Seven pre-commit and pre-deploy automated validation gates (`npm run gate:all`) that block secret leaks, PII logging, unscaled design tokens, and unreviewed permissions.
 - **Zero-Install Review Path**: Static web bundle export (`npm run export:web`) served instantly to any mobile or desktop browser without requiring an app store download.
+
+Around the ranking itself, the product is a full event lifecycle — every item below is shipped and covered by the test suite:
+
+- **Proposals that respond to a vote**: anyone can add a place or a slot, edit it, or withdraw it. The list is ranked by vote share with a bar showing each proposal's standing, an answered proposal collapses to its vote plus an edit affordance, and an upcoming vote deadline is marked rather than silently closed.
+- **Dealbreaker veto and per-proposal comments**: a participant can veto a proposal outright, and each proposal carries its own plain-text comment thread — organizer-deletable, and honest about the fact that a vetoed item is muted rather than hidden.
+- **Advisory opening-hours verdict**: a proposal whose venue is closed at the proposed time is flagged. Advisory, never blocking — the group decides, the app does not.
+- **In-room chat (D23)**: a real per-event message thread with edit and delete on your own messages, report on someone else's, a 500-character bound, and a matte treatment of system dialogs — no native `Alert` stacked over a screen that already asked the question.
+- **Deterministic summary of the decision**: built from structured facts in the active locale, with the AC-7.6.1 rewrite guard in place. No model is configured and the app never pretends one is (see [Transit is an estimate](#what-is-deliberately-missing)).
+- **Follow-through, not just the decision**: `.ics` calendar export, share-the-plan, RSVP with «نمیرسم» (can't make it) and «دیر میرسم» (running late), and a mute list that silences an event without leaving it.
+- **Global nickname in its own colour**: one prompt on first launch seeds the per-event name, and every nickname is shown in a stable colour on proposals, comments and messages. An answered profile lookup cannot 500 a join.
+- **Map-first proposal flow**: place search proxied through the server, a location picker, and the place actions on the map's own corner with a link to open the venue in a map app.
+- **Pull to resync**: pull the page down to re-fetch, with the corners rounding as it lifts — the web and native answer to "is this still right?" without a spinner taking over the screen.
+- **Search across joined and owned events**: an overlay that filters your events by name, so an old decision is reachable without scrolling.
+- **Material You accents and an adaptive theme**: Android 12+ dynamic accent and neutral colours via `PlatformColor`, with FreeWhen's own palette as the fallback — plus a dark/light appearance store and a reduced-motion path.
+- **Offline and failure states that tell the truth**: an offline banner, a per-screen state gate, skeletons, and an error state per surface. Polling backs off instead of retrying at full speed.
+- **Self-hosted event analytics**: seven funnel steps written to `analytics_event`, redacted in two layers.
 
 ## Guides
 
@@ -201,6 +223,7 @@ npm test                      # unit + component suites
 npm run test:engine           # the engine fairness assertions by name
 npm run test:db               # against a live PostgreSQL
 npm run gate:all              # the seven release gates
+npm run qa:all                # or: the whole checklist in one command
 ```
 
 > **One trap worth knowing.** `npm install` on Windows can leave `app.json` and the
@@ -411,6 +434,25 @@ The engine never emits hardcoded prose strings. It returns template IDs and nume
 | `low_confidence` | `—` | Signals that one or more estimates rely on straight-line models or approximations. |
 | `excluded_filter` | `{ venueName, reason }` | Explains why a candidate venue failed hard constraints (e.g., closed or inaccessible). |
 
+## Event Lifecycle
+
+The engine is one node in a longer graph. A FreeWhen event moves through these screens, and each one is a route — the whole thing works without an account:
+
+| Stage | Route | What happens | Server surface |
+|---|---|---|---|
+| **Join** | `app/e/[token].tsx` → `app/e/[token]/location.tsx` | The invite link is the credential. The guest sets a coarse start point and a nickname. | `POST /api/invite/:token` · `POST /api/events/:id/participants` |
+| **Event home** | `app/event/[id]/index.tsx` | Quick actions, the ranked proposal list with vote share, the chat entry, and the decision state. | `GET /api/events/:id/proposals` · `/decision-status` |
+| **Time** | `app/event/[id]/time.tsx` | Slot proposals and the availability grid. | `POST/PATCH /api/proposals` |
+| **Propose** | `app/event/[id]/propose.tsx` | Server-proxied place search, the location picker, an advisory opening-hours verdict. | `GET /api/place-search` |
+| **Vote** | `app/event/[id]/index.tsx` | Yes / maybe / no, a dealbreaker veto, and a per-proposal comment thread. | `POST /api/events/:id/votes` · `/comments` |
+| **Rank** | `app/event/[id]/map.tsx`, `venue/[vid].tsx` | The four lenses over the travel matrix; a per-person breakdown and a confidence level per number. | `POST /api/events/:id/rank` |
+| **Decide** | `app/event/[id]/decision.tsx` | The Decision Card, confirm, and reopen if the group changes its mind. | `POST /api/events/:id/confirm` · `/reopen` |
+| **Follow through** | `app/event/[id]/people.tsx`, `activity.tsx` | RSVP, running-late, `.ics` export, share the plan, the activity trail. | `POST /api/events/:id/rsvp` · `/status-update` |
+| **Chat** | `app/event/[id]/chat.tsx` | The per-event thread: edit, delete, report. | `GET/POST/PATCH/DELETE /api/events/:id/messages` |
+| **Settings** | `app/settings/index.tsx` | Language, nickname, notifications, mute list, the offline privacy notice, account deletion. | `GET/PATCH /api/profile` · `DELETE /api/account` |
+
+Two clocks run in the background rather than in a request: `npm run job:retention` applies the documented retention windows, and `npm run job:anon-cleanup` removes anonymous identities that never joined anything. **Auto-lock at the voting deadline** exists but ships **off by default** (`T10`) — an event closing itself is a surprising thing for a product that is otherwise entirely advisory.
+
 ## Client Integration
 
 <details>
@@ -506,6 +548,12 @@ Everything FreeWhen is built from, with the version this repository pins.
 | **React Hook Form** | 7.9 | Form state and validation |
 | **Zod** | 4.6 | Runtime schema validation, shared with the API |
 | **AsyncStorage** | 2.2 | Persisted local settings |
+| **expo-clipboard** | 58.0 | Copy an invite link or a share code without reflowing the page |
+| **expo-notifications** | 58 | Push permission requested after the first vote, not at launch; imported lazily so the web build still boots |
+| **expo-image** | 58.0 | Venue and background imagery |
+| **expo-linking** | 58.0 | The `freewhen://` scheme and universal links |
+| **expo-localization** | 58.0 | Device locale as the default language |
+| **Material You (`PlatformColor`)** | Android 12+ | Dynamic accent and neutral colours, with the FreeWhen palette as the fallback |
 
 ### Server
 
@@ -547,6 +595,8 @@ Two families, bundled locally rather than fetched at runtime:
 One family name is registered per weight and selected through the `weight` prop,
 because Android does not reliably map `fontWeight` to custom fonts.
 
+Vazirmatn ships a second family per weight (`VazirmatnFD-*`) that renders **Persian digits natively**. That is what makes `۱۲۳` look like a number in Persian rather than a Latin figure inside Persian text, without reformatting every string by hand.
+
 ### Icons & Visuals
 
 | Component | Version | Role |
@@ -570,6 +620,9 @@ Edit them as binary assets, not by regenerating in code.
 | **OpenRouteService** | Open-source routing engine | 3 |
 | **Haversine** | Straight-line distance, computed locally | 4 |
 | **Mapbox** | Base tiles for the native map | — |
+| **CARTO** | Raster basemap for the location picker, keyed by `EXPO_PUBLIC_CARTO_API_KEY` | — |
+
+The QR code on `/start` and the share card is **encoded locally** (`src/features/settings/components/QrCode.tsx`: byte mode, error-correction L, versions 1–10). A hosted QR image service would send the live demo invite token to a third party on every page load, and `gate:web` rejects a third-party script origin outright.
 
 ### Engineering & Quality
 
@@ -578,6 +631,7 @@ Edit them as binary assets, not by regenerating in code.
 | **Node test runner** (`node:test`) | built-in | Every test suite — no Jest, no Vitest |
 | **ESLint** | 9.36 | Linting |
 | **TypeScript compiler** | 6.0 | Type checking in CI-less gates |
+| **Maestro** | external CLI | The `tests/e2e/` device flow (`npm run test:e2e`) |
 | **Seven release gates** | in-repo | Secrets, location, engine purity, logs, design tokens, i18n parity, web bundle |
 
 ### Transports & Runtimes
@@ -595,30 +649,53 @@ target below. Two axes are configuration, not code:
 ```
 FreeWhen/
 ├── app/                          # Expo Router file-based screens
-│   ├── +html.tsx                 # Web document wrapper (dir="rtl", lang="fa")
+│   ├── +html.tsx                 # Web document wrapper (dir="rtl", lang="fa", OG/Twitter tags)
 │   ├── _layout.tsx               # Root layout, theme provider, fonts, i18n
 │   ├── index.tsx                 # Home / Landing screen
-│   ├── e/                        # Event invite handler & token redemption
-│   ├── event/                    # Event view, voting, proposals, decision screens
-│   └── new/                      # Event creation wizard
+│   ├── start.tsx                 # Reviewer quick-start, rendered from this same bundle
+│   ├── e/                        # Invite handler, token redemption, start point
+│   │   ├── [token].tsx           # Join via invite token
+│   │   └── [token]/location.tsx  # Set the coarse start point
+│   ├── event/[id]/               # One folder per event screen
+│   │   ├── index.tsx             # Event home: quick actions, ranked proposals, vote share
+│   │   ├── time.tsx              # Slot proposals and the availability grid
+│   │   ├── propose.tsx           # Place proposals, proxied search, opening-hours verdict
+│   │   ├── map.tsx               # Lens switch and the venue map
+│   │   ├── venue/[vid].tsx       # Per-person travel breakdown with confidence levels
+│   │   ├── decision.tsx          # Decision Card, confirm, reopen
+│   │   ├── people.tsx            # Attendees, RSVP, running late
+│   │   ├── activity.tsx          # The event's activity trail
+│   │   └── chat.tsx              # In-room chat: edit, delete, report
+│   ├── new/                      # Event creation wizard and the invite step
+│   └── settings/index.tsx        # Language, nickname, notifications, privacy, deletion
 ├── src/
 │   ├── app-bootstrap.ts          # Early bootstrap, fonts, i18n initialization
-│   ├── components/               # UI components
+│   ├── components/               # Shared UI
 │   │   ├── MeetPoint.tsx         # Meeting point visualizer
-│   │   └── ui/                   # 12 accessible design system primitives
-│   │       ├── Avatar.tsx        # Participant avatar
-│   │       ├── BottomSheet.tsx   # Gesture-driven bottom sheet
-│   │       ├── Button.tsx        # Accessible pressable button
-│   │       ├── Card.tsx          # Elevated surface card
-│   │       ├── Chip.tsx          # Tag and filter pill
-│   │       ├── EmptyState.tsx    # Empty state graphic & message
-│   │       ├── GlassSurface.tsx  # Liquid glass backdrop blur surface
-│   │       ├── Input.tsx         # Text field with RTL/LTR auto-direction
-│   │       ├── Pressy.tsx        # Spring animated touch wrapper
-│   │       ├── Stepper.tsx       # Multi-step progress indicator
-│   │       ├── TabBar.tsx        # Navigation bar
-│   │       ├── Text.tsx          # Typography with Persian font integration
-│   │       └── Toast.tsx         # Floating alert banner
+│   │   ├── a11y/                 # VisitorLabel — accessibility labelling
+│   │   ├── states/               # Offline banner, skeletons, error/permission states, state gate
+│   │   └── ui/                   # 20+ accessible design-system primitives
+│   │       ├── AccentSwitch.tsx      # Switch with an accent track
+│   │       ├── Avatar.tsx            # Participant avatar
+│   │       ├── BottomSheet.tsx       # Gesture-driven sheet (+ `.web.tsx` counterpart)
+│   │       ├── Button.tsx            # Accessible pressable button
+│   │       ├── Card.tsx              # Elevated surface card
+│   │       ├── Chip.tsx              # Tag and filter pill
+│   │       ├── ConfirmSheet.tsx      # Destructive-action confirmation
+│   │       ├── DateSelectionComponent.tsx # Jalali calendar + time wheel
+│   │       ├── EmptyState.tsx        # Empty state graphic & message
+│   │       ├── GlassSurface.tsx      # Liquid glass backdrop blur surface
+│   │       ├── Input.tsx             # Text field with RTL/LTR auto-direction
+│   │       ├── LocationMapPicker.tsx # Map-first location selection
+│   │       ├── OverlayToast.tsx      # Toast that does not reflow the page
+│   │       ├── Pressy.tsx            # Spring animated touch wrapper
+│   │       ├── PullToSync.tsx        # Pull-to-refresh with rounding corners
+│   │       ├── ScreenHeader.tsx      # Back affordance + centred title
+│   │       ├── Stepper.tsx           # Multi-step progress indicator
+│   │       ├── TabBar.tsx            # Navigation bar
+│   │       ├── Text.tsx              # Typography with Persian font integration
+│   │       ├── TimeWheelPicker.tsx   # Nested-scroll time wheel
+│   │       └── Toast.tsx             # Floating alert banner
 │   ├── engine/                   # Pure, deterministic fairness engine
 │   │   ├── config.ts             # Engine mathematical parameters & defaults
 │   │   ├── coverage.ts           # Participant measurement completeness
@@ -629,17 +706,38 @@ FreeWhen/
 │   │   ├── transit-proxy.ts      # Metro/BRT transit time & detour estimation
 │   │   ├── types.ts              # Engine contracts, TriState, ParticipantContext
 │   │   └── utility.ts            # Piecewise linear utility functions (0–100)
-│   ├── features/                 # Domain-specific feature modules
+│   ├── features/                 # Domain modules, one folder per capability
+│   │   ├── availability/         # The one-dataset availability grid
+│   │   ├── events/               # Join, create, search, share, QR, invite tokens, management
+│   │   ├── follow-through/       # RSVP, running late, .ics export, share the plan, mute list
+│   │   ├── map/                  # Map surface helpers
+│   │   ├── notifications/        # Push permission timing, handler, registration
+│   │   ├── parser/               # Deterministic chat/date parser and decision summary
+│   │   ├── participants/         # Participant list and identity
+│   │   ├── privacy/              # Retention copy, notice viewer, account deletion
+│   │   ├── profile/              # Global nickname, first-launch gate, per-name colour
+│   │   ├── proposals/            # Proposal create/edit/withdraw, comments, veto, hours verdict
+│   │   ├── settings/             # Language switch and the local QR encoder
+│   │   ├── venues/               # Venue ranking views and detail
+│   │   └── voting/               # Votes, live tally, confirmation
+│   ├── hooks/                    # useOffline, useReducedMotion
 │   ├── i18n/                     # Internationalization & localization
-│   │   ├── en.json               # English translation catalog
-│   │   ├── fa.json               # Persian translation catalog (191+ keys)
-│   │   └── index.ts              # i18next configuration & language detector
+│   │   ├── en.json               # English catalogue (819 keys)
+│   │   ├── fa.json               # Persian catalogue (819 keys, parity enforced)
+│   │   ├── index.ts              # i18next configuration & language detector
+│   │   ├── resolve.ts            # Locale resolution
+│   │   └── store.ts / store.web.ts # Language persistence, per platform
 │   ├── lib/                      # Core cross-cutting utilities
-│   │   ├── api.ts                # Typed client API client
+│   │   ├── api.ts                # Typed API client
+│   │   ├── api-base-url.ts       # Resolves the API origin, with a same-origin fallback
+│   │   ├── api-failure.ts        # Classifies a failed request for the UI
 │   │   ├── errors.ts             # Standardized domain error classes
 │   │   ├── format.ts             # Persian/English digits & currency formatters
 │   │   ├── jalali.ts             # Jalali (Solar Hijri) calendar utilities
+│   │   ├── pending-writes.ts     # Queues a write that failed offline
+│   │   ├── platform-tag.ts       # Platform tag for analytics and UA handling
 │   │   ├── redact.ts             # Zero-leak logging & PII masking
+│   │   ├── seo.ts                # Document metadata resolved at export time
 │   │   └── session.ts            # Local identity & auth state management
 │   ├── platform/                 # Cross-platform adapters
 │   │   ├── direction.ts          # RTL / LTR layout direction hooks
@@ -662,22 +760,32 @@ FreeWhen/
 │   │   └── types.ts              # TravelMeasurement & Confidence contracts
 │   ├── theme/                    # Design system tokens & styling
 │   │   ├── appearance-store.ts   # Dark / light theme state
-│   │   ├── font-assets.ts        # Font asset loader (Plus Jakarta Sans, Vazirmatn)
+│   │   ├── font-assets.ts        # Font asset loader (Plus Jakarta Sans, Vazirmatn, VazirmatnFD)
 │   │   ├── fonts.ts              # Font family contracts
+│   │   ├── monet.ts              # Material You dynamic accent resolution, Android 12+
 │   │   ├── motion.ts             # Spring & timing animation configs
+│   │   ├── resolve-theme-name.ts # Resolves the active theme name
 │   │   ├── tokens.ts             # Color palette, spacing, and radius tokens
 │   │   ├── type-scale.ts         # Proportional typographic scale
-│   │   ├── useMotion.ts          # Motion hook wrapper
+│   │   ├── useMotion.ts          # Motion hook wrapper (+ `.web.ts`)
 │   │   └── useTheme.ts           # Active theme hook
 │   └── types/                    # Core shared TypeScript definitions
 │       ├── domain.ts             # Event, proposal, vote, venue entities
 │       └── event.ts              # Event lifecycle contracts
 ├── server/                       # Backend API & service layer
 │   ├── auth/                     # Anonymous authentication & JWT issuing
+│   ├── jobs/                     # Retention and anonymous-identity cleanup runners
+│   ├── lib/                      # Analytics, DB backends, transport, redaction
 │   ├── realtime/                 # WebSocket realtime change bridge
-│   ├── routes/                   # Route handlers (rank-travel, invite, etc.)
+│   ├── routes/                   # 21 route handlers
+│   │   ├── account.ts  activity.ts  comments.ts  confirm.ts  decision-status.ts
+│   │   ├── events.ts   health.ts    invite.ts    messages.ts  notifications.ts
+│   │   ├── nudge.ts    parse.ts     participants.ts  place-search.ts  profile.ts
+│   │   ├── proposals.ts  rank-travel.ts  reopen.ts  rsvp.ts  status-update.ts  votes.ts
+│   ├── runtime/                  # Per-convention serverless edges (see its README)
+│   ├── sql/                      # Atomic PL/pgSQL operations
 │   └── index.ts                  # Backend server entry point
-├── migrations/                   # PostgreSQL schema migrations (000–015)
+├── migrations/                   # PostgreSQL schema migrations (000–021)
 ├── scripts/                      # Toolchain, gates & maintenance scripts
 │   ├── gate/                     # 7 automated release gate scripts
 │   │   ├── credential-shapes.ts  # Secret regex and shape definitions
@@ -689,11 +797,33 @@ FreeWhen/
 │   │   ├── secrets.ts            # Secret leaking prevention gate
 │   │   ├── shared.ts             # Gate runner utilities
 │   │   └── web.ts                # Web dist leakage audit gate
-│   ├── db/                       # Database migration and seed runners
+│   ├── build/                    # Web export and APK build scripts
+│   ├── db/                       # Migration, seed, query and DB test runners
+│   ├── deploy/                   # Deploy and deployment-verification scripts
+│   ├── docs/                     # PRD/plan validators and index generators
+│   ├── jobs/                     # Retention and cleanup entry points
+│   ├── privacy/                  # Privacy notice and static page generators
+│   ├── qa/                       # Static server and CDP screenshot/eval helpers
+│   ├── seo/                      # robots.txt and sitemap.xml generator
+│   ├── verify/                   # Deployment body and marker verification
 │   ├── run-engine-tests.ts       # Engine-specific test runner
-│   └── run-tests.ts              # Project test runner (400+ tests)
-├── tests/                        # Automated test suites
-├── assets/                       # Static app icons, splash images & fonts
+│   └── run-tests.ts              # Project test runner (1272 tests)
+├── tests/                        # Automated suites, grouped by domain
+│   ├── engine/ routing/ venues/ voting/ proposals/ availability/ follow-through/
+│   ├── auth/ events/ profile/ notifications/ parser/ realtime/ server/ backend/
+│   ├── db/ migrations & RLS · deploy/ script ordering · gate/ the gates themselves
+│   ├── docs/ workflow and documentation contracts · platform/ web + native splits
+│   ├── ui/ 29 component suites · privacy/ a11y/ theme/ lib/ fixtures/ submission/
+│   └── e2e/                      # Maestro device flows (`npm run test:e2e`)
+├── assets/                       # Fonts, images, privacy notices, vendored runtime assets
+├── public/                       # Copied verbatim into dist/ by expo export
+│   ├── banner.webp               # The Open Graph / Twitter Card image (1200×630)
+│   └── favicon*, icon-*, apple-touch-icon, maskable-512, site.webmanifest
+├── web/                          # A second static root, served beside dist/
+│   ├── dl/                       # The APK download page
+│   └── privacy/                  # Hand-written privacy pages (fa + en)
+├── docs/                         # PRDs, plans, reports, research, evidence
+├── .github/workflows/            # CI, Release APK, Deploy, Resolve config
 ├── docker-compose.local.yml      # Local Postgres & PostgREST stack
 ├── app.json                      # Expo app configuration
 ├── package.json                  # Dependencies & npm scripts
@@ -752,21 +882,30 @@ FreeWhen strictly distinguishes between client-inlined variables and server-only
 | `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | RLS-protected publishable anon key | `—` |
 | `EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN` | Yes (map) | Restricted Mapbox public token (`pk.*`) | `—` |
 | `EXPO_PUBLIC_TILE_STYLE_URL` | No | Custom vector tile style URL | `—` |
-| `EXPO_PUBLIC_APP_BASE_URL` | Yes | Base URL used to formulate invite links | `—` |
+| `EXPO_PUBLIC_CARTO_API_KEY` | No (location picker) | Publishable CARTO basemap tile key. Safe in the bundle by design — it appears in every tile URL. | `—` |
+| `EXPO_PUBLIC_APP_BASE_URL` | Yes | Base URL used to formulate invite links, `canonical`, `og:url`, the sitemap — **and the API origin when `EXPO_PUBLIC_API_URL` is unset** | `—` |
+| `EXPO_PUBLIC_API_URL` | No | The API origin when it differs from the app origin. Leave blank in the single-origin deployment. | falls back to `EXPO_PUBLIC_APP_BASE_URL` |
 | `EXPO_PUBLIC_DEMO_TOKEN` | Yes (reviewer path) | The stable invite token `/start` routes to. Must resolve to the seeded `is_demo` event | `—` |
+
+> **`EXPO_PUBLIC_*` is inlined at export time, not read at runtime.** A value that exists
+> only on the host is compiled in as `undefined` — that is how a release APK once shipped
+> pointing at `127.0.0.1:8787` and opened to a spinner, and it is why `gate:web` scans
+> `dist/` rather than the source.
 
 #### 2. Server-Only Credentials (Never in Client Bundles)
 
 | Variable | Required | Scope / Mode | Description | Default |
 |---|---|---|---|---|
-| `DATABASE_BACKEND` | Yes | All | Backend selector: `supabase` or `local_pg` | `supabase` |
+| `DATABASE_BACKEND` | Yes | All | Two questions at once — see below the table | `supabase` |
 | `SUPABASE_SECRET_KEY` | Yes (Supabase) | Server | Service-role key with full RLS bypass | `—` |
+| `SUPABASE_URL` | Yes (`supabase_rest`) | Server | Base URL of the Supabase (or self-hosted PostgREST) project | `—` |
 | `JWT_SECRET` | Yes | Server | Shared signing key for tokens & PostgREST | `—` |
 | `NESHAN_API_KEY` | Yes (routing) | Server | Shared API key for Neshan matrix & direction | `—` |
 | `NESHAN_MATRIX_API_KEY` | No | Server | Dedicated Neshan matrix key | `—` |
 | `NESHAN_DIRECTION_API_KEY` | No | Server | Dedicated Neshan direction routing key | `—` |
 | `ORS_API_KEY` | No | Server | OpenRouteService API key fallback | `—` |
-| `POSTGRES_PASSWORD` | Yes (local_pg) | Server | Master PostgreSQL password | `—` |
+| `AI_PROVIDER_KEY` | No | Server | Optional model provider. Absent means deterministic-only, which is the shipped behaviour — no provider is reachable from Iran. | `—` |
+| `POSTGRES_PASSWORD` | Yes (local_pg) | Server | Master PostgreSQL password. Compose refuses to start without it rather than defaulting. | `—` |
 | `POSTGRES_USER` | No | Server | PostgreSQL username | `postgres` |
 | `POSTGRES_DB` | No | Server | PostgreSQL database name | `freewhen` |
 | `DATABASE_URL` | Yes (local_pg) | Server | Full database connection string | `—` |
@@ -774,6 +913,13 @@ FreeWhen strictly distinguishes between client-inlined variables and server-only
 | `REALTIME_PORT` | No | Server | Local realtime bridge listen port | `8788` |
 | `ANON_SIGNIN_LIMIT_PER_HOUR` | No | Server | Rate limit for anonymous sign-ins per IP | `30` |
 | `ANON_TOKEN_TTL_SECONDS` | No | Server | Lifetime of issued anonymous token (seconds) | `3600` |
+
+**`DATABASE_BACKEND` answers two different questions, and that is deliberate.**
+
+1. *Which deployment stack?* `supabase` (default) or `local_pg`.
+2. *Which wire protocol does the API use?* `pg` (default, over a TCP socket) or `supabase_rest` (PostgREST over HTTPS, no socket, no direct Postgres credential).
+
+Both `supabase` and `local_pg` describe Postgres reached over TCP, so the server resolves **both** to `pg` — an existing `.env` with either value keeps booting with byte-identical behaviour. An **unknown** value is a startup failure, not a silent fallback to the default: a typo would otherwise serve one transport while the operator believed they had configured the other.
 
 #### 3. GitHub Actions variables and secrets
 
@@ -818,8 +964,11 @@ npm run gate:all
 
 ### Automated Test Suites
 
+The runner is `node:test` — no Jest, no Vitest, no transform step. One invocation
+currently runs **1 272 tests across 171 suites** (1 255 pass, 17 skipped by design).
+
 ```bash
-# Run the pure unit & integration test runner (400+ tests)
+# Run the pure unit & integration test runner
 npm test
 
 # Run tests filtering by pattern
@@ -831,7 +980,41 @@ npm run test:engine
 
 # Run the live database RLS & cascade test suite (requires local Postgres)
 npm run test:db
+
+# Run the accessibility subset
+npm run test:a11y
+
+# Run the Maestro device flow (requires the Maestro CLI and a running app)
+npm run test:e2e
 ```
+
+`npm run test:db` applies pending migrations on every run rather than only against a
+fresh schema — a suite that tests stale DDL is worse than one that never ran.
+
+### Other Tooling
+
+| Script | What it does |
+|---|---|
+| `npm run qa:all` | The whole-checklist command: typecheck → lint → gates → tests → engine, stopping at the first failure. `gate:all` answers "is the bundle shippable?"; this answers "is anything at all broken?" |
+| `npm run check:docs` | Validates the PRD/plan tree: frontmatter, traceability, archived links |
+| `npm run check:namespace-drift` | Flags generated SQL that drifted from its TypeScript source |
+| `npm run gen:server-sql` | Regenerates `server/sql/` from its TypeScript definitions |
+| `npm run gen:privacy-notice` / `gen:web-pages` | Regenerates the privacy notice and the static `web/` pages |
+| `npm run gen:seo` | Writes `robots.txt` and `sitemap.xml` into `dist/` (called by `build:web`) |
+| `npm run db:local:down` | Stops the local Postgres + PostgREST stack |
+| `npm run job:retention` | Applies the documented retention windows |
+| `npm run job:anon-cleanup` | Removes anonymous identities that never joined anything |
+| `npm run worktree` | Isolates an agent's worktree and test database |
+| `npm run flags:parse` | Parses `[fw:apk]` style commit flags for the workflows |
+
+### SEO and share metadata
+
+`c6721cf` completed the document metadata: `app/+html.tsx` renders `canonical`,
+`og:url`, `og:image`, `twitter:card` and `hreflang` into the **served HTML**, resolved at
+export time from `src/lib/seo.ts`. The share image is `public/banner.webp` (1200×630),
+declared with its real pixel size so an unfurl reserves the right box. A client-side
+`<Head>` would put these tags in the browser after the response arrived, and the crawlers
+and chat apps that read them never run the JavaScript.
 
 ### Building Release Artifacts
 
@@ -1106,7 +1289,7 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 | # | Gap | Risk | Why deferred | Trigger to address |
 |---|---|---|---|---|
 | **G-1** | **No identity verification for guests.** The invite link *is* the credential. | Catastrophic if a link goes public | Acceptable for invite-only friend groups; expiry, revocation and rate limiting are the mitigations | Any public or semi-public launch |
-| **G-2** | **No block/report between participants.** Apple §1.2 requires blocking for UGC apps. | **Compliance risk** | No chat or free-text sharing between participants exists at MVP scope. Comments are proposal-scoped plain text with organizer deletion. | **Becomes mandatory the moment chat or user profiles are added** |
+| **G-2** | **No block/report between participants.** Apple §1.2 requires blocking for UGC apps. | **Compliance risk** | The chat thread now ships report on another person's message and organizer-side deletion, but **there is still no block** and no user profile to block. Comments remain proposal-scoped plain text with organizer deletion. | **Becomes mandatory the moment blocking a person (rather than reporting a message) is expected** |
 | **G-3** | **No screenshot protection.** | Unpreventable | Structurally impossible to prevent | Documented in the in-app privacy notice |
 | **G-4** | **No age verification.** | Low | A documented decision; the listing states 18+ | If the user base skews young |
 | **G-5** | **Organizer identity is device-scoped.** Losing the device loses organizer control. | Event can strand | Ownership continuity prevents the worst case | Account system |
@@ -1115,7 +1298,8 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 | **G-8** | **No automated rollback.** The workflows publish; reverting a release or a deploy is still a manual act. | Low — releases are drafts by default and migrations are additive | A rollback action needs a previous-artifact store and a decision about what "the previous good deploy" means per provider | The first time a bad release reaches a reviewer |
 | **G-9** | **No iOS build pipeline.** | Low — the reviewer path is the web export | No Apple credentials, no macOS runner, no signing certificate. `README` has always listed iOS as missing | An Apple developer account |
 | **G-10** | **Only the static half is deployed to a public host.** Both live targets (Vercel, Netlify) serve the web export; no backend is hosted, so `/api/*` and `/start`'s live ranking rely on a server that is not running there. | **Medium** — `/start` renders but its data requests fail until a backend exists | Every backend target needs one thing this survey could not supply: an account token (Railway), account scope (Cloudflare), a connected repo (Render), or an ssh host (VPS). The two static deployments prove the artifact, not the stack | Before any reviewer is given a URL rather than a local checkout |
-| **G-11** | **The APK release path has never run end to end.** The matrix, the keystore decode and `validate-apk.sh` are tested against synthetic APKs, but no real signed release has been produced. | Low — the validator refuses the known-bad shapes | Needs the release keystore and a ~20-minute Gradle run; neither exists in this environment | The first dispatch of **Release APK** |
+| **G-11** | **No real signed APK release has been published.** The matrix, the keystore decode and `validate-apk.sh` are tested against synthetic APKs; `release-apk.yml` builds and verifies every ABI, but the first real dispatch has not happened. | Low — the validator refuses the known-bad shapes, and a draft prerelease is the default | Needs the release keystore and a ~20-minute Gradle run; neither exists in this environment | The first dispatch of **Release APK** |
+| **G-12** | **The Vercel and Netlify deployments serve the artifact, not the stack.** Page bodies, the `start-screen` marker and `dir="rtl"` are verified; the ranking those pages ask for is not, because no backend is reachable from them. | Medium | Same blocker as G-10 | When a backend host is provisioned |
 
 **G-2 is the most important entry.** It is a conscious compliance risk that must be revisited before any messaging feature ships.
 
@@ -1129,7 +1313,7 @@ The table above is the register. This section is the prose version — the three
 
 - **Transit is an estimate.** No Iranian provider offers transit routing and no Tehran GTFS feed exists (verified during the research phase). Figures are distance-based, shown as **ranges**, and labelled «تخمینی» in Persian and "estimated" in English. This is a permanent, honest answer, not a stopgap waiting on a feed.
 - **Venue accessibility data is thin.** OpenStreetMap has **668 `wheelchair` editors for Iran** versus 135,155 globally. We show «نامشخص» (unknown) rather than guessing, and only a `confirmed_no` attribute excludes a venue. An unknown attribute never counts against a place, and it never gets promoted to "accessible" either.
-- **No block/report (G-2).** A conscious compliance risk, documented above. It becomes mandatory the moment messaging or user profiles are added.
+- **Report ships; block does not (G-2).** Chat now has report-on-a-message and organizer deletion, so the free-text surface is moderated. What is still missing is blocking a *person*, which needs a participant profile to block. A conscious compliance risk, documented above.
 - **G-1 — a leaked invite link is the accepted primary risk.** Expiry, revocation, rate limiting and coordinate rounding are the mitigations. The link *is* the credential.
 - **G-3 — no screenshot protection.** Structurally impossible to prevent.
 - **G-4 — no age verification** beyond an 18+ declaration.
