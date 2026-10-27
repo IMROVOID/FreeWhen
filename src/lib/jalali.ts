@@ -32,6 +32,35 @@ export const PERSIAN_MONTHS = [
   'اسفند',
 ] as const;
 
+/**
+ * The Persian months in Finglish, for an English interface.
+ *
+ * ★ "MONTH 8 1405" IS NOT A MONTH.
+ *
+ * The English branch of the date picker built `` `Month ${viewMonth}` `` and fell
+ * back to a bare number in the selected-date line, so a Jalali date read as a
+ * month NUMBER — which is meaningless to anyone who does not already know the
+ * calendar, and silently wrong-looking to anyone who does (Aban is month 8).
+ *
+ * These are transliterations, not translations, because these are the names
+ * Persian speakers use for these months in Latin script. "April" would be a
+ * different calendar's month.
+ */
+export const ENGLISH_MONTHS = [
+  'Farvardin',
+  'Ordibehesht',
+  'Khordad',
+  'Tir',
+  'Mordad',
+  'Shahrivar',
+  'Mehr',
+  'Aban',
+  'Azar',
+  'Dey',
+  'Bahman',
+  'Esfand',
+] as const;
+
 export const PERSIAN_WEEKDAYS = [
   'شنبه',
   'یکشنبه',
@@ -119,6 +148,19 @@ export function persianMonthName(input: string | Date): string {
   const { gy, gm, gd } = utcParts(input);
   const { jm } = toJalaali(gy, gm, gd);
   return PERSIAN_MONTHS[jm - 1] ?? '';
+}
+
+/**
+ * The Jalali month name, in the interface's own script.
+ *
+ * `1` is Farvardin. The English branch returns the Finglish transliteration
+ * rather than a number, so a date never reads as "Month 8".
+ */
+export function monthName(month: number, locale: Language = 'fa'): string {
+  const index = month - 1;
+  if (index < 0 || index > 11) return '';
+
+  return locale === 'fa' ? PERSIAN_MONTHS[index] ?? '' : ENGLISH_MONTHS[index] ?? '';
 }
 
 /** The weekday name for an instant, in the locale's own order. */
