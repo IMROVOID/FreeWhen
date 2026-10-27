@@ -22,18 +22,21 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/src/components/ui/Card';
+import { Button } from '@/src/components/ui/Button';
 import { Chip } from '@/src/components/ui/Chip';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { formatDate } from '@/src/lib/format';
 import { toPersianDigits } from '@/src/lib/jalali';
+import { colorForNickname } from '@/src/features/profile/services/nickname-color';
+import { openInMaps } from '@/src/features/proposals/services/map-link';
 import { trackOpeningHoursWarningShown } from '@/src/features/proposals/services/analytics';
 import {
   ADVISORY_KEY_BY_VERDICT,
   openingHoursAdvisory,
 } from '@/src/features/proposals/services/opening-hours';
 import { endsNextDay, formatLocalTime } from '@/src/features/proposals/services/slot-time';
-import { radius, space } from '@/src/theme/tokens';
+import { border, radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Proposal } from '@/src/types/proposal';
 import type { Language } from '@/src/i18n/types';
@@ -168,26 +171,54 @@ export function ProposalCard({
       )}
 
       {proposal.venue && (
-        <View style={styles.timeBlock}>
-          <Text variant="body" color={isWithdrawn ? theme.textFaint : theme.text} style={struck}>
-            {proposal.venue.name}
-          </Text>
-          {proposal.venue.address && (
-            <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
-              {proposal.venue.address}
+        <View
+          style={[
+            styles.venueBlock,
+            { backgroundColor: theme.surface2, borderColor: theme.line },
+          ]}
+          testID={testID ? `${testID}-venue` : undefined}
+        >
+          <View style={styles.venueText}>
+            <Text variant="body" color={isWithdrawn ? theme.textFaint : theme.text} style={struck}>
+              {proposal.venue.name}
             </Text>
-          )}
-          {/* ★ ABSENCE OF HOURS IS NOT "CLOSED" (E9).
-              The advisory resolves `null` to «نامشخص» rather than to a blank
-              line, which would read as "open". */}
-          {hoursAdvisory && (
-            <Text
-              variant="caption"
-              color={hoursVerdict === 'closed' ? theme.warning : theme.textFaint}
-              testID={testID ? `${testID}-hours-advisory` : undefined}
-            >
-              {t(hoursAdvisory)}
-            </Text>
+            {proposal.venue.address && (
+              <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
+                {proposal.venue.address}
+              </Text>
+            )}
+            {/* ★ ABSENCE OF HOURS IS NOT "CLOSED" (E9).
+                The advisory resolves `null` to «نامشخص» rather than to a blank
+                line, which would read as "open". */}
+            {hoursAdvisory && (
+              <Text
+                variant="caption"
+                color={hoursVerdict === 'closed' ? theme.warning : theme.textFaint}
+                testID={testID ? `${testID}-hours-advisory` : undefined}
+              >
+                {t(hoursAdvisory)}
+              </Text>
+            )}
+          </View>
+
+          {/* ★ A PLACE INSIDE A CARD SHOULD BE REACHABLE.
+              The coordinates are already in the payload, so the one thing a
+              reader does with an address — open it in the map application they
+              actually use — is one tap rather than a copy and a search. Hidden on
+              a withdrawn proposal, which is not somewhere anyone is going. */}
+          {!isWithdrawn && (
+            <Button
+              label={t('proposals.card.openInMaps')}
+              variant="ghost"
+              size="small"
+              fullWidth={false}
+              onPress={() => void openInMaps({
+                name: proposal.venue!.name,
+                lat: proposal.venue!.lat,
+                lng: proposal.venue!.lng,
+              })}
+              testID={testID ? `${testID}-open-maps` : undefined}
+            />
           )}
         </View>
       )}
@@ -204,9 +235,18 @@ export function ProposalCard({
       )}
 
       <View style={styles.footer}>
-        <Text variant="caption" color={theme.textFaint}>
-          {t('proposals.card.proposedBy', { name: proposal.proposer_name })}
-        </Text>
+        {/* ★ THE NAME IS ITS OWN TEXT NODE SO IT CAN CARRY A COLOUR.
+            The sentence used to interpolate the name into one string, which left
+            no way to colour just the person — and the colour is how a reader
+            tracks who said what across a list of proposals. */}
+        <View style={styles.proposer}>
+          <Text variant="caption" color={theme.textFaint}>
+            {t('proposals.card.proposedByPrefix')}
+          </Text>
+          <Text variant="caption" color={colorForNickname(proposal.proposer_name)}>
+            {proposal.proposer_name}
+          </Text>
+        </View>
 
         {/* FR-2.9 — a proposal that arrived after voting began says so. */}
         {proposal.is_late && (
@@ -258,6 +298,17 @@ const styles = StyleSheet.create({
   timeBlock: {
     gap: space[1],
   },
+  venueBlock: {
+    // Inset to the card's own border radius and padding, so the place reads as a
+    // nested chip rather than as more card content.
+    borderRadius: radius.md,
+    borderWidth: border.hairline,
+    padding: space[3],
+    gap: space[2],
+  },
+  venueText: {
+    gap: space[1],
+  },
   footer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -265,5 +316,10 @@ const styles = StyleSheet.create({
     gap: space[3],
     marginTop: space[2],
     borderRadius: radius.sm,
+  },
+  proposer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[1],
   },
 });
