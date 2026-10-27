@@ -4,6 +4,15 @@ import { ScrollViewStyleReset, useServerDocumentContext } from 'expo-router/html
 
 import { resolveLanguage } from '@/src/app-bootstrap';
 import { resources } from '@/src/i18n';
+import {
+  OG_IMAGE_HEIGHT,
+  OG_IMAGE_PATH,
+  OG_IMAGE_TYPE,
+  OG_IMAGE_WIDTH,
+  absoluteUrl,
+  siteOrigin,
+  softwareApplicationSchema,
+} from '@/src/lib/seo';
 import { palette, themes } from '@/src/theme/tokens';
 
 /**
@@ -40,8 +49,44 @@ export default function Root({ children }: { children: React.ReactNode }) {
    * URL, a bookmark had no name, and the back button listed paths. Resolved
    * from the catalogue rather than hardcoded, because the product ships in two
    * languages and a literal would be wrong in one of them.
+   *
+   * The whole `web` block is read once here, because the share and structured
+   * data tags below are built from the same entry — a second destructure of the
+   * same node would be two sources for one page's metadata.
    */
-  const { documentTitle, documentDescription } = resources[language].translation.web;
+  const web = resources[language].translation.web;
+  const { documentTitle, documentDescription } = web;
+
+  /**
+   * ★ THE SHARE PREVIEW AND THE CANONICAL URL.
+   *
+   * Both need an absolute origin — a crawler and a chat client resolve a
+   * relative `og:image` against nothing and show no card — so the origin is
+   * read once here and every absolute URL below is derived from it.
+   *
+   * `og:locale` carries the UNDERSCORE form (`fa_IR`, not `fa-IR`); the
+   * hyphenated form is silently ignored by most consumers. `og:locale:alternate`
+   * names the other shipped locale, so a share in either language offers both
+   * and the crawler does not have to guess that the product is bilingual.
+   */
+  const origin = siteOrigin(process.env);
+  const canonicalUrl = absoluteUrl(origin, '/');
+  const ogImageUrl = absoluteUrl(origin, OG_IMAGE_PATH);
+  const ogLocale = language === 'fa' ? 'fa_IR' : 'en_US';
+  const ogLocaleAlternate = language === 'fa' ? 'en_US' : 'fa_IR';
+
+  /**
+   * ★ THE STRUCTURED DATA IS A SCRIPT, AND IT IS JSON.
+   *
+   * `</script>` inside a string would close the tag early, so the serialised
+   * JSON has every `<` escaped. The catalogue is ours and contains no such
+   * sequence today, but this tag is the one place where a later copy edit could
+   * break the page — escaping costs nothing and removes the class of bug.
+   */
+  const schema = JSON.stringify(softwareApplicationSchema(web, origin, language)).replace(
+    /</g,
+    '\\u003c',
+  );
 
   return (
     <html lang={language} dir={dir} {...htmlAttributes}>
@@ -52,6 +97,64 @@ export default function Root({ children }: { children: React.ReactNode }) {
 
         <title>{documentTitle}</title>
         <meta name="description" content={documentDescription} />
+        <meta name="keywords" content={web.keywords} />
+        <meta name="author" content={web.siteName} />
+        <link rel="canonical" href={canonicalUrl} />
+
+        {/* ★ THE LANGUAGE LINKS ARE HREFLANG, NOT DECORATION.
+            The app ships in Persian and English, and the served document is one
+            or the other depending on the build's locale. Without these a search
+            engine treats the two as duplicate content; with them it can serve
+            the right one. `x-default` names the fallback for every other
+            language, which is Persian — the default locale. */}
+        <link rel="alternate" hrefLang="fa" href={absoluteUrl(origin, '/?lang=fa')} />
+        <link rel="alternate" hrefLang="en" href={absoluteUrl(origin, '/?lang=en')} />
+        <link rel="alternate" hrefLang="x-default" href={canonicalUrl} />
+
+        {/* ★ OPEN GRAPH — how the link looks in a chat, a post or a message.
+            `og:type` and `og:url` are required for an unfurl to be attempted at
+            all, and `og:image` needs the width/height pair below or some clients
+            render an empty box while the image downloads. */}
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content={web.siteName} />
+        <meta property="og:title" content={documentTitle} />
+        <meta property="og:description" content={documentDescription} />
+        <meta property="og:url" content={canonicalUrl} />
+        <meta property="og:image" content={ogImageUrl} />
+        <meta property="og:image:type" content={OG_IMAGE_TYPE} />
+        <meta property="og:image:width" content={String(OG_IMAGE_WIDTH)} />
+        <meta property="og:image:height" content={String(OG_IMAGE_HEIGHT)} />
+        <meta property="og:image:alt" content={web.ogImageAlt} />
+        <meta property="og:locale" content={ogLocale} />
+        <meta property="og:locale:alternate" content={ogLocaleAlternate} />
+
+        {/* The large-image card. `summary` would shrink the banner to a
+            thumbnail, which defeats the point of shipping a 1200×630 one. */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={documentTitle} />
+        <meta name="twitter:description" content={documentDescription} />
+        <meta name="twitter:image" content={ogImageUrl} />
+        <meta name="twitter:image:alt" content={web.ogImageAlt} />
+
+        {/* ★ THE APP LINKS ARE WHAT MAKES A SHARE BECOME AN INSTALL.
+            A person who opens the link on a phone is offered the app if they
+            have it; the web page remains the landing surface otherwise, so no
+            `app-store` fallback is declared (there is no App Store listing —
+            see `/start`, which ships an APK link instead). */}
+        <meta property="al:android:package" content="ir.freewhen.app" />
+        <meta property="al:ios:bundle_id" content="ir.freewhen.app" />
+        <meta property="al:web:url" content={canonicalUrl} />
+
+        {/* ★ THE ROBOTS DIRECTIVE IS EXPLICIT, NOT DEFAULTED.
+            Everything the export serves is meant to be indexed — including
+            `/start`, which is the reviewer entry point — so the tag says so
+            rather than leaving the crawler to guess from the absence of one. */}
+        <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: schema }}
+        />
 
         {/* Expo emits a favicon and manifest from `app.json`. These add the
             surfaces it does not generate: a scalable icon, the multi-size ICO
@@ -61,6 +164,7 @@ export default function Root({ children }: { children: React.ReactNode }) {
         <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
         <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+        <link rel="manifest" href="/site.webmanifest" />
         <meta name="theme-color" content={palette.espresso} />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

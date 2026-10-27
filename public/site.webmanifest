@@ -1,8 +1,12 @@
 {
   "name": "FreeWhen",
   "short_name": "FreeWhen",
+  "description": "Turn a group's scattered suggestions into one confirmed decision: time, place and travel, together.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "lang": "fa",
+  "dir": "rtl",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -19,6 +23,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/banner.webp",
+      "sizes": "1200x630",
+      "type": "image/webp",
+      "form_factor": "wide"
     }
   ],
   "theme_color": "#170E0A",

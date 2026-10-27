@@ -62,6 +62,12 @@ fi
 
 npm run export:web
 
+# The sitemap and robots.txt are not part of the export and cannot live in
+# `public/`: both need the absolute origin, which only the environment knows.
+# Running here means the sitemap names the same origin the canonical tags do.
+echo "== 2b   seo (robots.txt, sitemap.xml) =="
+npm run gen:seo
+
 echo "== 3/3  gate:web (the built bundle) =="
 npm run gate:web
 
