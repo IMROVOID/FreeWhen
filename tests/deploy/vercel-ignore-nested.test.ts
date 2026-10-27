@@ -2,71 +2,67 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-test('the asset mirror under node_modules is re-included for upload', () => {
-  // Arrange — `.gitignore:20` is `node_modules/`, and an unanchored pattern
-  // matches at ANY depth. Metro mirrors the package layout under `assets/`, so
-  // `static/assets/node_modules/**` was filtered out of the upload by the same
-  // rule that excludes the real dependency directory — while `!static/**` did not
-  // rescue it, because a more specific ignore wins.
-  const ignore = readFileSync('.vercelignore', 'utf8');
+/**
+ * Metro mirrors dependency assets under an `assets/node_modules/` path.
+ *
+ * ★ VERCEL WILL NOT SERVE A URL CONTAINING `node_modules`, WHATEVER `.vercelignore` SAYS.
+ *
+ * Established by direct observation of the live deployment: from the SAME uploaded
+ * tree, `/assets/assets/fonts/Vazirmatn-Bold.<hash>.ttf` answered 200 and
+ * `/assets/node_modules/@expo-google-fonts/…/PlusJakartaSans_400Regular.<hash>.ttf`
+ * answered 404. Re-including the path in `.vercelignore` changed nothing.
+ *
+ * That asymmetry is why this read as a font bug for so long: Vazirmatn lives under
+ * `assets/assets/fonts/`, so Persian screens looked correct and only the English
+ * typefaces fell back to a system face, while the HTML and JS served perfectly.
+ *
+ * So the compose step RELOCATES the segment to `assets/vendor/` and rewrites the
+ * references. These assertions pin that, because the failure mode is silent: the
+ * page loads, and only the typeface is wrong.
+ */
 
-  // Act
-  const reincludesAssets = /!static\/assets\/node_modules\/\*\*/.test(ignore);
-  const reincludesDist = /!dist\/assets\/node_modules\/\*\*/.test(ignore);
-
-  // Assert — this is the difference between a font that loads and a page that
-  // silently falls back to a system face.
-  assert.ok(reincludesAssets, 'static/assets/node_modules is not re-included');
-  assert.ok(reincludesDist, 'dist/assets/node_modules is not re-included');
-});
-
-test('the real dependency tree stays excluded', () => {
+test('the compose step relocates the node_modules asset segment', () => {
   // Arrange
-  const ignore = readFileSync('.vercelignore', 'utf8');
+  const compose = readFileSync('.github/scripts/compose-static.sh', 'utf8');
 
-  // Act — the re-inclusions must be scoped to the ASSET mirror, and something
-  // must positively exclude the root tree.
-  const loosensRoot = /^!node_modules/m.test(ignore);
-  const excludesRoot = /^node_modules\s*$/m.test(ignore);
-
-  // Assert
-  assert.equal(loosensRoot, false, 'the root node_modules directory was re-included');
-  assert.ok(excludesRoot, 'nothing positively excludes the root node_modules tree');
-});
-
-test('the root exclusion comes BEFORE the asset re-inclusions', () => {
-  // ★ ORDER IS THE WHOLE FIX.
-  //
-  // `.vercelignore` and `.gitignore` are merged, and gitignore semantics say a
-  // negated pattern has no effect if its parent directory is excluded. Listing
-  // the re-inclusion before the exclusion re-excludes the fonts again — the bug
-  // comes straight back and the check still looks present.
-  const lines = readFileSync('.vercelignore', 'utf8')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'));
-
-  const excludeAt = lines.indexOf('node_modules');
-  const reincludeAt = lines.findIndex((line) => line === '!static/assets/node_modules/');
-
-  assert.ok(excludeAt >= 0, 'the root exclusion is missing');
-  assert.ok(reincludeAt >= 0, 'the asset re-inclusion is missing');
+  // Act / Assert
+  assert.ok(/assets\/node_modules/.test(compose), 'compose does not look for the segment');
+  assert.ok(/assets\/vendor/.test(compose), 'compose has no destination for it');
   assert.ok(
-    excludeAt < reincludeAt,
-    'the asset re-inclusion is listed before the root exclusion, so it is overridden',
+    /rm -rf "\$OUT\/assets\/node_modules"/.test(compose),
+    'the original segment is left in place, so the host still refuses it',
   );
 });
 
-test('the deployment check fetches a font, not only the bundle', () => {
-  // Arrange — the bundle check passed while every Jakarta file 404'd, which is
-  // exactly how this shipped green twice.
-  const verify = readFileSync('.github/scripts/verify-deployment.sh', 'utf8');
+test('the references are rewritten, not only the files moved', () => {
+  // Arrange
+  const compose = readFileSync('.github/scripts/compose-static.sh', 'utf8');
 
-  // Act
-  const checksFonts = /assets\/\[\^"\]\*\\\.ttf|\.ttf/.test(verify);
-  const checksNested = verify.includes('/assets/node_modules/');
+  // Act — a move without a rewrite leaves every URL pointing at the removed path.
+  const rewrites =
+    compose.includes('s#/assets/node_modules/#/assets/vendor/#g') &&
+    compose.includes('-exec sed -i');
 
   // Assert
-  assert.ok(checksFonts, 'verify-deployment.sh does not fetch a font');
-  assert.ok(checksNested, 'verify-deployment.sh does not specifically probe the node_modules mirror');
+  assert.ok(rewrites, 'the HTML/JS/CSS references are not rewritten to the new path');
+});
+
+test('the deployment check rejects a node_modules reference outright', () => {
+  // Arrange
+  const verify = readFileSync('.github/scripts/verify-deployment.sh', 'utf8');
+
+  // Act / Assert — the relocation is the invariant; a lingering reference means it
+  // did not run.
+  assert.ok(
+    /grep -q '\/assets\/node_modules\/'/.test(verify),
+    'verify-deployment.sh does not check for a lingering node_modules reference',
+  );
+});
+
+test('the deployment check still fetches a real typeface', () => {
+  // Arrange
+  const verify = readFileSync('.github/scripts/verify-deployment.sh', 'utf8');
+
+  // Act / Assert — the bundle check alone passed throughout the outage.
+  assert.ok(/\.ttf/.test(verify), 'verify-deployment.sh does not fetch a font');
 });

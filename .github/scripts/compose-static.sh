@@ -32,6 +32,38 @@ mkdir -p "$OUT"
 cp -R "$DIST"/. "$OUT"/
 cp -R "$WEB"/. "$OUT"/
 
+# ★ A `node_modules` SEGMENT IN A PUBLIC URL IS REFUSED BY THE HOST.
+#
+# Metro writes every dependency asset — all 14 Plus Jakarta Sans faces and 18
+# icon PNGs — under `assets/node_modules/…`, mirroring the package layout. Vercel
+# will not serve a path containing that segment, whatever `.vercelignore` says:
+# the deployment answered `/assets/assets/fonts/Vazirmatn-Bold.<hash>.ttf` with 200
+# and `/assets/node_modules/@expo-google-fonts/…/PlusJakartaSans_400Regular.<hash>.ttf`
+# with 404 from the SAME tree.
+#
+# That asymmetry is why it read as a font bug for so long. Vazirmatn lives under
+# `assets/assets/fonts/`, so a Persian screen looked correct; only the English
+# typefaces 404'd, and a page whose JS and HTML were perfect still fell back to a
+# system face.
+#
+# So the segment is relocated rather than argued with. The files move to
+# `assets/vendor/…` and every reference in the served HTML/JS/CSS is rewritten to
+# match. The hashes are preserved, so the rewrite is a prefix substitution and the
+# filenames the bundle expects still exist.
+if [ -d "$OUT/assets/node_modules" ]; then
+  mkdir -p "$OUT/assets/vendor"
+  cp -R "$OUT/assets/node_modules"/. "$OUT/assets/vendor"/
+  rm -rf "$OUT/assets/node_modules"
+
+  # Rewrite the references. `-type f` over the text carriers only: the binaries
+  # under `assets/vendor` are not searched, and neither is the APK placeholder.
+  find "$OUT" -type f \( -name '*.html' -o -name '*.js' -o -name '*.css' -o -name '*.json' \) \
+    -exec sed -i 's#/assets/node_modules/#/assets/vendor/#g#' {} +
+
+  moved="$(find "$OUT/assets/vendor" -type f | wc -l | tr -d ' ')"
+  echo "  moved   assets/node_modules -> assets/vendor ($moved files)"
+fi
+
 # The APK binary is hundreds of megabytes and is not in the repository. A
 # placeholder keeps `/dl/` links resolving instead of 404-ing between builds;
 # the real file is written by whatever publishes it.

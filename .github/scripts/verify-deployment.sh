@@ -165,14 +165,16 @@ if [ "$WANT_WEB" = "true" ]; then
       bad "$SAMPLE -> $CODE — the HTML references a typeface the deploy does not serve"
     fi
 
-    NESTED="$(printf '%s\n' "$FONTS" | grep '/assets/node_modules/' | head -1)"
-    if [ -n "$NESTED" ]; then
-      CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SITE$NESTED" 2>/dev/null || echo 000)"
-      if [ "$CODE" = "200" ]; then
-        ok "a font under assets/node_modules/ resolves"
-      else
-        bad "$NESTED -> $CODE — .vercelignore is filtering the node_modules asset mirror"
-      fi
+    # ★ A `node_modules` SEGMENT IN A PUBLIC URL MUST NOT BE THERE AT ALL.
+    #
+    # Vercel refuses to serve it whatever `.vercelignore` says, and that is why
+    # the English typefaces 404'd from the same tree that served Vazirmatn.
+    # `compose-static.sh` relocates it to `assets/vendor/`, so a reference to the
+    # old path means the relocation did not run.
+    if printf '%s\n' "$FONTS" | grep -q '/assets/node_modules/'; then
+      bad "a font is still referenced under /assets/node_modules/ — the host will not serve it"
+    else
+      ok "no font is referenced under /assets/node_modules/"
     fi
   fi
 fi
