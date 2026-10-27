@@ -16,7 +16,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, TextInput, View } from 'react-native';import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { ScrollView, StyleSheet, TextInput, View } from 'react-native';import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,7 @@ import {
   X,
 } from 'phosphor-react-native';
 
+import { BottomSheet } from '@/src/components/ui/BottomSheet';
 import { Button } from '@/src/components/ui/Button';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
@@ -557,81 +558,76 @@ export default function ChatScreen() {
         )}
       </View>
 
-      {/* Message Long-Press Context Menu Modal */}
-      <Modal
+      {/*
+        Message long-press menu.
+
+        ★ A SHEET, NOT A RAW `Modal`.
+
+        The platform `Modal` presents and dismisses with the OS's own transition,
+        which has no exit on either platform — so the menu appeared and vanished
+        as hard cuts while every other overlay slid. It also drew its own
+        `theme.bg` scrim, which painted a rectangle the same colour as the page.
+
+        The shared sheet gives it the same scrim, the same slide, and the same
+        dismissal contract as the rest of the product: click outside, Escape, and
+        a real `onDismiss` that closes the `Button` path too.
+      */}
+      <BottomSheet
         visible={selectedMessage !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedMessage(null)}
+        onDismiss={() => setSelectedMessage(null)}
+        testID="chat-message-menu"
       >
-        <View style={styles.modalRoot}>
-          {/* ★ THE SCRIM IS A TOKEN, NOT A LITERAL BLACK.
-              This used to be a half-transparent black. A literal black scrim
-              dims wrongly in light mode, where the surface behind it is nearly
-              white; the theme's `bg` at reduced opacity is correct in both. */}
-          <View
-            pointerEvents="none"
-            style={[styles.scrim, { backgroundColor: theme.bg }]}
+        <View style={styles.menuSheet}>
+          <Text
+            variant="caption"
+            color={theme.textMuted}
+            numberOfLines={1}
+            style={[styles.menuPreview, { borderBottomColor: theme.line }]}
+          >
+            {selectedMessage?.body}
+          </Text>
+
+          {selectedMessage && selectedMessage.participant_id === myParticipantId ? (
+            <>
+              <Pressy style={styles.menuOption} onPress={() => startEdit(selectedMessage)}>
+                <PencilSimple size={20} color={theme.text} />
+                <Text variant="body" color={theme.text}>
+                  {t('common.edit')}
+                </Text>
+              </Pressy>
+              <Pressy style={styles.menuOption} onPress={() => void handleDelete(selectedMessage)}>
+                <Trash size={20} color={theme.danger} />
+                <Text variant="body" color={theme.danger}>
+                  {t('common.delete')}
+                </Text>
+              </Pressy>
+            </>
+          ) : (
+            selectedMessage && (
+              <Pressy
+                style={styles.menuOption}
+                onPress={() => {
+                  const msg = selectedMessage;
+                  setSelectedMessage(null);
+                  setReporting(msg);
+                }}
+              >
+                <Warning size={20} color={theme.warning} />
+                <Text variant="body" color={theme.warning}>
+                  {t('chat.report')}
+                </Text>
+              </Pressy>
+            )
+          )}
+
+          <Button
+            label={t('common.cancel')}
+            variant="ghost"
+            size="medium"
+            onPress={() => setSelectedMessage(null)}
           />
-          <Pressy style={styles.modalTouch} onPress={() => setSelectedMessage(null)}>
-            <View
-              style={[
-                styles.menuSheet,
-                { backgroundColor: theme.surface1, borderColor: theme.line },
-              ]}
-            >
-            <Text
-              variant="caption"
-              color={theme.textMuted}
-              numberOfLines={1}
-              style={[styles.menuPreview, { borderBottomColor: theme.line }]}
-            >
-              {selectedMessage?.body}
-            </Text>
-
-            {selectedMessage && selectedMessage.participant_id === myParticipantId ? (
-              <>
-                <Pressy style={styles.menuOption} onPress={() => startEdit(selectedMessage)}>
-                  <PencilSimple size={20} color={theme.text} />
-                  <Text variant="body" color={theme.text}>
-                    {t('common.edit')}
-                  </Text>
-                </Pressy>
-                <Pressy style={styles.menuOption} onPress={() => void handleDelete(selectedMessage)}>
-                  <Trash size={20} color={theme.danger} />
-                  <Text variant="body" color={theme.danger}>
-                    {t('common.delete')}
-                  </Text>
-                </Pressy>
-              </>
-            ) : (
-              selectedMessage && (
-                <Pressy
-                  style={styles.menuOption}
-                  onPress={() => {
-                    const msg = selectedMessage;
-                    setSelectedMessage(null);
-                    setReporting(msg);
-                  }}
-                >
-                  <Warning size={20} color={theme.warning} />
-                  <Text variant="body" color={theme.warning}>
-                    {t('chat.report')}
-                  </Text>
-                </Pressy>
-              )
-            )}
-
-            <Button
-              label={t('common.cancel')}
-              variant="ghost"
-              size="medium"
-              onPress={() => setSelectedMessage(null)}
-            />
-            </View>
-          </Pressy>
         </View>
-      </Modal>
+      </BottomSheet>
 
       <ReportSheet
         messageId={reporting?.id ?? null}
@@ -778,26 +774,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  modalRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    padding: space[4],
-  },
-  scrim: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: '100%',
-    opacity: 0.7,
-  },
-  modalTouch: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   menuSheet: {
-    borderRadius: radius.xl,
-    borderWidth: border.hairline,
-    padding: space[4],
+    padding: space[1],
     gap: space[3],
   },
   menuPreview: {

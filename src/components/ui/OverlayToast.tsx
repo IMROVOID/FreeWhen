@@ -26,7 +26,7 @@
  * natural.
  */
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
@@ -39,7 +39,9 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { CheckCircle, Info, WarningCircle, XCircle } from 'phosphor-react-native';
 
 import { Text } from './Text';
+import { REDUCED_MOTION_DURATION, dur, ease } from '@/src/theme/motion';
 import { border, radius, space } from '@/src/theme/tokens';
+import { useMotion } from '@/src/theme/useMotion';
 import { useTheme } from '@/src/theme/useTheme';
 
 export type OverlayToastTone = 'neutral' | 'success' | 'warning' | 'danger';
@@ -71,7 +73,36 @@ export function OverlayToast({
 }: OverlayToastProps) {
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const motion = useMotion();
   const translateX = useSharedValue(0);
+  const opacity = useSharedValue(visible ? 1 : 0);
+
+  /**
+   * ★ THE CONFIRMATION HAD NO ENTRANCE AND NO EXIT.
+   *
+   * `if (!visible) return null` unmounted the pill the frame `visible` went
+   * false, so copying a link produced a toast that appeared and disappeared as a
+   * hard cut — in the one component whose entire job is to tell the reader that
+   * something happened. It fades in over `dur.fast` and out over `dur.base`, and
+   * `rendered` keeps it mounted until the fade-out has actually run.
+   */
+  const [rendered, setRendered] = useState(visible);
+
+  useEffect(() => {
+    if (visible) {
+      setRendered(true);
+      opacity.value = motion.reduce
+        ? 1
+        : withTiming(1, { duration: dur.fast, easing: ease.out });
+      return;
+    }
+
+    if (!rendered) return;
+
+    opacity.value = motion.reduce ? 0 : withTiming(0, { duration: dur.base, easing: ease.in });
+    const timer = setTimeout(() => setRendered(false), motion.reduce ? REDUCED_MOTION_DURATION : dur.base);
+    return () => clearTimeout(timer);
+  }, [visible, rendered, opacity, motion.reduce]);
 
   useEffect(() => {
     if (!visible) return;
@@ -114,10 +145,11 @@ export function OverlayToast({
   );
 
   const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
     transform: [{ translateX: translateX.value }],
   }));
 
-  if (!visible) return null;
+  if (!rendered) return null;
 
   return (
     /**

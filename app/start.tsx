@@ -30,7 +30,7 @@
  * in the served markup via `app/+html.tsx`; there is no page-local fix here.
  */
 
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -70,7 +70,21 @@ export default function StartScreen() {
   const router = useRouter();
 
   const invitePath = DEMO_TOKEN ? `/e/${DEMO_TOKEN}` : null;
-  const inviteUrl = demoUrl(APP_BASE_URL, invitePath);
+  /**
+   * ★ THE QR ENCODES THE HOST THE READER IS ON.
+   *
+   * `EXPO_PUBLIC_APP_BASE_URL` is inlined at build time, so a page served from a
+   * custom domain still encoded the platform's `*.vercel.app` host — a phone
+   * scanning the code landed on the deployment URL, not the site. The page's own
+   * origin wins at runtime; static rendering and native have none and keep the
+   * configured value. Same rule as `resolveBaseUrlFrom` and the share sheet.
+   */
+  const pageBase =
+    Platform.OS === 'web' && typeof window !== 'undefined'
+      ? (window.location?.origin ?? '')
+      : '';
+  const inviteUrl = demoUrl(pageBase || APP_BASE_URL, invitePath);
+
   const language: Language = i18n.language === 'en' ? 'en' : 'fa';
 
   return (

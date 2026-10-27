@@ -38,7 +38,7 @@ test('the native sheet defers its unmount instead of tearing down inline', () =>
   const sheet = code('src/components/ui/BottomSheet.tsx');
 
   // Act — the close branch of the visibility effect.
-  const effect = /useEffect\(\(\) => \{([\s\S]*?)\}, \[visible\]\);/.exec(sheet)?.[1] ?? '';
+  const effect = /useEffect\(\(\) => \{([\s\S]*?)\}, \[visible, mounted\]\);/.exec(sheet)?.[1] ?? '';
 
   // Assert — an immediate `setMounted(false)` removes the Modal mid-animation.
   assert.ok(effect.length > 0, 'the visibility effect is no longer findable');
@@ -53,7 +53,7 @@ test('the deferred unmount is cancelled if the sheet reopens', () => {
   const sheet = code('src/components/ui/BottomSheet.tsx');
 
   // Act
-  const effect = /useEffect\(\(\) => \{([\s\S]*?)\}, \[visible\]\);/.exec(sheet)?.[1] ?? '';
+  const effect = /useEffect\(\(\) => \{([\s\S]*?)\}, \[visible, mounted\]\);/.exec(sheet)?.[1] ?? '';
 
   // Assert — a reopened sheet must not be unmounted by the previous close's timer.
   assert.ok(

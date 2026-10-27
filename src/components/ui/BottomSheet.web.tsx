@@ -59,7 +59,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View, type StyleProp, type Vi
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { radius, size, space } from '@/src/theme/tokens';
-import { dur, ease } from '@/src/theme/motion';
+import { REDUCED_MOTION_DURATION, dur, ease } from '@/src/theme/motion';
 import { useMotion } from '@/src/theme/useMotion';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -125,6 +125,13 @@ export function BottomSheet({
    * sheet's `mounted` state.
    */
   const [rendered, setRendered] = useState(visible);
+
+  /**
+   * The one-shot that keeps the exit from re-arming itself, and the reason the
+   * teardown timer can be trusted. See the effect below.
+   */
+  const [ready, setReady] = useState(visible);
+
   const [panelHeight, setPanelHeight] = useState(MIN_SLIDE_DISTANCE);
 
   const progress = useSharedValue(0);
@@ -135,22 +142,36 @@ export function BottomSheet({
   useEffect(() => {
     if (visible) {
       setRendered(true);
+      setReady(true);
       progress.value = timing(1);
       translateY.value = motion.reduce ? 0 : timing(0);
       return;
     }
 
-    if (!rendered) return;
+    /**
+     * ★ THE EXIT MUST RUN ONCE.
+     *
+     * `rendered` is in this effect's dependencies because the open branch sets
+     * it, and setting it re-runs the effect. On that second pass `visible` is
+     * false and the cleanup of the first pass has already cancelled the teardown
+     * timer, so the branch animated out AGAIN and re-armed a fresh timer — which
+     * did the same thing again. The panel never settled, and every close looked
+     * like a hard cut because the exit restarted from zero on each pass.
+     *
+     * `ready` is the one-shot: the exit is armed once per close.
+     */
+    if (!ready) return;
 
     progress.value = timing(0);
     translateY.value = motion.reduce ? 0 : timing(panelHeight);
 
+    setReady(false);
+
     // Torn down only after the exit has had time to run, unless motion is
-    // reduced — in which case the fade is 120ms and there is nothing to wait
-    // for beyond it.
-    const timer = setTimeout(() => setRendered(false), motion.reduce ? 120 : dur.slow);
+    // reduced — in which case there is nothing to wait for beyond the fade.
+    const timer = setTimeout(() => setRendered(false), motion.reduce ? REDUCED_MOTION_DURATION : dur.slow);
     return () => clearTimeout(timer);
-  }, [visible, rendered, motion.reduce, panelHeight, progress, translateY]);
+  }, [visible, ready, motion.reduce, panelHeight, progress, translateY]);
 
   const scrimStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
 

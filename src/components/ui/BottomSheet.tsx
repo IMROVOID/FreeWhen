@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'rea
 import { Modal, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import GorhomBottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 
+import { dur } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -125,12 +126,15 @@ export function BottomSheet({
      * The nickname gate closes from its own `onResolved` callback instead, so the
      * teardown raced the animation.
      *
-     * Waiting one frame is enough for the slide to finish and for the platform to
-     * retire the window.
+     * Waiting out the close slide is what lets the sheet finish leaving rather
+     * than being cut off. `dur.base` is the same number the library's own close
+     * takes, and the guard keeps a repeated `false` from re-arming the timer.
      */
-    const timer = setTimeout(() => setMounted(false), 260);
+    if (!mounted) return;
+
+    const timer = setTimeout(() => setMounted(false), dur.base);
     return () => clearTimeout(timer);
-  }, [visible]);
+  }, [visible, mounted]);
 
   /**
    * ★ A MOUNT-TIME CLOSE IS NOT A DISMISSAL.
