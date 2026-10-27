@@ -321,6 +321,14 @@ jobs:
           EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
           EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
           EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+          # ★ THE CARTO BASEMAP KEY BELONGS IN THIS SHELL, TOO.
+          #
+          # `LocationMapPicker` reads `process.env.EXPO_PUBLIC_CARTO_API_KEY`,
+          # and `EXPO_PUBLIC_*` is substituted by the bundler rather than read at
+          # runtime. Setting it only on the host produced a bundle whose every
+          # tile URL had no key, so the map rendered blank and looked like it was
+          # demanding API keys. Same trap as the token above.
+          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
         run: bash scripts/build/export-web.sh
 
       - name: Compose the single static root

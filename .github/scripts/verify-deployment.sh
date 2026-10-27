@@ -113,7 +113,35 @@ if [ "$WANT_WEB" = "true" ]; then
   fi
 fi
 
-# ── 4. The refusals ───────────────────────────────────────────────────────
+# ── 4b. At least one real ASSET resolves ──────────────────────────────────
+#
+# ★ A STATUS CHECK ON HTML CANNOT SEE A 404 UNDER /assets/.
+#
+# Twice now the deployment published a page whose HTML and JS were fine while
+# every binary under `static/assets/` 404'd: the first time the `.vercelignore`
+# inherited `.gitignore`'s exclusion of the tree, so all 24 font files vanished
+# and English fell back to a system face. Then the CARTO tiles went the same way
+# because `EXPO_PUBLIC_CARTO_API_KEY` never reached the bundler, so the map drew
+# an empty grid. Both shipped green because nothing here fetched an asset.
+#
+# The JS bundle path is discovered from the served HTML rather than hardcoded:
+# the hash changes every build, and a stale hardcoded name would fail a healthy
+# deploy.
+if [ "$WANT_WEB" = "true" ]; then
+  BUNDLE="$(grep -oE '/_expo/static/js/web/[^"]+\.js' "$TMP/index.html" 2>/dev/null | head -1)"
+  if [ -z "$BUNDLE" ]; then
+    bad "no /_expo/static/js/web/*.js reference in / — the shell is not the app"
+  else
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SITE$BUNDLE" 2>/dev/null || echo 000)"
+    if [ "$CODE" = "200" ]; then
+      ok "the JS bundle resolves ($BUNDLE)"
+    else
+      bad "$BUNDLE -> $CODE — the HTML references a bundle the deploy does not serve"
+    fi
+  fi
+fi
+
+
 # These are the paths that must NOT be reachable. Deploying a static host makes
 # most of them a non-issue, but a Worker or a misconfigured proxy can expose
 # them, and nobody looks.
