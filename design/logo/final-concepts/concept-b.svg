@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-concept-b">
-  <title id="title-concept-b">FreeWhen — Concept B: The Converging Orbit</title>
-  <g fill="none" stroke="#170E0A" stroke-width="40" stroke-linecap="round">
-    <path d="M 55 101 A 78 78 0 0 1 201 101" />
-    <path d="M 201 155 A 78 78 0 0 1 55 155" />
-  </g>
-  <circle cx="128" cy="128" r="28" fill="#170E0A" />
-</svg>

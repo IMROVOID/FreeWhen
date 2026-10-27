@@ -42,7 +42,6 @@ metro.log
 .github/
 tests/
 docs/
-design/
 supabase/
 migrations/
 
