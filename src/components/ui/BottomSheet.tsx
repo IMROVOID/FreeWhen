@@ -24,6 +24,14 @@ export interface BottomSheetProps {
    * its own padding. Those sheets must name a height.
    */
   snapPoints?: string[];
+  /**
+   * Whether the user may close the sheet.
+   *
+   * `false` makes this a gate rather than a panel: no pan-down, no back press.
+   * The caller owns the dismissal path entirely, which is what a first-launch
+   * question the user has to answer needs. Web honours the same prop.
+   */
+  dismissible?: boolean;
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }
@@ -60,6 +68,7 @@ export function BottomSheet({
   visible,
   onDismiss,
   snapPoints,
+  dismissible = true,
   testID,
   style,
 }: BottomSheetProps) {
@@ -146,7 +155,9 @@ export function BottomSheet({
       transparent
       statusBarTranslucent
       animationType="none"
-      onRequestClose={() => sheetRef.current?.close()}
+      onRequestClose={() => {
+        if (dismissible) sheetRef.current?.close();
+      }}
     >
       {/* ★ THE CONTAINER NEEDS A FULL-SIZE PARENT TO FILL.
           The library's hosting container is `position: absolute` at all four
@@ -164,7 +175,7 @@ export function BottomSheet({
           // `undefined` lets the library measure the content; passing an array is
           // what pins it to fractions of the screen.
           snapPoints={snapPoints}
-          enablePanDownToClose
+          enablePanDownToClose={dismissible}
           enableDynamicSizing={isDynamic}
           onClose={handleClose}
           backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}

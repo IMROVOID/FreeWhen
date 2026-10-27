@@ -79,6 +79,16 @@ export const themes = {
     success: palette.success,
     warning: palette.warning,
     info: palette.lilac,
+    /**
+     * The fill behind a modal layer.
+     *
+     * ★ NOT `bg`. A scrim painted with the page background is invisible: the
+     * sheet opened, the scrim covered every click, and the screen looked
+     * unchanged — the reported "it is there but invisible". A scrim has to be
+     * darker than whatever is behind it in BOTH themes, so it is a fixed
+     * translucent black rather than a theme colour.
+     */
+    scrim: 'rgba(0, 0, 0, 0.5)',
   },
   light: {
     bg: '#FBF5EF',
@@ -100,6 +110,8 @@ export const themes = {
     success: palette.success,
     warning: palette.warning,
     info: palette.lilac,
+    /** See the dark theme's note: a scrim cannot be the page background. */
+    scrim: 'rgba(0, 0, 0, 0.45)',
   },
 } as const;
 
@@ -200,6 +212,8 @@ export interface Theme {
   success: string;
   warning: string;
   info: string;
+  /** The translucent fill behind a modal layer. Never `bg` — see the dark theme. */
+  scrim: string;
 }
 
 /** Semantic colours that live outside the per-theme neutrals (Style Guide §2.4). */
