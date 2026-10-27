@@ -29,6 +29,8 @@
 
 import { Client } from 'pg';
 
+import { connectionOptions } from '@/server/lib/connection-options';
+
 import { handleRequest } from '../app';
 import { withRequestQueryable } from '../lib/db-scope';
 import type { Queryable } from '../lib/supabase';
@@ -151,8 +153,34 @@ export type ClientFactory = (connectionString: string) => Queryable & {
   end(): Promise<void>;
 };
 
-export const defaultClientFactory: ClientFactory = (connectionString) =>
-  new Client({ connectionString, connectionTimeoutMillis: CONNECT_TIMEOUT_MS, query_timeout: QUERY_TIMEOUT_MS });
+/**
+ * The per-request client.
+ *
+ * ★ IT USES THE SAME CONNECTION OPTIONS AS THE POOL.
+ *
+ * This used to set a connect timeout and a query timeout of its own and nothing
+ * else — no TLS. On Vercel this is the ONLY connection path, so every cold
+ * request paid a cleartext-attempt handshake against a database that requires
+ * TLS, failed outside the request scope, and answered a bare 500 that the
+ * client's poller retried ten seconds later. `connectionOptions` is the single
+ * place that decides TLS and the timeouts now, so the two paths cannot drift
+ * again.
+ */
+export const defaultClientFactory: ClientFactory = (connectionString) => {
+  const options = connectionOptions(connectionString);
+
+  // `PoolConfig['statement_timeout']` also allows `false` (disable it); the
+  // builder never sets that, and `Client` takes a plain number.
+  const queryTimeout = typeof options.statement_timeout === 'number' ? options.statement_timeout : QUERY_TIMEOUT_MS;
+
+  return new Client({
+    connectionString: options.connectionString,
+    ssl: options.ssl,
+    connectionTimeoutMillis: options.connectionTimeoutMillis ?? CONNECT_TIMEOUT_MS,
+    query_timeout: queryTimeout,
+    keepAlive: options.keepAlive,
+  });
+};
 
 /**
  * Runs one request against a per-request client: connect → bind → handle → close.

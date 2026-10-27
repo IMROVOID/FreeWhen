@@ -23,6 +23,8 @@
 
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 
+import { connectionOptions } from './connection-options';
+
 import { currentQueryable } from './db-scope';
 import {
   RestTransactionUnavailableError,
@@ -59,10 +61,20 @@ export function connectionString(): string {
   return url;
 }
 
-/** The shared pool. One per process; the server is stateless otherwise. */
+/**
+ * The shared pool. One per process; the server is stateless otherwise.
+ *
+ * ★ `connectionOptions` OWNS TLS AND THE TIMEOUTS.
+ *
+ * This used to be `new Pool({ connectionString, max: 10 })`, which had no TLS at
+ * all — while the migration script appended `sslmode=require` for every managed
+ * provider. A connection refused for that reason reads as an authentication
+ * failure, so the pool failed its handshake and the request answered a bare 500.
+ * See `server/lib/connection-options.ts` for the full account.
+ */
 export function servicePool(): Pool {
   if (!pool) {
-    pool = new Pool({ connectionString: connectionString(), max: 10 });
+    pool = new Pool({ ...connectionOptions(connectionString()), max: 10 });
   }
   return pool;
 }
