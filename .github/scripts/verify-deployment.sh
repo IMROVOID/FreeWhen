@@ -139,6 +139,42 @@ if [ "$WANT_WEB" = "true" ]; then
       bad "$BUNDLE -> $CODE — the HTML references a bundle the deploy does not serve"
     fi
   fi
+
+  # ★ AND AT LEAST ONE FONT, INCLUDING ONE UNDER `assets/node_modules/`.
+  #
+  # The bundle check above is NOT enough, and this is the proof: the failing
+  # deployment served its JS perfectly while every Plus Jakarta Sans file 404'd,
+  # because `.gitignore`'s depth-agnostic `node_modules/` rule filtered
+  # `static/assets/node_modules/**` out of the upload. Vazirmatn resolved (no such
+  # segment) so a Persian screen looked right and an English one fell back to a
+  # system face.
+  #
+  # The paths are discovered from the served HTML for the same reason as the
+  # bundle: the hashes change every build.
+  FONTS="$(grep -oE '/assets/[^"]*\.ttf' "$TMP/index.html" 2>/dev/null | sort -u)"
+  if [ -z "$FONTS" ]; then
+    bad "no /assets/*.ttf reference in / — the typefaces are not wired at all"
+  else
+    # One arbitrary font, plus specifically one from the node_modules mirror when
+    # the page references any.
+    SAMPLE="$(printf '%s\n' "$FONTS" | head -1)"
+    CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SITE$SAMPLE" 2>/dev/null || echo 000)"
+    if [ "$CODE" = "200" ]; then
+      ok "a font resolves ($SAMPLE)"
+    else
+      bad "$SAMPLE -> $CODE — the HTML references a typeface the deploy does not serve"
+    fi
+
+    NESTED="$(printf '%s\n' "$FONTS" | grep '/assets/node_modules/' | head -1)"
+    if [ -n "$NESTED" ]; then
+      CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SITE$NESTED" 2>/dev/null || echo 000)"
+      if [ "$CODE" = "200" ]; then
+        ok "a font under assets/node_modules/ resolves"
+      else
+        bad "$NESTED -> $CODE — .vercelignore is filtering the node_modules asset mirror"
+      fi
+    fi
+  fi
 fi
 
 

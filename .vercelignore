@@ -21,3 +21,32 @@
 # deploy must not depend on a previously committed copy.
 !dist/
 !dist/**
+
+# ★ THE FONTS LIVE UNDER A DIRECTORY LITERALLY NAMED `node_modules`.
+#
+# `.gitignore:20` is `node_modules/`, and an ignore pattern with no leading slash
+# matches at ANY depth — so `static/assets/node_modules/**` was filtered out of
+# the upload by the same rule that excludes the real dependency directory. The two
+# `!static/**` negations above do not rescue it: a more specific ignore wins.
+#
+# The symptom was precisely the reported one: `/assets/assets/fonts/*.ttf`
+# (Vazirmatn) resolved, because that path has no `node_modules` segment, while
+# `/assets/node_modules/@expo-google-fonts/**` 404'd. Metro mirrors the package
+# layout under `assets/`, so the Plus Jakarta Sans files an English screen needs
+# were the only ones missing — and the page itself loaded fine.
+#
+# These re-include the ASSET copy only. The real dependency tree stays excluded —
+# and it has to be excluded HERE, positively, not left to `.gitignore`:
+#
+# ★ AN `!` RULE CANNOT RE-OPEN A CHILD OF AN EXCLUDED PARENT.
+#
+# `.vercelignore` and `.gitignore` are merged, and gitignore semantics say a
+# negated pattern has no effect if its parent directory is excluded. So the order
+# that actually works is: exclude `node_modules` positively, then re-include the
+# two asset mirrors. Without the explicit ignore below, the negations alone leave
+# the uploader's decision to whichever file it read last.
+node_modules
+!static/assets/node_modules/
+!static/assets/node_modules/**
+!dist/assets/node_modules/
+!dist/assets/node_modules/**
