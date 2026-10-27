@@ -42,10 +42,18 @@ export interface MuteToggleProps {
   eventId: string;
   muted: boolean;
   onChange: (muted: boolean) => void;
+  /**
+   * Read-only, for when the general notifications switch is off.
+   *
+   * The row still SHOWS muted — the app has silenced it — but pressing it does
+   * nothing, because the stored value must stay untouched for the restore to be
+   * exact.
+   */
+  disabled?: boolean;
   testID?: string;
 }
 
-export function MuteToggle({ eventId, muted, onChange, testID }: MuteToggleProps) {
+export function MuteToggle({ eventId, muted, onChange, disabled = false, testID }: MuteToggleProps) {
   const { t: theme } = useTheme();
   const { t } = useTranslation();
 
@@ -107,7 +115,7 @@ export function MuteToggle({ eventId, muted, onChange, testID }: MuteToggleProps
         <AccentSwitch
           value={muted}
           onValueChange={(next) => void toggle(next)}
-          disabled={pending}
+          disabled={pending || disabled}
           accessibilityLabel={t('notifications.mute.label')}
           accessibilityHint={t('notifications.mute.hint')}
           testID={testID ? `${testID}-switch` : undefined}

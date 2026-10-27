@@ -34,10 +34,21 @@ import { MuteToggle } from './MuteToggle';
 export interface MuteListProps {
   events: EventSummary[];
   isLoading: boolean;
+  /**
+   * False greys every row out and makes it read-only.
+   *
+   * ★ THE GENERAL SWITCH GREYS; IT DOES NOT FORCE.
+   *
+   * The per-event stored value is left untouched, which is what lets turning the
+   * general switch back on restore exactly what was muted before. The rows
+   * DISPLAY as muted meanwhile — the app has silenced them — but nothing is
+   * written, so there is nothing to undo.
+   */
+  interactive?: boolean;
   testID?: string;
 }
 
-export function MuteList({ events, isLoading, testID }: MuteListProps) {
+export function MuteList({ events, isLoading, interactive = true, testID }: MuteListProps) {
   const { t: theme } = useTheme();
   const { t } = useTranslation();
 
@@ -83,8 +94,9 @@ export function MuteList({ events, isLoading, testID }: MuteListProps) {
 
           <MuteToggle
             eventId={event.id}
-            muted={overrides[event.id] ?? event.notifications_muted}
+            muted={interactive ? (overrides[event.id] ?? event.notifications_muted) : true}
             onChange={(next) => onToggle(event.id, next)}
+            disabled={!interactive}
             testID={`mute-${event.id}`}
           />
         </View>
