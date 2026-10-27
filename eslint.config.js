@@ -217,4 +217,19 @@ export default tseslint.config(
       },
     },
   },
+  {
+    // ★ THE METRO BUILD CONFIG.
+    //
+    // `babel.config.js` is CommonJS by definition — Metro `require`s it — so it
+    // has no TypeScript block above to declare its Node globals and `module`
+    // reads as undefined. Declaring them here rather than ignoring the file
+    // keeps a real error in the transform reportable.
+    files: ['babel.config.js'],
+    languageOptions: {
+      globals: {
+        module: 'writable',
+        require: 'readonly',
+      },
+    },
+  },
 );
