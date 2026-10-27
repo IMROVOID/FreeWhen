@@ -149,7 +149,9 @@ export function SectionPlaceholder({ message }: { message: string }) {
 
 const styles = StyleSheet.create({
   container: {
-    gap: space[3],
+    // The one place list rhythm is decided. A row must not also space itself —
+    // two sources of the same gap doubled it.
+    gap: space[2],
   },
   placeholder: {
     borderRadius: space[3],

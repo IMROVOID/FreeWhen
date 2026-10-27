@@ -101,7 +101,13 @@ export function EventRow({ event, onPress }: EventRowProps) {
 
 const styles = StyleSheet.create({
   card: {
-    marginBottom: space[3],
+    // ★ NO `marginBottom` HERE.
+    //
+    // The row used to carry `marginBottom: space[3]` while its container
+    // (`ScreenStateGate`) also applied `gap: space[3]`, so the gap between two
+    // event boxes was twice the design system's step — 24 where every other list
+    // in the app uses 12. The list container owns the rhythm; a row that also
+    // spaces itself makes the sheet's spacing unchangeable from one place.
   },
   header: {
     flexDirection: 'row',

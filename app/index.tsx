@@ -19,18 +19,19 @@
  * not a placeholder fifth.
  */
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Gear } from 'phosphor-react-native';
+import { Gear, MagnifyingGlass } from 'phosphor-react-native';
 
-import { Button } from '@/src/components/ui/Button';
+import { Button, type ButtonVariant } from '@/src/components/ui/Button';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { ScreenStateGate, type ScreenState } from '@/src/components/states/ScreenStateGate';
 import { EventRow } from '@/src/features/events/components/EventRow';
+import { EventSearchSheet } from '@/src/features/events/components/EventSearchSheet';
 import { JoinEventCard } from '@/src/features/events/components/JoinEventCard';
 import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
@@ -46,6 +47,8 @@ export default function EventListScreen() {
   const { events, isLoading, errorKey, errorTitleKey, reload } = useMyEvents();
   const { isOffline } = useOffline();
 
+  const [searchOpen, setSearchOpen] = useState(false);
+
   const openEvent = useCallback(
     (eventId: string) => {
       router.push(`/event/${eventId}`);
@@ -53,15 +56,42 @@ export default function EventListScreen() {
     [router],
   );
 
-  const createAction = (
-    <Button
-      label={t('events.list.create')}
-      onPress={() => router.push('/new')}
-      variant="primary"
-      size="medium"
-      testID="event-list-create"
-    />
+  /**
+   * ★ CREATE AND SEARCH SHARE ONE ROW.
+   *
+   * The create action used to be full-width, so there was nowhere to put the
+   * search control without either pushing it onto its own line or letting the
+   * two compete for the same edge. `fullWidth={false}` on the button lets the
+   * row divide the width: create takes what is left, search is a fixed 44pt
+   * square beside it.
+   */
+  const actions = (variant: ButtonVariant, testID: string) => (
+    <View style={styles.actionRow}>
+      <Button
+        label={t('events.list.create')}
+        onPress={() => router.push('/new')}
+        variant={variant}
+        size="medium"
+        fullWidth={false}
+        testID={testID}
+        style={styles.createButton}
+      />
+
+      <Pressy
+        onPress={() => setSearchOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={t('events.search.open')}
+        testID="event-search-open"
+        style={styles.searchControl}
+      >
+        <View style={[styles.searchInner, { backgroundColor: theme.surface2 }]}>
+          <MagnifyingGlass size={20} color={theme.text} weight="bold" />
+        </View>
+      </Pressy>
+    </View>
   );
+
+  const createAction = actions('primary', 'event-list-create');
 
   // ★ THE STATE IS DERIVED IN ONE PLACE, SO NO BRANCH CAN FALL THROUGH.
   const state: ScreenState = isLoading
@@ -87,14 +117,7 @@ export default function EventListScreen() {
                 {events.map((event) => (
                   <EventRow key={event.id} event={event} onPress={() => openEvent(event.id)} />
                 ))}
-                <Button
-                  label={t('events.list.create')}
-                  onPress={() => router.push('/new')}
-                  variant="secondary"
-                  size="medium"
-                  testID="event-list-create-secondary"
-                  style={styles.createAction}
-                />
+                {actions('secondary', 'event-list-create-secondary')}
               </>
             ),
           };
@@ -116,8 +139,12 @@ export default function EventListScreen() {
           list rather than from inside a plan. */}
       <View style={styles.headerRow}>
         <View style={styles.headingBlock}>
+          {/* ★ THE APP'S NAME, NOT "MY EVENTS".
+              The screen is the app's home, and calling it "My events" made the
+              product indistinguishable from the list inside it. The joined list
+              below carries that heading now, which is what it actually is. */}
           <Text variant="h1" align="start">
-            {t('events.list.heading')}
+            {t('common.appName')}
           </Text>
         </View>
 
@@ -136,7 +163,24 @@ export default function EventListScreen() {
 
       <JoinEventCard onJoin={(token) => router.push(`/e/${token}`)} />
 
+      {/* ★ The list gets its own heading, because the page title is the app now.
+          The top padding is the separation the heading needs from the join card
+          above it — without it the two read as one block. */}
+      <View style={styles.listHeading}>
+        <Text variant="h3" align="start">
+          {t('events.list.heading')}
+        </Text>
+      </View>
+
       <ScreenStateGate state={state} offline={isOffline} testID="event-list-states" />
+
+      {/* Results live in the sheet, not on this page — see EventSearchSheet. */}
+      <EventSearchSheet
+        visible={searchOpen}
+        onDismiss={() => setSearchOpen(false)}
+        events={events}
+        onOpenEvent={openEvent}
+      />
     </ScrollView>
   );
 }
@@ -157,6 +201,32 @@ const styles = StyleSheet.create({
   headingBlock: {
     flex: 1,
   },
+  listHeading: {
+    // The separation the list heading needs from the join card above it.
+    paddingTop: space[2],
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  createButton: {
+    // Takes the width the search control does not, so the pair stays on one line
+    // at every text scale instead of wrapping the icon onto its own row.
+    flex: 1,
+  },
+  searchControl: {
+    width: size.stepperButton,
+    height: size.stepperButton,
+    flexShrink: 0,
+  },
+  searchInner: {
+    flex: 1,
+    // A rounded square, per the request: background, no border.
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   settingsControl: {
     // A 44pt control with `Pressy`'s slop clears the 48pt target.
     width: size.stepperButton,
@@ -167,9 +237,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  createAction: {
-    marginTop: space[2],
   },
 });
 

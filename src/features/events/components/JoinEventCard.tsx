@@ -88,5 +88,10 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: space[2],
+    // ★ THE CARD NEEDS ITS OWN BOTTOM BREATHING ROOM.
+    //
+    // The button previously sat flush against the card's last edge, so the one
+    // action in the block had no more space below it than its own corner radius.
+    marginBottom: space[2],
   },
 });
