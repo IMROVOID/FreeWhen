@@ -90,3 +90,4 @@ metro.err
 
 # Headless-browser verification artefacts (screenshots, DOM dumps, page probes).
 .verify/
+.vercel
