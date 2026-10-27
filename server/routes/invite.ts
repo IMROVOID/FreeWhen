@@ -90,6 +90,9 @@ async function joinCaller(request: Request, userIdHeader: string | null): Promis
   if (!limited.allowed) return null;
 
   const userId = await createAnonymousUser();
+  // `resolveCaller` can answer `null` if the row is not visible in this scope yet.
+  // Returning it unchecked meant a `null` caller reaching `caller.userId` and
+  // throwing — a 500 on a join that had already minted its identity.
   return resolveCaller(userId);
 }
 

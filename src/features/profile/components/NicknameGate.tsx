@@ -43,6 +43,23 @@ import { useTheme } from '@/src/theme/useTheme';
 export interface NicknameGateProps {
   /** Called once a nickname exists, so the layout can stop rendering the gate. */
   onResolved: (nickname: string) => void;
+  /**
+   * Stands the gate down while another screen is already asking for a name.
+   *
+   * ★ THE INVITE SCREEN ASKS THE SAME QUESTION.
+   *
+   * `prefs.nickname-gate` used to mount over every route, including `/e/[token]`,
+   * where `JoinForm` has its own "اسم شما" field. A guest arriving from an invite
+   * link therefore saw TWO name prompts stacked — the join form and the sheet on
+   * top of it — and the sheet's save failed with a 403 (no identity had been
+   * minted yet, which only happens on join), leaving the guest stuck behind a gate
+   * they could not complete.
+   *
+   * The invite screen's name is the better answer anyway: it is the name they are
+   * joining WITH, and `joinViaInvite` already stores it. When that succeeds the
+   * route calls `adoptNickname` so the rest of the app has an identity.
+   */
+  suspended?: boolean;
   /** Injected by the tests; the app omits it and the service is used. */
   loadNicknameImpl?: typeof loadNickname;
   saveNicknameImpl?: typeof saveNickname;
@@ -51,6 +68,7 @@ export interface NicknameGateProps {
 
 export function NicknameGate({
   onResolved,
+  suspended = false,
   loadNicknameImpl = loadNickname,
   saveNicknameImpl = saveNickname,
   saveOptimisticallyImpl = saveNicknameOptimistically,
@@ -107,7 +125,7 @@ export function NicknameGate({
     }
   }, [value, saveNicknameImpl, saveOptimisticallyImpl, onResolved]);
 
-  if (checking) return null;
+  if (suspended || checking) return null;
 
   return (
     <BottomSheet

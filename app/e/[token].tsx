@@ -26,6 +26,7 @@ import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { LanguageToggle } from '@/src/features/events/components/LanguageToggle';
 import { JoinForm } from '@/src/features/participants/components/JoinForm';
 import { joinEvent } from '@/src/features/participants/services/join';
+import { saveNicknameOptimistically } from '@/src/features/profile/services/profile';
 import { resolveInvite } from '@/src/features/events/services/invite';
 import { isApiFailure, isNetworkError } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
@@ -94,6 +95,16 @@ export default function JoinScreen() {
       // A returning identity is routed to its existing participant row rather
       // than a second one (FR-1.20); the screen says so, briefly.
       if (!result.created) setIsReturning(true);
+
+      // ★ THE JOINED NAME BECOMES THE NICKNAME.
+      //
+      // The nickname gate stands down on this route because `JoinForm` already
+      // asked the same question, and a join is the moment an identity is minted.
+      // Recording the answer here is what lets the rest of the app — settings, the
+      // coloured names on proposals and messages — have one before the next launch,
+      // without a second prompt. Cached locally, so a failed write cannot block the
+      // join that already succeeded.
+      await saveNicknameOptimistically(trimmed);
 
       router.replace({
         pathname: '/e/[token]/location',

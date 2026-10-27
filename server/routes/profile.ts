@@ -53,10 +53,24 @@ export interface ProfileResult {
   nickname: string | null;
 }
 
-/** `GET /api/profile` — the caller's nickname, or `null` when never chosen. */
+/**
+ * `GET /api/profile` — the caller's nickname, or `null` when never chosen.
+ *
+ * ★ A CALLER WITH NO IDENTITY YET GETS `null`, NOT 403.
+ *
+ * On a first launch there is no `x-user-id` and no `auth.users` row: an identity is
+ * minted lazily by the first join or the first `/api/events`. The gate asks this
+ * route exactly then, so answering 403 made every new user's console show a failed
+ * request before they had done anything wrong — and any client that treats a
+ * failure as an error would show a broken screen instead of the question it was
+ * about to ask.
+ *
+ * "You have no nickname" and "you have no identity" are the same answer to this
+ * question, so they get the same response.
+ */
 export async function getProfileHandler(request: Request): Promise<Response> {
   const userId = callerIdFrom(request);
-  if (!userId || !isUuid(userId)) return wireError('NOT_PARTICIPANT');
+  if (!userId || !isUuid(userId)) return json({ nickname: null } satisfies ProfileResult);
 
   const result = await scopedQueryable().query<{ nickname: string }>(
     'select nickname from user_profile where auth_user_id = $1',
@@ -98,7 +112,17 @@ export async function putProfileHandler(request: Request): Promise<Response> {
   // A rename should reach the events where the person never chose a per-event
   // name. Rows that DO have their own name are left alone — that is the whole
   // reason the per-event column exists.
-  await seedParticipants(userId, nickname);
+  //
+  // ★ A SEED FAILURE DOES NOT UNDO THE SAVE.
+  //
+  // The nickname is already written by the statement above. Failing the response
+  // here would tell the person their choice was rejected when it was stored, and
+  // the gate would stay shut on a write that had succeeded.
+  try {
+    await seedParticipants(userId, nickname);
+  } catch {
+    // The profile is saved; the per-event names reconcile on the next join.
+  }
 
   return json({ nickname: result.rows[0]?.nickname ?? nickname } satisfies ProfileResult);
 }
@@ -139,15 +163,27 @@ export async function seedParticipants(
  *
  * Read by the join path, which uses it as the display name when the invite form
  * did not supply one.
+ *
+ * ★ IT NEVER THROWS.
+ *
+ * The join route calls this while holding no transaction of its own, and a failure
+ * here turned a perfectly good invite redemption into a 500 — the guest saw
+ * "something went wrong" and could not join at all. A nickname lookup is an
+ * optimisation: if it cannot answer, the route falls back to asking for a name, and
+ * the request still succeeds.
  */
 export async function nicknameFor(
   userId: string,
   query: Queryable = scopedQueryable(),
 ): Promise<string | null> {
-  const result = await query.query<{ nickname: string }>(
-    'select nickname from user_profile where auth_user_id = $1',
-    [userId],
-  );
+  try {
+    const result = await query.query<{ nickname: string }>(
+      'select nickname from user_profile where auth_user_id = $1',
+      [userId],
+    );
 
-  return result.rows[0]?.nickname ?? null;
+    return result.rows[0]?.nickname ?? null;
+  } catch {
+    return null;
+  }
 }

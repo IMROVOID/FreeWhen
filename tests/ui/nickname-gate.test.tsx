@@ -54,7 +54,7 @@ test('the gate renders nothing while it is still checking', () => {
 
   // Act / Assert — a returning user must not see the gate flash on every launch.
   assert.ok(
-    /if \(checking\) return null/.test(gate),
+    /if \((suspended \|\| )?checking\) return null/.test(gate),
     'the gate renders before it knows whether a nickname exists',
   );
 });

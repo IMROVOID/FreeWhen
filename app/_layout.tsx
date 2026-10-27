@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -45,6 +45,9 @@ export default function RootLayout() {
   const { t, name } = useTheme();
   const transition = useStackTransition();
   const [nickname, setNickname] = useState<string | null>(null);
+  const segments = useSegments();
+  // The invite route owns its own name field — see the gate's note above.
+  const onInviteRoute = segments[0] === 'e';
   const [fontsLoaded, fontError] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -91,8 +94,16 @@ export default function RootLayout() {
             inside an event with no name the others can see. Here there is no
             route to reach around it. It renders nothing once a nickname exists,
             and nothing while it is still checking — so a returning user never
-            sees it flash. */}
-        {nickname === null ? <NicknameGate onResolved={setNickname} /> : null}
+            sees it flash.
+
+            ★ EXCEPT ON THE INVITE SCREEN, WHICH ASKS THE SAME QUESTION.
+            `JoinForm` there has its own name field, so mounting the sheet too
+            showed two name prompts stacked — and the sheet's save failed with a
+            403, because no identity exists until the join mints one. The gate
+            stands down on that route and adopts the name the join collected. */}
+        {nickname === null ? (
+          <NicknameGate onResolved={setNickname} suspended={onInviteRoute} />
+        ) : null}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
