@@ -120,14 +120,24 @@ describe('the message composer starts as one line', () => {
     );
   });
 
-  test('the row aligns to the bottom, so the send control follows a growing field', () => {
+  test('the row centres, so the send control lines up at rest', () => {
     // Arrange
     const chat = code('app/event/[id]/chat.tsx');
 
     // Act
     const row = /inputRow:\s*\{([\s\S]*?)\n {2}\},/.exec(chat)?.[1] ?? '';
 
-    // Assert
-    assert.match(row, /alignItems:\s*'flex-end'/, 'the composer row does not bottom-align');
+    // Assert — ★ THIS ASSERTED `flex-end` AND WAS WRONG.
+    //
+    // The field rests at 40pt and the send control is a 40pt circle, so
+    // bottom-aligning the row put the two on subtly different baselines — the
+    // reported "message box and send button are not vertically aligned".
+    // `flex-end` is only better once the field grows past one line, and the
+    // resting state is what the user sees almost all the time.
+    assert.match(row, /alignItems:\s*'center'/, 'the composer row does not centre its controls');
+    assert.ok(
+      !/alignItems:\s*'flex-end'/.test(row),
+      'the composer row bottom-aligns again, which misaligns the rest state',
+    );
   });
 });

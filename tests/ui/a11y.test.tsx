@@ -146,17 +146,38 @@ describe('every interactive control carries a role and a label', () => {
     // Arrange
     const { VoteControl } = await import('@/src/features/voting/components/VoteControl');
 
-    // Act
+    // Act — an UNANSWERED proposal, which is the state with three options.
+    const screen = renderComponent(VoteControl, {
+      current: null,
+      onVote: () => undefined,
+    });
+
+    // Assert — all three are labelled with words, not icons.
+    for (const word of ['موافقم', 'شاید', 'مخالفم']) {
+      assert.ok(screen.has(word), `${word} is named`);
+    }
+  });
+
+  test('an answered proposal exposes its selection and the way to change it', async () => {
+    // Arrange
+    const { VoteControl } = await import('@/src/features/voting/components/VoteControl');
+
+    // Act — answered proposals COLLAPSE to the answer plus an edit affordance,
+    // so the three-word contract above no longer applies to them. What must
+    // survive is that the chosen answer is announced as selected and that the
+    // one remaining action is reachable and named.
     const screen = renderComponent(VoteControl, {
       current: 'yes',
       onVote: () => undefined,
     });
 
-    // Assert — all three are labelled with words, not icons, and one is selected.
-    for (const word of ['موافقم', 'شاید', 'مخالفم']) {
-      assert.ok(screen.has(word), `${word} is named`);
-    }
+    // Assert — the answer is named, the selection is announced, and the one
+    // remaining action is labelled. The assertions read `screen.html` rather than
+    // `screen.has` because the collapsed pill's label is an ARIA ATTRIBUTE, not
+    // text content: `role="radio"` with `aria-label` and no inner labelling node.
+    assert.match(screen.html, /aria-label="موافقم"/, 'the chosen answer is named');
     assert.match(screen.html, /aria-checked="true"|aria-selected="true"/, 'the selection is exposed');
+    assert.match(screen.html, /aria-label="تغییر رأی"/, 'the way to change the vote is named');
   });
 
   test('an icon-only visitor label still announces the role and the name', async () => {
