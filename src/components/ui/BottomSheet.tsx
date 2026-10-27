@@ -148,21 +148,32 @@ export function BottomSheet({
       animationType="none"
       onRequestClose={() => sheetRef.current?.close()}
     >
-      <GorhomBottomSheet
-        ref={sheetRef}
-        index={openIndex}
-        // `undefined` lets the library measure the content; passing an array is
-        // what pins it to fractions of the screen.
-        snapPoints={snapPoints}
-        enablePanDownToClose
-        enableDynamicSizing={isDynamic}
-        onClose={handleClose}
-        backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
-        handleComponent={Grabber}
-        accessibilityLabel={testID}
-      >
-        <BottomSheetView style={styles.content}>{children}</BottomSheetView>
-      </GorhomBottomSheet>
+      {/* ★ THE CONTAINER NEEDS A FULL-SIZE PARENT TO FILL.
+          The library's hosting container is `position: absolute` at all four
+          edges, so its height comes from its PARENT. A `Modal` renders its child
+          into a wrapper that sizes to the content, and the content here is an
+          absolutely-positioned box — which collapses to zero. The container then
+          measures 0, the library's `isLayoutCalculated` never becomes true, and
+          the panel is never shown: the modal opened, covered the page (Back
+          dismissed it), and painted nothing.
+          This `flex: 1` view gives it a real height to measure against. */}
+      <View style={styles.modalRoot}>
+        <GorhomBottomSheet
+          ref={sheetRef}
+          index={openIndex}
+          // `undefined` lets the library measure the content; passing an array is
+          // what pins it to fractions of the screen.
+          snapPoints={snapPoints}
+          enablePanDownToClose
+          enableDynamicSizing={isDynamic}
+          onClose={handleClose}
+          backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
+          handleComponent={Grabber}
+          accessibilityLabel={testID}
+        >
+          <BottomSheetView style={styles.content}>{children}</BottomSheetView>
+        </GorhomBottomSheet>
+      </View>
     </Modal>
   );
 }
@@ -177,6 +188,10 @@ function Grabber() {
 }
 
 const styles = StyleSheet.create({
+  modalRoot: {
+    // The library's container is absolute-fill; this is the box it fills.
+    flex: 1,
+  },
   background: {
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
