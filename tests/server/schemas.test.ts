@@ -140,7 +140,18 @@ test('a display name must be 1–30 characters', () => {
 
 test('a non-string display name is rejected by the boundary, not coerced', () => {
   assert.equal(JoinSchema.safeParse({ display_name: 123 }).success, false);
-  assert.equal(JoinSchema.safeParse({}).success, false);
+});
+
+test('an absent display name is allowed, because the nickname is the fallback', () => {
+  // ★ THIS USED TO BE INVALID, AND THE CHANGE IS DELIBERATE (Plan 49 T7).
+  //
+  // A caller who has already chosen a global nickname should not have to type a
+  // name again on every invite, so the field is optional at the schema and the
+  // ROUTE refuses the join when neither a supplied name nor a nickname exists.
+  // The guarantee that an invite cannot be redeemed anonymously therefore lives
+  // in `joinInviteHandler`, and `tests/db/profile.test.ts` proves it end to end.
+  assert.equal(JoinSchema.safeParse({}).success, true);
+  assert.equal(JoinSchema.safeParse({ display_name: undefined }).success, true);
 });
 
 test('a coordinate outside Iran is rejected', () => {

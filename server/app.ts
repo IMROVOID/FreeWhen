@@ -26,6 +26,7 @@ import {
   rotateInviteHandler,
 } from './routes/events';
 import { deleteAccountHandler } from './routes/account';
+import { getProfileHandler, putProfileHandler } from './routes/profile';
 import { joinInviteHandler, resolveInviteHandler } from './routes/invite';
 import { placeSearchHandler } from './routes/place-search';
 import {
@@ -132,6 +133,10 @@ const ROUTES: Route[] = [
   { method: 'GET', segments: ['api', 'events', ':id', 'activity'], handler: activityHandler },
   // Phase 9 — in-app account deletion (Apple §5.1.1(v), PRD-08 B5).
   { method: 'DELETE', segments: ['api', 'account'], handler: deleteAccountHandler },
+  // Plan 49 — the caller's global nickname. It seeds `participant.display_name`
+  // at join time; it does not replace the per-event column.
+  { method: 'GET', segments: ['api', 'profile'], handler: getProfileHandler },
+  { method: 'PUT', segments: ['api', 'profile'], handler: putProfileHandler },
   // Phase 9 — per-participant visibility and the S13 audience list (FR-8.18).
   {
     method: 'PUT',

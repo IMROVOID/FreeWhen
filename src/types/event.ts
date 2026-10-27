@@ -171,13 +171,24 @@ export const EventCreateSchema = z
 
 export type EventCreateInput = z.infer<typeof EventCreateSchema>;
 
-/** `POST /api/invite/:token/join` — one field (PRD-01 FR-1.17). */
+/**
+ * `POST /api/invite/:token/join` — one field (PRD-01 FR-1.17).
+ *
+ * ★ `display_name` IS OPTIONAL SINCE THE NICKNAME EXISTS.
+ *
+ * A caller who has chosen a global nickname does not have to type a name again to
+ * join: the route falls back to their nickname. It stays REQUIRED when no nickname
+ * can be found, which the route enforces — so an invitation still cannot be
+ * redeemed anonymously, and the per-event name still overrides the global one when
+ * it is supplied.
+ */
 export const JoinSchema = z.object({
   display_name: z
     .string()
     .trim()
     .min(DISPLAY_NAME_MIN, { message: VALIDATION.nameRequired })
-    .max(DISPLAY_NAME_MAX, { message: VALIDATION.nameTooLong }),
+    .max(DISPLAY_NAME_MAX, { message: VALIDATION.nameTooLong })
+    .optional(),
 });
 
 export type JoinInput = z.infer<typeof JoinSchema>;

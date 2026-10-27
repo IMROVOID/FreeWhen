@@ -18,7 +18,7 @@
  * A participant who declines everything still becomes a participant (FR-1.22).
  */
 
-import { JoinSchema } from '@/src/types/event';
+import { JoinSchema, VALIDATION } from '@/src/types/event';
 
 import { track, secondsFromOpen } from '../lib/funnel';
 import { callerIdFrom, isUuid, json, readJsonBody, validationFailed, wireError } from '../lib/http';
@@ -26,6 +26,7 @@ import { hashToken, isTokenShaped } from '../lib/invite-token';
 import { joinViaInvite, resolveInvite } from '../lib/invite-service';
 import { clientIp, limiters } from '../lib/rate-limit';
 import { createAnonymousUser, resolveCaller, type Caller } from '../lib/supabase';
+import { nicknameFor } from './profile';
 
 /**
  * Applies both invite limits: per address and per token (FR-1.15).
@@ -111,7 +112,24 @@ export async function joinInviteHandler(
   const caller = await joinCaller(request, callerIdFrom(request));
   if (!caller) return failInvite('rate_limited');
 
-  const joined = await joinViaInvite(token, caller, parsed.data.display_name);
+  /**
+   * ★ THE NICKNAME IS THE FALLBACK NAME, AND THE ONLY ONE.
+   *
+   * An invite form that omits `display_name` used to be a validation failure. With
+   * a global nickname the person has already answered "who are you?", so asking
+   * again on every invite is exactly the friction the nickname exists to remove.
+   * The per-event name still WINS when supplied — a person may want a different
+   * name in this one event.
+   *
+   * A caller with neither is still refused: an invitation must not be redeemable
+   * anonymously, because `display_name` is what other participants see.
+   */
+  const displayName = parsed.data.display_name ?? (await nicknameFor(caller.userId));
+  if (!displayName) {
+    return validationFailed([{ path: ['display_name'], message: VALIDATION.nameRequired }]);
+  }
+
+  const joined = await joinViaInvite(token, caller, displayName);
   if (!joined.ok) {
     return failInvite(joined.reason === 'EVENT_FULL' ? 'event_full' : 'invalid');
   }
