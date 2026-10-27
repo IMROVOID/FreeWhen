@@ -28,6 +28,63 @@ export function migrationFiles(dir = MIGRATIONS_DIR): string[] {
     .sort();
 }
 
+/**
+ * Makes every pooled connection run as the role that owns the schema.
+ *
+ * ★ A MANAGED PROVIDER CAN PIN `role` ON THE CONNECTION.
+ *
+ * Neon's pooler (and its direct endpoint) applies `role = service_role` to every
+ * session, so `current_user` is `service_role` before a single statement runs —
+ * `SET LOCAL ROLE neondb_owner` is then silently re-overridden, and the runner's
+ * own `alter table schema_migrations enable row level security` fails with
+ *
+ *     must be owner of table schema_migrations
+ *
+ * on every deploy. The application wants exactly that pinned role
+ * (`withCallerTransaction` switches to the same one), but MIGRATIONS need the
+ * owner: they create tables and take ownership of functions.
+ *
+ * ★ `SET ROLE` AT SESSION SCOPE IS WHAT SURVIVES.
+ *
+ * `pg` gives every pooled client its own session, so this is issued per
+ * connection rather than once. `SET ROLE <login>` does work where the `role`
+ * startup parameter cannot be overridden — Postgres honours it for the session,
+ * and `RESET ROLE` would return to the pinned value.
+ *
+ * ★ IT IS SKIPPED WHEN THE ROLES ALREADY AGREE.
+ *
+ * On Supabase and on a local compose database the connection role IS the owner,
+ * so this is a no-op there and costs one round trip per connection.
+ */
+async function assumeLoginRole(pool: Pool): Promise<void> {
+  // ★ EVERY POOLED CONNECTION NEEDS THIS, NOT JUST ONE.
+  //
+  // `pg` opens clients lazily and reuses them, so switching the role on a single
+  // checkout leaves the rest pinned. A `connect` listener runs once per physical
+  // connection, which is exactly the scope `SET ROLE` has.
+  pool.on('connect', (client) => {
+    client
+      .query('select session_user, current_user')
+      .then((state) => {
+        const login = state.rows[0]?.session_user as string | undefined;
+        const effective = state.rows[0]?.current_user as string | undefined;
+        if (!login || login === effective) return;
+        // The name comes from the server, not the URL, so a hand-edited
+        // connection string cannot inject anything. Quoted regardless.
+        return client.query(`set role "${login.replace(/"/g, '""')}"`);
+      })
+      .catch(() => {
+        // A failure here surfaces on the statement that needed the role, which
+        // reports the real error; swallowing keeps the pool from rejecting.
+      });
+  });
+
+  // Open one connection now, so a misconfiguration fails before the first
+  // migration rather than halfway through the set.
+  const client = await pool.connect();
+  client.release();
+}
+
 const TRACKING_TABLE = `
   create table if not exists schema_migrations (
     name       text primary key,
@@ -224,6 +281,7 @@ async function main(): Promise<void> {
   const reapply = args.includes('--reapply');
 
   const pool = createPool(devDatabaseUrl());
+  await assumeLoginRole(pool);
 
   try {
     if (reapply) {

@@ -504,4 +504,27 @@ test('ci.yml exports before it gates, because gate:web needs dist/', () => {
   assert.ok(gateLine > exportLine, 'gate:all runs before the export in ci.yml');
 });
 
+test('the migration runner assumes the login role, because a provider can pin one', () => {
+  // ★ THE DEFECT THIS PINS.
+  //
+  // Neon's pooler applies `role = service_role` to every session, so
+  // `current_user` is `service_role` before a statement runs. The runner's own
+  // `alter table schema_migrations enable row level security` then failed on
+  // every deploy with
+  //
+  //     must be owner of table schema_migrations
+  //
+  // and the Deploy workflow stopped at the migrate step — before the deploy job,
+  // so nothing was ever published. `SET LOCAL ROLE` is re-overridden by that
+  // startup parameter; a session-scoped `SET ROLE` is not.
+  const text = readFileSync('scripts/db/migrate.ts', 'utf8');
 
+  // Act
+  const hooksEveryConnection = /pool\.on\('connect'/.test(text);
+  const setsRole = /set role "/.test(text);
+
+  // Assert — one checkout is not enough: `pg` opens clients lazily, so the rest
+  // of the pool would stay pinned to the wrong role.
+  assert.ok(hooksEveryConnection, 'the runner does not switch role on every pooled connection');
+  assert.ok(setsRole, 'the runner never issues SET ROLE');
+});
