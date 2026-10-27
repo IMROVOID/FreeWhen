@@ -25,7 +25,7 @@
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
-import { PROJECT_ROOT, fail, pass, readFile } from './shared';
+import { PROJECT_ROOT, collectFiles, fail, pass, readFile, relativePath } from './shared';
 
 const GATE = 'gate:i18n';
 
@@ -340,6 +340,51 @@ for (const key of Object.keys(fa)) {
     failures.push(
       `catalogue namespace '${key}' belongs to no phase. Declare it in ` +
         `scripts/docs/plan_meta.py (I18N_NAMESPACES) and scripts/gate/i18n.ts.`,
+    );
+  }
+}
+
+/**
+ * ★ NO `t()` CALL MAY PASS AN ARABIC-SCRIPT STRING AS ITS DEFAULT.
+ *
+ * `t('key', 'فارسی')` makes the Persian string i18next's DEFAULT VALUE. When the
+ * key exists it is ignored; when the key is missing it is what renders. Ten keys
+ * were missing from BOTH catalogues, so English mode showed Persian in the
+ * location picker, the time wheel and the date component — "زمان انتخاب شده",
+ * "مکان انتخابی روی نقشه", "حذف مکان" and their neighbours.
+ *
+ * Every rule above this point missed it: key parity only compares the two
+ * catalogues against each other, and a key missing from both is perfectly
+ * "consistent". The leak lives in the `.tsx`, which nothing here was reading.
+ *
+ * Banning the default rather than translating it is deliberate. Keeping the
+ * literal means the bug returns with the next missing key, silently. Without it a
+ * missing key renders the key name — ugly, obvious, and impossible to ship by
+ * accident.
+ */
+const ARABIC_SCRIPT = /[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+const PERSIAN_DEFAULT = /\bt\(\s*('[^']*'|"[^"]*")\s*,\s*('[^']*'|"[^"]*"|`[^`]*`)\s*[,)]/g;
+
+for (const file of collectFiles()) {
+  if (!/\.tsx?$/.test(file)) continue;
+
+  // Comments are stripped first: this rule's own documentation contains an
+  // example call, and a gate that fails on its own explanation is a gate
+  // everyone learns to bypass.
+  const source = readFile(file)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  if (!ARABIC_SCRIPT.test(source)) continue;
+
+  for (const match of source.matchAll(PERSIAN_DEFAULT)) {
+    const fallback = match[2] ?? '';
+    if (!ARABIC_SCRIPT.test(fallback)) continue;
+
+    failures.push(
+      `${relativePath(file)}: t(${match[1] ?? ''}, …) passes a Persian default. ` +
+        'Add the key to both catalogues and drop the literal — otherwise a ' +
+        'missing key renders Persian in English mode.',
     );
   }
 }

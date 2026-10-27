@@ -78,7 +78,7 @@ export function TimeSlotPicker({
     <View style={styles.container} testID={testID}>
       {/* 1. Date Selection Component */}
       <Text variant="caption" color={theme.textMuted}>
-        {t('slots.day', 'روز مورد نظر')}
+        {t('slots.day')}
       </Text>
       <DateSelectionComponent
         windowStart={windowStart}
@@ -90,7 +90,7 @@ export function TimeSlotPicker({
 
       {/* 2. Drum-Roll Scroll Wheel Time Picker */}
       <Text variant="caption" color={theme.textMuted} style={styles.timeLabel}>
-        {t('slots.startTime', 'ساعت شروع')}
+        {t('slots.startTime')}
       </Text>
       <TimeWheelPicker
         hour24={selectedHour}

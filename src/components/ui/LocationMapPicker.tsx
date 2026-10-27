@@ -50,12 +50,33 @@ export interface LocationMapPickerProps {
   initialName?: string;
   onSelect: (venue: VenueRef) => void;
   onCancel?: () => void;
+  /**
+   * Controls drawn in the map's top-trailing corner.
+   *
+   * ★ CORNER CONTROLS, BECAUSE THE MAP IS THE THING BEING EDITED.
+   *
+   * Clearing a chosen place belonged to the section header and changing it to a
+   * button under the venue name — so the two actions that act ON the map lived in
+   * two unrelated places, one of them below the content they describe. Both are
+   * now icon buttons over the map's own corner, which is where every map
+   * application puts them, and where they are reachable without scrolling.
+   */
+  cornerControls?: React.ReactNode;
   testID?: string;
 }
 
 const TILE_SIZE = 256;
 const MAP_HEIGHT = 380;
 const DEBOUNCE_MS = 300;
+
+/**
+ * The width two corner controls occupy, so the search bar can give them room.
+ *
+ * Two 44pt buttons plus their gap. Kept here rather than measured at runtime: the
+ * buttons are a fixed size, and an `onLayout` round trip would make the search bar
+ * jump on the first frame.
+ */
+const CORNER_CONTROLS_WIDTH = size.stepperButton * 2 + space[2];
 
 // Conversion between (lat, lng) and slippy tile coordinates
 function latLngToTileExact(lat: number, lng: number, zoom: number): { x: number; y: number } {
@@ -72,6 +93,7 @@ export function LocationMapPicker({
   initialName = '',
   onSelect,
   onCancel,
+  cornerControls,
   testID,
 }: LocationMapPickerProps) {
   const { t } = useTranslation();
@@ -121,7 +143,7 @@ export function LocationMapPicker({
         setIsDragging(false);
         haptics.impact('light');
         if (!placeName) {
-          setPlaceName(t('proposals.place.customPin', 'مکان انتخابی روی نقشه'));
+          setPlaceName(t('proposals.place.customPin'));
         }
       },
     }),
@@ -178,7 +200,7 @@ export function LocationMapPicker({
         });
         setLat(pos.coords.latitude);
         setLng(pos.coords.longitude);
-        setPlaceName(t('location.currentPosition', 'موقعیت فعلی من'));
+        setPlaceName(t('location.currentPosition'));
         haptics.impact('medium');
       }
     } catch {
@@ -189,7 +211,7 @@ export function LocationMapPicker({
   };
 
   const handleConfirm = () => {
-    const finalName = placeName.trim() || t('proposals.place.customPin', 'مکان انتخابی روی نقشه');
+    const finalName = placeName.trim() || t('proposals.place.customPin');
     onSelect({
       name: finalName,
       lat: Number(lat.toFixed(5)),
@@ -210,6 +232,16 @@ export function LocationMapPicker({
     <View style={styles.container} testID={testID}>
       {/* Map View Frame */}
       <View style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
+        {/* ★ THE MAP'S OWN CONTROLS, IN ITS TOP TRAILING CORNER.
+            Above the search bar (`zIndex: 10`) because they act on the frame, not
+            on the query, and inset with logical edges so they land in the top-right
+            in English and the top-left in Persian. */}
+        {cornerControls ? (
+          <View style={styles.cornerControls} testID={testID ? `${testID}-corner` : undefined}>
+            {cornerControls}
+          </View>
+        ) : null}
+
         {/* Render Tile Grid */}
         <View style={styles.tileCanvas} {...panResponder.panHandlers}>
           {tileOffsets.map((oy) => {
@@ -251,7 +283,7 @@ export function LocationMapPicker({
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder={t('proposals.place.searchPlaceholder', 'جستجوی مکان یا آدرس...')}
+              placeholder={t('proposals.place.searchPlaceholder')}
               placeholderTextColor={theme.textFaint}
               style={[
                 styles.searchInput,
@@ -308,7 +340,7 @@ export function LocationMapPicker({
             onPress={() => setZoom((z) => Math.min(18, z + 1))}
             style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}
             accessibilityRole="button"
-            accessibilityLabel={t('map.zoomIn', 'بزرگ‌نمایی')}
+            accessibilityLabel={t('map.zoomIn')}
           >
             <Plus size={18} color={theme.text} />
           </Pressy>
@@ -316,7 +348,7 @@ export function LocationMapPicker({
             onPress={() => setZoom((z) => Math.max(8, z - 1))}
             style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}
             accessibilityRole="button"
-            accessibilityLabel={t('map.zoomOut', 'کوچک‌نمایی')}
+            accessibilityLabel={t('map.zoomOut')}
           >
             <Minus size={18} color={theme.text} />
           </Pressy>
@@ -324,7 +356,7 @@ export function LocationMapPicker({
             onPress={() => void handleLocateMe()}
             style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}
             accessibilityRole="button"
-            accessibilityLabel={t('location.useCurrent', 'موقعیت من')}
+            accessibilityLabel={t('location.useCurrent')}
           >
             {isLocating ? (
               <ActivityIndicator size="small" color={theme.primary} />
@@ -339,7 +371,7 @@ export function LocationMapPicker({
       <Card variant="surface" style={styles.bottomCard}>
         <View style={styles.bottomInfo}>
           <Text variant="bodyL" color={theme.text}>
-            {placeName || t('proposals.place.customPin', 'مکان انتخابی روی نقشه')}
+            {placeName || t('proposals.place.customPin')}
           </Text>
           <Text variant="caption" color={theme.textMuted} numeric>
             {`${lat.toFixed(4)}°N , ${lng.toFixed(4)}°E`}
@@ -349,7 +381,7 @@ export function LocationMapPicker({
         <View style={styles.bottomActions}>
           {onCancel && (
             <Button
-              label={t('common.cancel', 'انصراف')}
+              label={t('common.cancel')}
               onPress={onCancel}
               variant="ghost"
               size="medium"
@@ -358,7 +390,7 @@ export function LocationMapPicker({
             />
           )}
           <Button
-            label={t('proposals.place.confirmLocation', 'تأیید و انتخاب این مکان')}
+            label={t('proposals.place.confirmLocation')}
             onPress={handleConfirm}
             variant="primary"
             size="medium"
@@ -417,11 +449,23 @@ const styles = StyleSheet.create({
     opacity: 0.4,
     marginTop: -space[1],
   },
+  cornerControls: {
+    position: 'absolute',
+    top: space[3],
+    // Logical, so the pair lands in the top-trailing corner in both directions.
+    insetInlineEnd: space[3],
+    flexDirection: 'row',
+    gap: space[2],
+    // Above the search bar, which is `zIndex: 10`.
+    zIndex: 20,
+  },
   searchBarWrapper: {
     position: 'absolute',
     top: space[3],
     start: space[3],
-    end: space[3],
+    // The trailing edge stops short of the corner controls, which share this row.
+    // `CORNER_CONTROLS_WIDTH` covers two 44pt buttons and their gap.
+    end: space[3] + CORNER_CONTROLS_WIDTH,
     zIndex: 10,
   },
   searchBar: {

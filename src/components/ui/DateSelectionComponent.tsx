@@ -20,7 +20,7 @@ import {
   gregorianDayToJalali,
   jalaliMonthLength,
   jalaliToGregorianDay,
-  PERSIAN_MONTHS,
+  monthName,
   PERSIAN_WEEKDAYS,
   toPersianDigits,
   weekdayIndex,
@@ -89,11 +89,13 @@ export function DateSelectionComponent({
       const j = gregorianDayToJalali(selectedDateOnly);
       const wIdx = weekdayIndex(`${selectedDateOnly}T12:00:00Z`, locale);
       const wName = isFa ? PERSIAN_WEEKDAYS[wIdx] : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][wIdx];
-      const mName = isFa ? PERSIAN_MONTHS[j.jm - 1] : String(j.jm);
+      // A month NAME in both locales. The English branch used to build the
+      // slash form below, which read as "1405/8/12" — a month number, not a month.
+      const mName = monthName(j.jm, isFa ? 'fa' : 'en');
       const dNum = isFa ? toPersianDigits(String(j.jd)) : String(j.jd);
       const yNum = isFa ? toPersianDigits(String(j.jy)) : String(j.jy);
 
-      return isFa ? `${wName}، ${dNum} ${mName} ${yNum}` : `${wName}, ${j.jy}/${j.jm}/${dNum}`;
+      return isFa ? `${wName}، ${dNum} ${mName} ${yNum}` : `${wName}, ${mName} ${dNum} ${yNum}`;
     } catch {
       return selectedDateOnly;
     }
@@ -162,7 +164,7 @@ export function DateSelectionComponent({
     return [...blanks, ...days];
   }, [viewYear, viewMonth, locale, todayIso, selectedDateOnly, windowStart, windowEnd]);
 
-  const viewMonthName = isFa ? PERSIAN_MONTHS[viewMonth - 1] : `Month ${viewMonth}`;
+  const viewMonthName = monthName(viewMonth, isFa ? 'fa' : 'en');
   const viewYearDisplay = isFa ? toPersianDigits(String(viewYear)) : String(viewYear);
 
   return (
@@ -171,7 +173,7 @@ export function DateSelectionComponent({
       <View style={[styles.headerCard, { backgroundColor: theme.surface2 }]}>
         <View style={styles.headerTitle}>
           <Text variant="caption" color={theme.textMuted} align="center">
-            {t('slots.chosenDate', 'تاریخ انتخابی')}
+            {t('slots.chosenDate')}
           </Text>
           <Text variant="bodyL" color={theme.primary} align="center" numeric>
             {headerDateLabel}

@@ -183,14 +183,14 @@ export function TimeWheelPicker({
 
   const hourDisplay = selectedHour < 10 ? `0${selectedHour}` : `${selectedHour}`;
   const minuteDisplay = selectedMinute < 10 ? `0${selectedMinute}` : `${selectedMinute}`;
-  const periodLabel = selectedPeriod === 'AM' ? t('slots.am', 'ق.ظ') : t('slots.pm', 'ب.ظ');
+  const periodLabel = selectedPeriod === 'AM' ? t('slots.am') : t('slots.pm');
 
   return (
     <View style={styles.container} testID={testID}>
       {/* Current selection summary */}
       <View style={[styles.summaryBadge, { backgroundColor: theme.surface2 }]}>
         <Text variant="caption" color={theme.textMuted}>
-          {t('slots.chosenTime', 'زمان انتخاب‌شده:')}
+          {t('slots.chosenTime')}
         </Text>
         <Text variant="h3" color={theme.primary} numeric>
           {`${hourDisplay}:${minuteDisplay} ${periodLabel}`}
@@ -264,7 +264,7 @@ export function TimeWheelPicker({
           onSelect={handlePeriodSelect}
           testID={testID ? `${testID}-period` : undefined}
           renderItem={(p, isSelected) => {
-            const label = p === 'AM' ? t('slots.am', 'ق.ظ') : t('slots.pm', 'ب.ظ');
+            const label = p === 'AM' ? t('slots.am') : t('slots.pm');
             return (
               <Text
                 variant="bodyL"

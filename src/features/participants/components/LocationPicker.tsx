@@ -55,7 +55,7 @@ export function LocationPicker({
       />
 
       <Button
-        label={t('location.skip', 'فعلاً رد کن')}
+        label={t('location.skip')}
         onPress={onSkip}
         variant="ghost"
         size="medium"
