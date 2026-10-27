@@ -31,13 +31,14 @@
  * The banner is a strip above the content, never a modal.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
+import { PullToSync } from '@/src/components/ui/PullToSync';
 import { ScreenHeader } from '@/src/components/ui/ScreenHeader';
 import { Text } from '@/src/components/ui/Text';
 import { Banner } from '@/src/components/ui/Toast';
@@ -52,7 +53,9 @@ import { deleteEvent, leaveEvent, renameEvent } from '@/src/features/events/serv
 import { rotateInvite } from '@/src/features/events/services/invite';
 import { extractInviteToken } from '@/src/features/events/utils/invite-token';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
+import { VoteShareBar } from '@/src/features/proposals/components/VoteShareBar';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
+import { RANKED_VIEW, rankProposals, shareOfAllAnswers } from '@/src/features/proposals/services/ranking';
 import { DecisionStatusBand } from '@/src/features/voting/components/DecisionStatusBand';
 import { TallyBar } from '@/src/features/voting/components/TallyBar';
 import { VoteControl } from '@/src/features/voting/components/VoteControl';
@@ -93,8 +96,7 @@ export default function EventHomeScreen() {
   const [isLoadingEvent, setIsLoadingEvent] = useState(true);
   const [loadErrorKey, setLoadErrorKey] = useState<string | null>(null);
 
-  const { proposals, isLoading, isReconnecting, errorKey } = useProposals(eventId);
-  const { isOffline, pendingCount } = useOffline();
+  const { proposals, isLoading, isReconnecting, errorKey, reload: reloadProposals } = useProposals(eventId);  const { isOffline, pendingCount } = useOffline();
 
   // ★ THE VOTE STATE LIVES HERE, AND ITS PAYLOAD IS THE DECISION STATUS.
   //
@@ -143,8 +145,19 @@ export default function EventHomeScreen() {
     [localVotes],
   );
 
-  const loadEvent = useCallback(async () => {
-    setIsLoadingEvent(true);
+  /**
+   * The proposals in vote-descending order (Plan 49 T13, FR-2.4 ranked view).
+   *
+   * Derived on every render rather than sorted in place, so `proposals` keeps the
+   * server's creation order — which the ranked label's counterpart ("stable order
+   * otherwise") and the tiebreak in `rankProposals` both depend on.
+   */
+  const rankedProposals = useMemo(
+    () => rankProposals(proposals.map((proposal) => ({ ...proposal, tally: tallyFor(proposal.id) }))),
+    [proposals, tallyFor],
+  );
+
+  const loadEvent = useCallback(async () => {    setIsLoadingEvent(true);
 
     try {
       const stored = await getStoredUserId();
@@ -288,6 +301,14 @@ export default function EventHomeScreen() {
   const homeTz = event.home_tz;
 
   return (
+    <PullToSync
+      onRefresh={async () => {
+        // Both sources this screen reads. The pollers already refresh on their own
+        // interval; a pull is a manual nudge of the same two calls.
+        await Promise.all([reloadVotes(), reloadProposals()]);
+      }}
+      testID="event-home-pull"
+    >
     <ScrollView
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
@@ -380,7 +401,18 @@ export default function EventHomeScreen() {
         />
       ) : (
         <View style={styles.list} testID="event-home-proposals">
-          {proposals.map((proposal) => (
+          {/* ★ FR-2.4 — A RE-ORDERED LIST MUST SAY IT IS RE-ORDERED.
+              "Re-ordering by score happens only in the ranked view, and the list
+              must state that it is ranked — otherwise users misread creation
+              order as ranking." The list below is vote-descending, so it carries
+              the declaration. */}
+          {RANKED_VIEW ? (
+            <Text variant="caption" color={theme.textMuted} testID="event-home-proposals-ranked-label">
+              {t('proposals.list.rankedLabel')}
+            </Text>
+          ) : null}
+
+          {rankedProposals.map((proposal) => (
             <View key={proposal.id} style={styles.proposalBlock}>
               <ProposalCard proposal={proposal} homeTz={homeTz} testID={`event-home-proposal-${proposal.id}`} />
 
@@ -391,6 +423,19 @@ export default function EventHomeScreen() {
                 tally={tallyFor(proposal.id)}
                 showNames
                 testID={`event-home-tally-${proposal.id}`}
+              />
+
+              {/* ★ THE SHARE BAR IS NOT A REPLACEMENT FOR THE PILL ABOVE.
+                  The pill answers "how many of this group answered THIS
+                  proposal"; the bar answers "what fraction of all answers are
+                  this proposal's". Both are shown, because neither answers the
+                  other's question. */}
+              <VoteShareBar
+                share={shareOfAllAnswers(
+                  { ...proposal, tally: tallyFor(proposal.id) },
+                  rankedProposals.map((entry) => ({ ...entry, tally: tallyFor(entry.id) })),
+                )}
+                testID={`event-home-share-${proposal.id}`}
               />
 
               {/* ★ AC-11.7.1 — a queued vote is MARKED. A vote that looks
@@ -460,6 +505,7 @@ export default function EventHomeScreen() {
         testID="event-management-modal"
       />
     </ScrollView>
+    </PullToSync>
   );
 }
 
