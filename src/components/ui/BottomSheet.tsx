@@ -110,8 +110,26 @@ export function BottomSheet({
       return;
     }
 
-    // The caller closed it. The library animates out; `onClose` tears down.
-    setMounted(false);
+    /**
+     * ★ THE MODAL IS NOT TORN DOWN ON THE SAME TICK `visible` GOES FALSE.
+     *
+     * Clearing `mounted` here makes `return null` below remove the `Modal`
+     * immediately, and on Android a `Modal` removed while it is still on screen
+     * leaves its window behind — observed on the emulator as a second
+     * `ty=APPLICATION fmt=TRANSPARENT … shown=true` window that covered the app
+     * and swallowed every touch while the page beneath looked completely normal.
+     *
+     * It happened to be survivable before because nothing closed a sheet
+     * programmatically: the only exits were the pan gesture and a scrim press, and
+     * both go through `onClose`, which tears down after the library has settled.
+     * The nickname gate closes from its own `onResolved` callback instead, so the
+     * teardown raced the animation.
+     *
+     * Waiting one frame is enough for the slide to finish and for the platform to
+     * retire the window.
+     */
+    const timer = setTimeout(() => setMounted(false), 260);
+    return () => clearTimeout(timer);
   }, [visible]);
 
   /**
