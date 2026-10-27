@@ -33,6 +33,8 @@
  */
 export const POLL_INTERVAL_MS = 10_000;
 
+import { nextPollDelay } from './poll-backoff';
+
 /** The connection state the indicator renders. */
 export type ConnectionState = 'live' | 'reconnecting';
 
@@ -67,13 +69,13 @@ export type Subscribe = (
 
 /** The timers, injected so a test does not sleep for ten seconds. */
 export interface Scheduler {
-  setInterval(callback: () => void, ms: number): unknown;
-  clearInterval(handle: unknown): unknown;
+  setTimeout(callback: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): unknown;
 }
 
 const realScheduler: Scheduler = {
-  setInterval: (callback, ms) => setInterval(callback, ms),
-  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
 export interface RealtimeEngineOptions {
@@ -82,6 +84,13 @@ export interface RealtimeEngineOptions {
   /** Omitted means "no socket", so the poll carries everything. */
   subscribe?: Subscribe;
   intervalMs?: number;
+  /**
+   * Called after each poll with whether it failed, so the engine can back off.
+   *
+   * Omitted means "refetch reports nothing", which keeps the fixed cadence. A
+   * caller whose refetch cannot fail has nothing to report.
+   */
+  onPollResult?: (failed: boolean) => void;
   enabled?: boolean;
   scheduler?: Scheduler;
   /** Notified on every state change, so the hook can setState. */
@@ -95,6 +104,11 @@ export interface RealtimeEngine {
   setRefetch: (refetch: () => void) => void;
   /** Forces a refetch. */
   refresh: () => void;
+  /**
+   * Tells the engine whether the last refetch failed, so the next poll can back
+   * off. Also reschedules, because a `setTimeout` chain cannot retime itself.
+   */
+  reportPollResult: (failed: boolean) => void;
   /** Stops the poll and tears the transport down. Idempotent. */
   stop: () => void;
 }
@@ -110,12 +124,17 @@ export function createRealtimeEngine({
   refetch,
   subscribe,
   intervalMs = POLL_INTERVAL_MS,
+  onPollResult,
   enabled = true,
   scheduler = realScheduler,
   onState,
 }: RealtimeEngineOptions): RealtimeEngine {
   let current = refetch;
   let stopped = false;
+
+  /** Failures since the last success, which is what the backoff curve reads. */
+  let failures = 0;
+  let timer: unknown;
 
   // With a transport we do not yet know whether it is healthy, so the honest
   // starting state is `reconnecting`; a transport reports `live` when it
@@ -134,6 +153,41 @@ export function createRealtimeEngine({
     current();
   };
 
+  /**
+   * Arms the next poll.
+   *
+   * ★ A `setTimeout` CHAIN, NOT A `setInterval`.
+   *
+   * The period is no longer constant, so the timer is re-armed after every poll
+   * with the delay the backoff curve returns. `intervalMs` is the healthy floor;
+   * a failure doubles from there.
+   */
+  const schedule = (): void => {
+    if (stopped) return;
+    timer = scheduler.setTimeout(() => {
+      if (stopped) return;
+      safeRefetch();
+      // The refetch reports its own outcome, which reschedules. This is the
+      // fallback for a caller that never reports, so the poll cannot stop
+      // silently the first time it fires.
+      if (!onPollResult) schedule();
+    }, nextPollDelay(failures, intervalMs));
+  };
+
+  const reportPollResult = (failed: boolean): void => {
+    if (stopped) return;
+
+    failures = failed ? failures + 1 : 0;
+    onPollResult?.(failed);
+
+    // A result only reschedules when the caller reports outcomes; without that
+    // wiring the engine keeps its own unconditional chain.
+    if (onPollResult) {
+      scheduler.clearTimeout(timer);
+      schedule();
+    }
+  };
+
   if (!enabled) {
     return {
       state: () => state,
@@ -141,6 +195,7 @@ export function createRealtimeEngine({
         current = next;
       },
       refresh: () => {},
+      reportPollResult: () => {},
       stop: () => {
         stopped = true;
       },
@@ -149,7 +204,7 @@ export function createRealtimeEngine({
 
   // ★ THE FLOOR. Registered before the transport, so a transport that throws
   // still leaves the poll running — which is the entire point of a floor.
-  const handle = scheduler.setInterval(safeRefetch, intervalMs);
+  schedule();
 
   const teardown = subscribe?.(
     eventId,
@@ -166,10 +221,11 @@ export function createRealtimeEngine({
       current = next;
     },
     refresh: safeRefetch,
+    reportPollResult,
     stop: () => {
       if (stopped) return;
       stopped = true;
-      scheduler.clearInterval(handle);
+      scheduler.clearTimeout(timer);
       teardown?.();
     },
   };

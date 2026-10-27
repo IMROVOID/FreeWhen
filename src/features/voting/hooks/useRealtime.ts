@@ -48,12 +48,23 @@ export interface UseRealtimeOptions {
   intervalMs?: number;
   /** Whether to poll at all — a finished event does not need it. */
   enabled?: boolean;
+  /**
+   * Whether the last refetch failed, so the poll can back off.
+   *
+   * Omitted means the caller cannot report outcomes, and the engine keeps its
+   * fixed cadence. A caller whose refetch can fail should report: a persistent
+   * 500 retried at full speed is how one broken deployment becomes a load spike
+   * across every idle tab.
+   */
+  onPollResult?: (failed: boolean) => void;
 }
 
 export interface UseRealtimeResult {
   connection: ConnectionState;
   /** Forces a refetch — the failed-vote path calls this. */
   refresh: () => void;
+  /** Reports the outcome of the last refetch so the next poll can back off. */
+  reportPollResult: (failed: boolean) => void;
 }
 
 export function useRealtime({
@@ -62,6 +73,7 @@ export function useRealtime({
   subscribe,
   intervalMs = POLL_INTERVAL_MS,
   enabled = true,
+  onPollResult,
 }: UseRealtimeOptions): UseRealtimeResult {
   const [connection, setConnection] = useState<ConnectionState>(
     subscribe ? 'reconnecting' : 'live',
@@ -74,10 +86,17 @@ export function useRealtime({
   const latest = useRef(refetch);
   latest.current = refetch;
 
+  const latestResult = useRef(onPollResult);
+  latestResult.current = onPollResult;
+
   const engine = useRef<ReturnType<typeof createRealtimeEngine> | null>(null);
 
   const refresh = useCallback(() => {
     engine.current?.refresh();
+  }, []);
+
+  const reportPollResult = useCallback((failed: boolean) => {
+    engine.current?.reportPollResult(failed);
   }, []);
 
   useEffect(() => {
@@ -88,6 +107,9 @@ export function useRealtime({
       intervalMs,
       enabled,
       onState: setConnection,
+      // A late-bound forwarder, so a caller that swaps its own handler between
+      // renders does not restart the poll.
+      onPollResult: (failed) => latestResult.current?.(failed),
     });
 
     engine.current = started;
@@ -99,5 +121,5 @@ export function useRealtime({
     };
   }, [eventId, subscribe, intervalMs, enabled]);
 
-  return { connection, refresh };
+  return { connection, refresh, reportPollResult };
 }

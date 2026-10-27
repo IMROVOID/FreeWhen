@@ -22,6 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import type { Proposal } from '@/src/types/proposal';
+import { nextPollDelay } from '@/src/features/voting/services/poll-backoff';
 
 import { listProposals } from '../services/create-proposal';
 
@@ -59,6 +60,14 @@ export function useProposals(eventId: string): UseProposalsResult {
   // The first load shows a skeleton; every later refresh does not.
   const loadedOnce = useRef(false);
 
+  /**
+   * The last refresh outcome, readable synchronously by the poller.
+   *
+   * `isReconnecting` is state, and the tick runs in a timeout that would capture
+   * a stale value. This mirrors it so the backoff reads the truth.
+   */
+  const reconnectingRef = useRef(false);
+
   const reload = useCallback(async () => {
     if (!loadedOnce.current) setIsLoading(true);
 
@@ -71,6 +80,7 @@ export function useProposals(eventId: string): UseProposalsResult {
       setProposals(loaded);
       setErrorKey(null);
       setIsReconnecting(false);
+      reconnectingRef.current = false;
       loadedOnce.current = true;
     } catch (error) {
       if (!mounted.current) return;
@@ -81,6 +91,7 @@ export function useProposals(eventId: string): UseProposalsResult {
       if (isApiFailure(error) && error.status === 403) {
         setProposals([]);
         setErrorKey(null);
+        reconnectingRef.current = false;
         return;
       }
 
@@ -89,6 +100,7 @@ export function useProposals(eventId: string): UseProposalsResult {
       // The user is still reading it, and the alternative is a blank screen
       // that says nothing about what they were looking at a second ago.
       setIsReconnecting(true);
+      reconnectingRef.current = true;
       if (!loadedOnce.current) setErrorKey('proposals.list.loadFailed');
     } finally {
       if (mounted.current) setIsLoading(false);
@@ -100,13 +112,36 @@ export function useProposals(eventId: string): UseProposalsResult {
     loadedOnce.current = false;
     void reload();
 
-    const timer = setInterval(() => {
-      void reload();
-    }, POLL_INTERVAL_MS);
+    /**
+     * ★ A RE-ARMING TIMEOUT, NOT A FIXED INTERVAL.
+     *
+     * This poller had its own `setInterval` with no failure awareness, next to
+     * the engine's — so a broken deployment was retried at full speed by two
+     * independent timers per screen. The delay now comes from the shared backoff
+     * policy, and a failure lengthens it.
+     */
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    let cancelled = false;
+
+    const tick = async (): Promise<void> => {
+      if (cancelled) return;
+
+      await reload();
+      if (cancelled) return;
+
+      // `isReconnecting` is what `reload` sets when a refresh failed and the
+      // list on screen is stale, so it is the honest failure signal here.
+      failures = reconnectingRef.current ? failures + 1 : 0;
+      timer = setTimeout(() => void tick(), nextPollDelay(failures, POLL_INTERVAL_MS));
+    };
+
+    timer = setTimeout(() => void tick(), POLL_INTERVAL_MS);
 
     return () => {
+      cancelled = true;
       mounted.current = false;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
   }, [reload]);
 

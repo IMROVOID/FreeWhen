@@ -30,26 +30,47 @@ import {
   type Subscribe,
 } from '@/src/features/voting/services/realtime-engine';
 
-/** A scheduler the test advances by hand, so nothing sleeps for ten seconds. */
-function manualScheduler(): Scheduler & { advance: (times?: number) => void; live: () => number } {
-  const callbacks = new Set<() => void>();
+/**
+ * A scheduler the test advances by hand, so nothing sleeps for ten seconds.
+ *
+ * ★ IT MODELS A TIMEOUT CHAIN, NOT AN INTERVAL.
+ *
+ * The engine re-arms a single `setTimeout` after every poll, because the period
+ * is no longer constant — a failing poll backs off. Only one timer is ever
+ * pending, so `advance()` fires the pending callback once per step and the
+ * delay it was armed with is recorded for the backoff assertions.
+ */
+function manualScheduler(): Scheduler & {
+  advance: (times?: number) => void;
+  live: () => number;
+  delays: () => number[];
+} {
+  let pending: { callback: () => void; ms: number } | null = null;
+  const armed: number[] = [];
 
   return {
-    setInterval(callback) {
-      callbacks.add(callback);
+    setTimeout(callback, ms) {
+      pending = { callback, ms };
+      armed.push(ms);
       return callback;
     },
-    clearInterval(handle) {
-      callbacks.delete(handle as () => void);
+    clearTimeout() {
+      pending = null;
       return undefined;
     },
     advance(times = 1) {
       for (let index = 0; index < times; index++) {
-        for (const callback of callbacks) callback();
+        const next = pending;
+        if (!next) return;
+        pending = null;
+        next.callback();
       }
     },
     live() {
-      return callbacks.size;
+      return pending ? 1 : 0;
+    },
+    delays() {
+      return [...armed];
     },
   };
 }
@@ -329,6 +350,67 @@ test('setRefetch swaps the closure without restarting anything', () => {
   // timer, which is what causes a "reconnecting" flicker on every render.
   assert.equal(first.hits, 0);
   assert.equal(second.hits, 2);
+
+  engine.stop();
+});
+
+test('a failing poll backs off instead of retrying at full speed', () => {
+  // ★ THE BUG THIS LOCKS OUT.
+  //
+  // The engine polled on a fixed interval and never looked at the outcome, so a
+  // persistent 500 — a cold Vercel function with no TLS, for instance — was
+  // retried six times a minute per screen, forever, each poll running ten
+  // sequential queries. That load fed the failure it was retrying.
+  const scheduler = manualScheduler();
+  const outcomes: boolean[] = [];
+
+  const engine = createRealtimeEngine({
+    eventId: 'e1',
+    refetch: () => {},
+    scheduler,
+    onPollResult: (failed) => outcomes.push(failed),
+  });
+
+  // Act — three failures in a row.
+  scheduler.advance(1);
+  engine.reportPollResult(true);
+  scheduler.advance(1);
+  engine.reportPollResult(true);
+  scheduler.advance(1);
+  engine.reportPollResult(true);
+
+  // Assert — the armed delays grow, and the very first one is the healthy floor.
+  const delays = scheduler.delays();
+  assert.equal(delays[0], POLL_INTERVAL_MS, 'the healthy cadence changed');
+  const last = delays[delays.length - 1] ?? 0;
+  assert.ok(last > POLL_INTERVAL_MS, `the wait never grew: ${JSON.stringify(delays)}`);
+
+  engine.stop();
+});
+
+test('a success returns the poll to the healthy cadence', () => {
+  // Arrange
+  const scheduler = manualScheduler();
+
+  const engine = createRealtimeEngine({
+    eventId: 'e1',
+    refetch: () => {},
+    scheduler,
+    onPollResult: () => {},
+  });
+
+  // Act — fail twice, then succeed.
+  scheduler.advance(1);
+  engine.reportPollResult(true);
+  scheduler.advance(1);
+  engine.reportPollResult(true);
+  scheduler.advance(1);
+  engine.reportPollResult(false);
+
+  // Assert — backing off from a success would make the product feel slow for no
+  // reason, so the cadence must snap back to the floor.
+  const delays = scheduler.delays();
+  assert.equal(delays[delays.length - 1], POLL_INTERVAL_MS);
 
   engine.stop();
 });
