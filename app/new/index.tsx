@@ -16,7 +16,7 @@
  */
 
 import { useState } from 'react';
-import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -47,6 +47,7 @@ import { extractInviteToken } from '@/src/features/events/utils/invite-token';
 import { formatDate } from '@/src/lib/format';
 import { getStoredUserId } from '@/src/lib/session';
 import { isApiFailure } from '@/src/lib/api';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import { ACTIVITY_TYPES, TITLE_MAX, type ActivityType } from '@/src/types/event';
@@ -191,7 +192,7 @@ export default function CreateEventScreen() {
 
   const windowLabel = `${formatDate(start.toISOString(), locale).primary} — ${formatDate(end.toISOString(), locale).primary}`;
 
-  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+  const BackIcon = isRtlLayout(i18n.language) ? CaretRight : CaretLeft;
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -412,6 +413,20 @@ const styles = StyleSheet.create({
   },
   activityScrollView: {
     marginHorizontal: -space[5],
+    /**
+     * ★ THE ROW MUST NOT INHERIT THE DOCUMENT'S RTL SCROLL ORIGIN.
+     *
+     * On web a horizontal scroller inside `dir="rtl"` starts at the RIGHT edge,
+     * so with the content's own `space[5]` padding the first card sat outside
+     * the viewport and the leftmost card was clipped mid-label — the row looked
+     * broken rather than scrolled.
+     *
+     * The row is laid out explicitly left-to-right and the leading card is
+     * reached by scrolling, which is the same visual order on both platforms.
+     * `direction: 'ltr'` is scoped to this scroller only; the cards' own text
+     * stays RTL because `Text` sets `dir` per node.
+     */
+    direction: 'ltr',
   },
   /* The card row scrolls edge-to-edge across the screen's padding, with
      space[5] on each end matching the content edge. */

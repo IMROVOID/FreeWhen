@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { I18nManager, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -54,6 +54,7 @@ import {
 import { createMapAdapter, type MapPlatform } from '@/src/features/map';
 import type { MapRenderLevel } from '@/src/features/map/types';
 import { radius, size, space } from '@/src/theme/tokens';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Coordinate } from '@/src/routing/types';
 
@@ -63,7 +64,7 @@ function detectPlatform(): MapPlatform {
 }
 
 export default function RankedVenuesScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -166,7 +167,7 @@ export default function RankedVenuesScreen() {
     );
   }
 
-  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+  const BackIcon = isRtlLayout(i18n.language) ? CaretRight : CaretLeft;
 
   const handleBack = () => {
     if (router.canGoBack()) {

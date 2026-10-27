@@ -16,7 +16,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { I18nManager, Modal, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -60,6 +60,7 @@ import { getStoredUserId } from '@/src/lib/session';
 import { fonts } from '@/src/theme/fonts';
 import { spring } from '@/src/theme/motion';
 import { radius, size, space, border } from '@/src/theme/tokens';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 
@@ -141,7 +142,7 @@ export default function ChatScreen() {
 
   const isFa = i18n.language === 'fa';
   const locale: Language = isFa ? 'fa' : 'en';
-  const isRtl = I18nManager.isRTL;
+  const isRtl = isRtlLayout(i18n.language);
   const BackIcon = isRtl ? CaretRight : CaretLeft;
 
   const params = useLocalSearchParams<{ id?: string }>();
@@ -472,15 +473,32 @@ export default function ChatScreen() {
         )}
 
         <View style={styles.inputRow}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder={t('chat.placeholder', 'پیامی بنویسید...')}
-            placeholderTextColor={theme.textFaint}
-            style={[styles.textInput, { color: theme.text, fontFamily: fonts.persian[500] }]}
-            multiline
-            testID="chat-input"
-          />
+          {/* ★ THE FIELD SITS ON A SURFACE, LIKE EVERY OTHER INPUT.
+              The bare `TextInput` had no fill, so on web it rendered as loose
+              text with a hard focus rectangle around it. This wrapper gives it
+              the same `surface2` pill the shared `Input` primitive uses, which
+              is what makes the composer match the app. */}
+          <View style={[styles.inputSurface, { backgroundColor: theme.surface2 }]}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder={t('chat.placeholder', 'پیامی بنویسید...')}
+              placeholderTextColor={theme.textFaint}
+              style={[
+                styles.textInput,
+                {
+                  color: theme.text,
+                  fontFamily: fonts.persian[500],
+                  // RTL for a Persian composer, so the caret and the alignment
+                  // follow the text instead of sitting on the left.
+                  textAlign: 'start',
+                  writingDirection: 'rtl',
+                },
+              ]}
+              multiline
+              testID="chat-input"
+            />
+          </View>
           <Pressy
             onPress={() => void handleSend()}
             disabled={!canSubmit}
@@ -687,14 +705,29 @@ const styles = StyleSheet.create({
   cancelEditBtn: { padding: space[1] },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: space[2],
+  },
+  inputSurface: {
+    flex: 1,
+    borderRadius: radius.pill,
+    justifyContent: 'center',
   },
   textInput: {
     flex: 1,
     fontSize: 15,
     minHeight: 40,
     maxHeight: 100,
+    // ★ A FILLED FIELD, NOT A BARE LINE.
+    //
+    // The input had no surface of its own, so on web it read as loose text
+    // floating on the page — and `:focus-visible` drew a hard rectangle around
+    // it, because there was no styled border for focus to belong to. The pill
+    // below matches the shared `Input` primitive's surface so the composer
+    // looks the same on both platforms.
+    backgroundColor: 'transparent',
+    borderRadius: radius.pill,
+    paddingHorizontal: space[4],
     paddingVertical: space[2],
   },
   sendIconBtn: { padding: space[1] },

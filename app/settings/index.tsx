@@ -14,11 +14,13 @@
 
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { ScreenHeader } from '@/src/components/ui/ScreenHeader';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
@@ -36,6 +38,7 @@ import { useTheme } from '@/src/theme/useTheme';
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
   const { i18n } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -76,11 +79,21 @@ export default function SettingsScreen() {
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + space[6], paddingBottom: insets.bottom + space[12] },
+        // No `insets.top`: `ScreenHeader` applies it, and adding it twice would
+        // double the notch gap.
+        { paddingTop: 0, paddingBottom: insets.bottom + space[12] },
       ]}
       testID="settings"
     >
-      <Text variant="h1">{t('settings.heading')}</Text>
+      {/* ★ THIS SCREEN HAD NO WAY BACK.
+          It was reachable only from the event-home tile, and once open the only
+          exit was the OS gesture — which a desktop web build does not have, so
+          Settings was a dead end there. */}
+      <ScreenHeader
+        title={t('settings.heading')}
+        onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+        testID="settings-header"
+      />
 
       {/* ★ AC-11.7.1 — offline is non-blocking. Every control below still
           works against what has already loaded. */}

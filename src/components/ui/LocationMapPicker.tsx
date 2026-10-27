@@ -253,7 +253,10 @@ export function LocationMapPicker({
               onChangeText={setSearchQuery}
               placeholder={t('proposals.place.searchPlaceholder', 'جستجوی مکان یا آدرس...')}
               placeholderTextColor={theme.textFaint}
-              style={[styles.searchInput, { color: theme.text }]}
+              style={[
+                styles.searchInput,
+                { color: theme.text, writingDirection: 'rtl' },
+              ]}
               testID={testID ? `${testID}-search-input` : undefined}
             />
             {isSearching ? (

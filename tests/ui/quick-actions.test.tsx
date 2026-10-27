@@ -23,6 +23,7 @@ import './support/register';
 
 import assert from 'node:assert/strict';
 import { before, describe, test } from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import { initI18n } from '@/src/i18n';
 
@@ -110,6 +111,23 @@ describe('event home quick actions', () => {
     assert.equal(buttons.length, 6, `expected 6 wired controls, found ${buttons.length}`);
     assert.ok(screen.has('تنظیمات'), 'the settings tile is missing');
     assert.equal(opened, 0, 'no handler should fire on render');
+  });
+
+  test('tiles declare a minimum width, so the row wraps instead of compressing', async () => {
+    // Arrange — a previous fix used `flexBasis: 0` alone, which let all six
+    // tiles shrink onto ONE row: squeezed columns with overlapping labels.
+    const source = readFileSync(
+      'src/features/events/components/QuickActionsGrid.tsx',
+      'utf8',
+    );
+
+    // Act — the tile style block.
+    const tile = /tile:\s*\{([\s\S]*?)\n {2}\},/.exec(source)?.[1] ?? '';
+
+    // Assert — a min-width is the only thing that makes flexWrap break rather
+    // than squeeze; without it the grid collapses.
+    assert.match(tile, /minWidth/, 'the tile has no minimum width and will compress');
+    assert.match(tile, /flexWrap|flexGrow/, 'the tile declares no growth/basis');
   });
 
   test('every tile carries an accessible name', async () => {

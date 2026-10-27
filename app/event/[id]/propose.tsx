@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,11 +29,12 @@ import { LocationMapPicker } from '@/src/components/ui/LocationMapPicker';
 import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import { size, space } from '@/src/theme/tokens';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { DuplicateHint, ProposalType, VenueRef } from '@/src/types/proposal';
 
 export default function ProposeScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -153,7 +154,7 @@ export default function ProposeScreen() {
     );
   }
 
-  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+  const BackIcon = isRtlLayout(i18n.language) ? CaretRight : CaretLeft;
 
   const handleBack = () => {
     if (router.canGoBack()) {

@@ -17,7 +17,7 @@
  * not there.
  */
 
-import { I18nManager, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, Users } from 'phosphor-react-native';
@@ -55,7 +55,6 @@ export function DecisionStatusBand({ eventId, shared }: DecisionStatusBandProps)
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const isFa = i18n.language === 'fa';
-  const isRTL = I18nManager.isRTL;
 
   // The hook is still called unconditionally — rules of hooks — but its work is
   // disabled when the host supplies the payload.
@@ -104,17 +103,22 @@ export function DecisionStatusBand({ eventId, shared }: DecisionStatusBandProps)
           },
         ]}
       >
-        {/* Progress fill track */}
-        <View
-          style={[
-            styles.progressTrack,
-            {
-              backgroundColor: isConfirmed ? theme.brand : theme.primary,
-              width: `${percent}%`,
-              [isRTL ? 'right' : 'left']: 0,
-            },
-          ]}
-        />
+        {/* Progress fill track.
+            ★ A ZERO-WIDTH FILL IS NOT RENDERED AT ALL.
+            At `0%` the track still drew its rounded edge, so an event where
+            nobody had voted showed a coloured sliver that read as a failed
+            theme colour rather than "no progress yet". */}
+        {percent > 0 ? (
+          <View
+            style={[
+              styles.progressTrack,
+              {
+                backgroundColor: isConfirmed ? theme.brand : theme.primary,
+                width: `${percent}%`,
+              },
+            ]}
+          />
+        ) : null}
 
         {/* Content row over the fill track */}
         <View style={styles.contentRow}>
@@ -172,6 +176,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
+    // Logical inset, so the fill grows from the leading edge in both directions
+    // without a conditional physical side.
+    insetInlineStart: 0,
     opacity: 0.22,
     borderRadius: radius.pill,
   },

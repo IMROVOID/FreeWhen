@@ -73,6 +73,14 @@ export default function Root({ children }: { children: React.ReactNode }) {
               `html,body{background-color:${themes.dark.bg};color-scheme:dark}`,
               `@media (prefers-color-scheme: light){html,body{background-color:${themes.light.bg};color-scheme:light}}`,
               `:focus-visible{outline:2px solid ${palette.volt};outline-offset:2px}`,
+              // ★ BUTTONS AND FIELDS KEEP THEIR OWN FOCUS TREATMENT.
+              //
+              // A button paints its own surface and a field paints its own
+              // border; the generic ring above drew a second, square box
+              // around both — the hard rectangle seen on the chat composer.
+              // Keyboard users still get a visible indicator from the
+              // component's own focused styling.
+              `button:focus-visible,input:focus-visible,textarea:focus-visible{outline:none}`,
             ].join(''),
           }}
         />

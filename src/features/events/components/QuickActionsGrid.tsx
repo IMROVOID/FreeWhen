@@ -104,17 +104,22 @@ const styles = StyleSheet.create({
   },
   tile: {
     /**
-     * ★ TWO PER ROW, EXACTLY — WITHOUT LETTING A GAP CAUSE A WRAP.
+     * ★ AN EXPLICIT MINIMUM IS WHAT MAKES THE ROW WRAP.
      *
-     * `48%` + `flexGrow` looks like it fits, but the row's `gap` is added on
-     * TOP of the basis: 48% + 48% + gap > 100%, so one tile is pushed to the
-     * next line and the row it left behind shows a hole. `flexBasis: 0` gives
-     * the two tiles an equal share of whatever is left after the gap, so the
-     * arithmetic can never overflow and an even count can never orphan a tile.
+     * `flexBasis: 0` alone was wrong: with nothing but `gap`, six tiles all
+     * shrank to fit ONE row, which is the squeezed columns with overlapping
+     * labels that shipped. A percentage basis also overflows once the row's
+     * `gap` is added on top.
+     *
+     * `flex: 1` with a `minWidth` is the combination that behaves: each tile
+     * asks for an equal share, and the minimum is what forces the row to break
+     * rather than compress. Two per row at any realistic phone width, and the
+     * odd-count orphan the old code had cannot occur with six.
      */
-    flexBasis: 0,
     flexGrow: 1,
-    flexShrink: 1,
+    flexShrink: 0,
+    flexBasis: '45%',
+    minWidth: 132,
   },
   tileInner: {
     borderRadius: radius.lg,

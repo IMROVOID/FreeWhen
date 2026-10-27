@@ -26,7 +26,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -45,6 +45,7 @@ import { useOffline } from '@/src/hooks/useOffline';
 import { formatGregorian, formatJalali } from '@/src/lib/jalali';
 import { getStoredUserId } from '@/src/lib/session';
 import { border, radius, size, space } from '@/src/theme/tokens';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 import type { ActivityEntry } from '@/src/types/vote';
@@ -84,7 +85,7 @@ export default function ActivityScreen() {
     void load();
   }, [load]);
 
-  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+  const BackIcon = isRtlLayout(i18n.language) ? CaretRight : CaretLeft;
 
   const handleBack = () => {
     if (router.canGoBack()) {

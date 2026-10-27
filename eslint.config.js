@@ -70,6 +70,12 @@ export default tseslint.config(
     ignores: [
       'node_modules/**',
       'dist/**',
+      // Generated deploy artifacts: `api/` is the bundled serverless function
+      // and `static/` is the composed single-root tree. Both are gitignored but
+      // were still being linted, so a local `npm run lint` failed on
+      // minified bundles rather than on source.
+      'api/**',
+      'static/**',
       '.expo/**',
       'android/**',
       'ios/**',

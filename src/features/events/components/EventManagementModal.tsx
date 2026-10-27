@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { ArrowsClockwise, SignOut, Trash } from 'phosphor-react-native';
+import { ArrowsClockwise, SignOut, Trash, X } from 'phosphor-react-native';
 
 import { BottomSheet } from '@/src/components/ui/BottomSheet';
 import { Button } from '@/src/components/ui/Button';
 import { ConfirmSheet } from '@/src/components/ui/ConfirmSheet';
 import { Input } from '@/src/components/ui/Input';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { OverlayToast } from '@/src/components/ui/OverlayToast';
 import { space } from '@/src/theme/tokens';
@@ -104,9 +105,25 @@ export function EventManagementModal({
     <>
       <BottomSheet visible={visible} onDismiss={onDismiss} testID={testID}>
         <View style={styles.container}>
-          <Text variant="h3" align="start">
-            {t('events.management.title')}
-          </Text>
+          {/* ★ AN EXPLICIT WAY OUT.
+              The sheet could only be dismissed by dragging the grabber or
+              swiping, which a mouse user on the web build has no obvious cue
+              for — the screen read as a dead end. A labelled close control
+              makes the exit visible without changing the gesture. */}
+          <View style={styles.titleRow}>
+            <Text variant="h3" align="start" style={styles.titleText}>
+              {t('events.management.title')}
+            </Text>
+            <Pressy
+              onPress={onDismiss}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.close')}
+              testID="event-management-close"
+              style={styles.closeButton}
+            >
+              <X size={20} color={theme.text} weight="bold" />
+            </Pressy>
+          </View>
 
           {isOwner ? (
             <>
@@ -193,5 +210,17 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     marginTop: space[1],
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space[3],
+  },
+  titleText: {
+    flex: 1,
+  },
+  closeButton: {
+    padding: space[1],
   },
 });

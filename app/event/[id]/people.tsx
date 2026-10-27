@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { I18nManager, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,6 +42,7 @@ import { useOffline } from '@/src/hooks/useOffline';
 import { getStoredUserId } from '@/src/lib/session';
 import type { Language } from '@/src/i18n/types';
 import { border, radius, size, space } from '@/src/theme/tokens';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 
 export default function PeopleScreen() {
@@ -56,7 +57,7 @@ export default function PeopleScreen() {
 
   const language: Language = i18n.language === 'en' ? 'en' : 'fa';
 
-  const BackIcon = I18nManager.isRTL ? CaretRight : CaretLeft;
+  const BackIcon = isRtlLayout(i18n.language) ? CaretRight : CaretLeft;
 
   const handleBack = () => {
     if (router.canGoBack()) {
