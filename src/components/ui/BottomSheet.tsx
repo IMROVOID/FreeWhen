@@ -66,32 +66,44 @@ export function BottomSheet({
   const { t } = useTheme();
   const sheetRef = useRef<ComponentRef<typeof GorhomBottomSheet>>(null);
   const [mounted, setMounted] = useState(visible);
+  /**
+   * Whether the library has been asked to open.
+   *
+   * A ref, not state: it is read inside the open effect to make the open happen
+   * exactly once per `visible` transition, and changing it must not cause a
+   * render.
+   */
+  const openRequested = useRef(false);
 
   const isDynamic = snapPoints === undefined;
 
-  // ★ THE OPEN MUST WAIT FOR THE MOUNT.
+  // ★ THE OPEN MUST WAIT FOR THE MOUNT, AND IT MUST HAPPEN ON A LATER COMMIT.
   //
-  // A closed sheet returns `null`, so on the first open the ref is still null in
-  // the effect that sets `mounted` — `snapToIndex(0)` would be a no-op against
-  // nothing and the sheet would mount at `index={-1}` and never open. Every
-  // caller flips `visible` in the same render as the trigger, so that is the
-  // common path, not an edge case.
+  // A closed sheet returns `null`, so when `visible` first flips true the ref is
+  // still null. Two effects in the SAME commit cannot fix that: the second one
+  // reads `mounted` before `setMounted(true)` has been applied, so it skips, and
+  // since neither dependency changes again it never re-runs — the sheet mounts at
+  // `index={-1}` and stays shut.
   //
-  // The two steps are therefore SEQUENCED: mount first, then open on the render
-  // that follows, when the ref exists.
+  // So the mount is applied in one commit and the open is requested in the next,
+  // gated on `mounted` having actually become true. Every caller flips `visible`
+  // in the same render as its trigger, so this is the common path.
   useEffect(() => {
     if (visible) {
       setMounted(true);
       return;
     }
 
+    // The caller closed it. The library animates out; `onClose` tears down.
+    openRequested.current = false;
     sheetRef.current?.close();
   }, [visible]);
 
   useEffect(() => {
-    if (visible && mounted) {
-      sheetRef.current?.snapToIndex(0);
-    }
+    if (!visible || !mounted || openRequested.current) return;
+
+    openRequested.current = true;
+    sheetRef.current?.snapToIndex(0);
   }, [visible, mounted]);
 
   /**
@@ -100,22 +112,14 @@ export function BottomSheet({
    * `@gorhom/bottom-sheet` reports `onClose` as soon as it settles at index -1,
    * which includes the moment it mounts closed. Forwarding that to `onDismiss`
    * would clear the caller's `visible` state on the same tick it set it, and the
-   * sheet would flash and vanish. Only a close while the caller still wants the
-   * sheet counts, and `visible` is read through a ref so the callback is stable
-   * across renders.
+   * sheet would flash and vanish. Only a close the user caused counts, which is
+   * recognised by the open having already been requested.
    */
-  const visibleRef = useRef(visible);
-  visibleRef.current = visible;
-
   const handleClose = useCallback(() => {
-    if (visibleRef.current) {
-      // The sheet closed itself (a drag, or the back button) while the caller
-      // still considers it open: the caller's state is now stale.
-      onDismiss();
-      return;
-    }
+    if (!openRequested.current) return;
 
-    // The caller closed it. Tear down only now, so the close animation runs.
+    openRequested.current = false;
+    onDismiss();
     setMounted(false);
   }, [onDismiss]);
 
