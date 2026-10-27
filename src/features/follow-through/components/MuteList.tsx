@@ -69,7 +69,15 @@ export function MuteList({ events, isLoading, testID }: MuteListProps) {
 
       {events.map((event) => (
         <View key={event.id} style={styles.row} testID={`${testID ?? 'mute-list'}-${event.id}`}>
-          <Text variant="body" weight={600} numberOfLines={1}>
+          {/* ★ `align="start"` IS NOT OPTIONAL HERE.
+              The default is `start`, but the ROW it sits in is a plain
+              `View` whose direction comes from the document. On the web build a
+              `Text` that did not declare its own alignment inherited the
+              container's, and the container had no `dir`, so the event name
+              rendered left-aligned inside an otherwise RTL screen. Declaring it
+              puts the name on the reading edge — the right one in Persian —
+              independent of what the row does. */}
+          <Text variant="body" weight={600} numberOfLines={1} align="start">
             {event.title}
           </Text>
 
@@ -91,5 +99,9 @@ const styles = StyleSheet.create({
   },
   row: {
     gap: space[2],
+    // The row's own direction, so the name and its switch mirror together.
+    // `row-reverse` is NOT used: both children are block-level, so the document
+    // direction already decides where each one starts.
+    alignItems: 'stretch',
   },
 });

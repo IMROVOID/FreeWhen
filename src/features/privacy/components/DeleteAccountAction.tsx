@@ -71,14 +71,18 @@ export function DeleteAccountAction({ onConfirm, busy = false, testID }: DeleteA
               disabled={busy}
               onPress={() => setConfirming(false)}
               testID={testID ? `${testID}-cancel` : undefined}
-            />
-          </View>
+            />          </View>
         </Card>
       ) : (
         <>
+          {/* ★ A SURFACE, IN THE DANGER TONE.
+              This was `variant="ghost"`, which paints `transparent` — so the
+              most consequential action on the screen was bare text, sitting
+              between painted cards and painted buttons. The destructive tone
+              is right; the missing fill was a bug. */}
           <Button
             label={t('privacy.deleteAccount')}
-            variant="ghost"
+            variant="danger"
             size="medium"
             onPress={() => setConfirming(true)}
             testID={testID ? `${testID}-begin` : undefined}

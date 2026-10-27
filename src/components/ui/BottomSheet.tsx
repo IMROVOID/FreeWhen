@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ComponentRef } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import GorhomBottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 
@@ -40,9 +40,20 @@ export interface BottomSheetProps {
  * underneath showed through the uncovered area. A percentage can only be right
  * for one screen at one font scale.
  *
- * The library is controlled through the snap-point `index`: `-1` means
- * closed, `0` is the first snap point — or, under dynamic sizing, the measured
- * content height.
+ * ★ A CLOSED SHEET MUST RENDER NOTHING AT ALL.
+ *
+ * `@gorhom/bottom-sheet` keeps its handle mounted and its pan gesture live even
+ * at `index={-1}`. On the event screen that left a drag handle sitting on the
+ * bottom edge of a page with no sheet open, and dragging it pulled up an empty
+ * panel — the collapsed, expandable, empty overlay users reported.
+ *
+ * So the sheet is MOUNTED ONLY WHILE IT IS WANTED. `mounted` is set when
+ * `visible` turns true and cleared from `onClose`, so a dismissal still animates
+ * away instead of vanishing mid-slide.
+ *
+ * The library is controlled through the snap-point `index`: `-1` means closed,
+ * `0` is the first snap point — or, under dynamic sizing, the measured content
+ * height.
  */
 export function BottomSheet({
   children,
@@ -54,20 +65,28 @@ export function BottomSheet({
 }: BottomSheetProps) {
   const { t } = useTheme();
   const sheetRef = useRef<ComponentRef<typeof GorhomBottomSheet>>(null);
+  const [mounted, setMounted] = useState(visible);
 
   const isDynamic = snapPoints === undefined;
 
   // Drive the sheet from the `visible` prop.
   useEffect(() => {
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-
     if (visible) {
-      sheet.snapToIndex(0);
-    } else {
-      sheet.close();
+      setMounted(true);
+      sheetRef.current?.snapToIndex(0);
+      return;
     }
+
+    sheetRef.current?.close();
   }, [visible]);
+
+  // Tearing down is what the CLOSE ANIMATION reports, not what the prop says.
+  const handleClose = useCallback(() => {
+    setMounted(false);
+    onDismiss();
+  }, [onDismiss]);
+
+  if (!visible && !mounted) return null;
 
   return (
     <GorhomBottomSheet
@@ -78,7 +97,7 @@ export function BottomSheet({
       snapPoints={snapPoints}
       enablePanDownToClose
       enableDynamicSizing={isDynamic}
-      onClose={onDismiss}
+      onClose={handleClose}
       backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
       handleComponent={Grabber}
       accessibilityLabel={testID}

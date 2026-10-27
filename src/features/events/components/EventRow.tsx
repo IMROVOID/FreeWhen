@@ -55,6 +55,13 @@ export function EventRow({ event, onPress }: EventRowProps) {
       style={styles.card}
     >
       <View style={styles.header}>
+        {/* ★ THE TITLE STARTS WHERE THE LANGUAGE STARTS.
+            `align="start"` is the RIGHT edge in a Persian layout and the left in
+            English, which is what "move the event titles to the right" means in
+            an RTL product. It has to be declared: the title's parent is a plain
+            row, and a `Text` that does not state its alignment takes the
+            container's, which on the web build is the document default rather
+            than the document direction. */}
         <Text variant="h3" align="start" numberOfLines={2} style={styles.title}>
           {event.title}
         </Text>
@@ -102,8 +109,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: space[3],
   },
+  /**
+   * ★ THE TITLE SHRINKS, IT DOES NOT CLAIM THE ROW.
+   *
+   * `flex: 1` let the title take every pixel the status chip did not want, so
+   * a short event name left a wide band of empty leading space before the
+   * chip and the chip drifted to the middle of the card. `flexShrink` lets a
+   * long name wrap while a short one stays beside the chip, which is what puts
+   * the title on its reading edge and the status on the opposite one.
+   */
   title: {
-    flex: 1,
+    flexShrink: 1,
   },
   statusChip: {
     flexDirection: 'row',
@@ -112,6 +128,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     paddingHorizontal: space[3],
     paddingVertical: space[1],
+    // The chip is never the thing that gives way; the title wraps first.
+    flexShrink: 0,
   },
   statusDot: {
     width: space[2],

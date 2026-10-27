@@ -247,28 +247,40 @@ export default function EventHomeScreen() {
     return (
       <View
         style={[
-          styles.centered,
+          styles.failureScreen,
           { backgroundColor: theme.bg, paddingTop: insets.top, paddingHorizontal: space[5] },
         ]}
       >
-        {/* ★ A RETRY, AND THE REAL REASON.
-            The failure used to be reported as "you are not a participant" with
-            only a Back button — the one explanation that is both untrue and
-            unfixable when the actual cause was the network. `ErrorState`
-            renders the sentence the key names and offers the request again,
-            and Back stays available for the case where leaving is the answer. */}
-        <ErrorState
-          messageKey={loadErrorKey ?? 'errors.unknown'}
-          onRetry={() => void loadEvent()}
-          testID="event-home-missing"
-        />
-        <Button
-          label={t('common.back')}
-          onPress={() => router.replace('/')}
-          variant="secondary"
-          size="medium"
-          style={styles.missingAction}
-        />
+        {/* ★ THE BACK CONTROL SITS AT THE FOOT OF THE PAGE.
+            It used to be centred in the viewport, which on a short page put it
+            floating in the middle of the screen with nothing under it — the
+            same defect as every other short screen that ended in mid-air. The
+            `flex: 1` container and `marginTop: 'auto'` footer put it where every
+            other primary action lives, and it stays there as the error message
+            wraps to any number of lines. */}
+        <View style={styles.failureBody}>
+          {/* ★ A RETRY, AND THE REAL REASON.
+              The failure used to be reported as "you are not a participant" with
+              only a Back button — the one explanation that is both untrue and
+              unfixable when the actual cause was the network. `ErrorState`
+              renders the sentence the key names and offers the request again,
+              and Back stays available for the case where leaving is the answer. */}
+          <ErrorState
+            messageKey={loadErrorKey ?? 'errors.unknown'}
+            onRetry={() => void loadEvent()}
+            testID="event-home-missing"
+          />
+        </View>
+
+        <View style={styles.failureFooter}>
+          <Button
+            label={t('common.back')}
+            onPress={() => router.replace('/')}
+            variant="secondary"
+            size="medium"
+            testID="event-home-back"
+          />
+        </View>
       </View>
     );
   }
@@ -425,7 +437,6 @@ export default function EventHomeScreen() {
         }
         onOpenChat={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
         onOpenManagement={() => setManagementModalVisible(true)}
-        onOpenSettings={() => router.push('/settings')}
       />
 
       <EventShareModal
@@ -456,9 +467,24 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
   },
-  centered: {
+  /**
+   * A failure page fills the screen so its footer can be pinned to the bottom.
+   *
+   * The old `centered` style centred the whole block, which left the Back
+   * control floating mid-screen when the message was short.
+   */
+  failureScreen: {
     flex: 1,
     justifyContent: 'center',
+  },
+  failureBody: {
+    flexGrow: 0,
+  },
+  failureFooter: {
+    // `auto` pushes it to the foot and keeps it there as the message grows.
+    marginTop: 'auto',
+    paddingTop: space[6],
+    paddingBottom: space[8],
   },
   content: {
     paddingHorizontal: space[5],
@@ -484,8 +510,5 @@ const styles = StyleSheet.create({
   action: {
     marginTop: space[6],
     borderRadius: radius.pill,
-  },
-  missingAction: {
-    marginTop: space[2],
   },
 });

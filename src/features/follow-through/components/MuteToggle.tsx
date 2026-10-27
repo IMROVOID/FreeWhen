@@ -16,9 +16,10 @@
  */
 
 import { useCallback, useState } from 'react';
-import { StyleSheet, Switch, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
+import { AccentSwitch } from '@/src/components/ui/AccentSwitch';
 import { Text } from '@/src/components/ui/Text';
 import { getStoredUserId } from '@/src/lib/session';
 import { space } from '@/src/theme/tokens';
@@ -98,7 +99,12 @@ export function MuteToggle({ eventId, muted, onChange, testID }: MuteToggleProps
           </Text>
         </View>
 
-        <Switch
+        {/* ★ THE THEMED SWITCH, NOT THE PLATFORM ONE.
+            `react-native`'s `<Switch>` is the operating system's control: a
+            Material pill on Android, an Apple switch on iOS, and on web a bare
+            checkbox. None of them reads a theme token, so this was the only
+            control on Settings that did not look like the app. */}
+        <AccentSwitch
           value={muted}
           onValueChange={(next) => void toggle(next)}
           disabled={pending}

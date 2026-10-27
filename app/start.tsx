@@ -82,10 +82,12 @@ export default function StartScreen() {
       ]}
       testID="start-screen"
     >
-      <Text variant="caption" color="textMuted">
+      <Text variant="caption" color="textMuted" align="center">
         {t('web.start.eyebrow')}
       </Text>
-      <Text variant="h1">{t('web.start.title')}</Text>
+      <Text variant="h1" align="center">
+        {t('web.start.title')}
+      </Text>
       <Text variant="body" color="textMuted">
         {t('web.start.lede')}
       </Text>

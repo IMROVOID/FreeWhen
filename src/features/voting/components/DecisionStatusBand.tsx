@@ -25,7 +25,7 @@ import { CheckCircle, Users } from 'phosphor-react-native';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { toPersianDigits } from '@/src/lib/jalali';
-import { border, radius, size, space } from '@/src/theme/tokens';
+import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 import { useDecisionStatus } from '../hooks/useDecisionStatus';
@@ -99,7 +99,6 @@ export function DecisionStatusBand({ eventId, shared }: DecisionStatusBandProps)
           styles.band,
           {
             backgroundColor: theme.surface2,
-            borderColor: theme.line,
           },
         ]}
       >
@@ -167,7 +166,11 @@ const styles = StyleSheet.create({
   band: {
     height: size.buttonMedium,
     borderRadius: radius.pill,
-    borderWidth: border.hairline,
+    // ★ NO BORDER.
+    //
+    // A hairline `line` border on a `surface2` pill was the only outlined shape
+    // on the event screen — every other surface there separates itself by fill
+    // alone. It read as a form field rather than as a status summary.
     overflow: 'hidden',
     position: 'relative',
     justifyContent: 'center',

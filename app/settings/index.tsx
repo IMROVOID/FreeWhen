@@ -17,9 +17,12 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { X } from 'phosphor-react-native';
 
+import { BottomSheet } from '@/src/components/ui/BottomSheet';
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { ScreenHeader } from '@/src/components/ui/ScreenHeader';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
@@ -129,20 +132,21 @@ export default function SettingsScreen() {
             {t('retention.decisionHistoryKept')}
           </Text>
 
+          {/* ★ A SURFACE, NOT BARE TEXT.
+              This was `variant="ghost"`, which paints no fill at all, so the
+              one control that opens the policy was the only unpainted row on a
+              screen made entirely of pills. */}
           <Button
-            label={showNotice ? t('common.close') : t('privacy.noticeAction')}
+            label={t('privacy.noticeAction')}
             variant="secondary"
             size="medium"
-            onPress={() => setShowNotice((open) => !open)}
-            testID="settings-notice-toggle"
+            onPress={() => setShowNotice(true)}
+            testID="settings-notice-open"
           />
           <Text variant="caption" color="textFaint">
             {t('privacy.noticeFootnote')}
           </Text>
         </Card>
-
-        {/* The notice renders inline once opened: no navigation, no fetch. */}
-        {showNotice && <NoticeViewer language={language} testID="settings-notice" />}
       </Section>
 
       {/* Account */}
@@ -179,6 +183,46 @@ export default function SettingsScreen() {
       <Text variant="caption" color="textFaint" align="center">
         {t('privacy.knownGapsBody')}
       </Text>
+
+      {/* ★ THE NOTICE IS A DOCUMENT, SO IT OPENS OVER THE PAGE.
+          It used to render inline in the section above, which shoved the
+          account section — and the two controls the platform reviews for —
+          several screens down the page. Every other document in the product
+          opens in a sheet; this one is the same. It still reads from the
+          bundled copy, so it works in airplane mode (E10): no navigation, no
+          fetch. */}
+      <BottomSheet
+        visible={showNotice}
+        onDismiss={() => setShowNotice(false)}
+        // `NoticeViewer` holds a `flex: 1` scroll view, which measures as zero
+        // under content sizing, so this sheet must name its height — the one
+        // case `BottomSheet` documents itself as needing a snap point.
+        snapPoints={['85%']}
+        testID="settings-notice"
+      >
+        <View style={styles.noticeContainer}>
+          {/* ★ AN EXPLICIT WAY OUT.
+              The sheet can be dragged away, which a mouse user on the web build
+              has no cue for, and this is a long document — so the close control
+              is labelled and stays at the top where the reader starts. */}
+          <View style={styles.noticeHeader}>
+            <Text variant="h3" align="start" style={styles.noticeTitle}>
+              {t('privacy.noticeAction')}
+            </Text>
+            <Pressy
+              onPress={() => setShowNotice(false)}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.close')}
+              testID="settings-notice-close"
+              style={styles.noticeClose}
+            >
+              <X size={20} color={theme.text} weight="bold" />
+            </Pressy>
+          </View>
+
+          <NoticeViewer language={language} testID="settings-notice-body" />
+        </View>
+      </BottomSheet>
     </ScrollView>
   );
 }
@@ -197,4 +241,19 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: space[5], gap: space[5] },
   section: { gap: space[3] },
   cardBody: { gap: space[3] },
+  noticeContainer: {
+    flex: 1,
+    gap: space[3],
+  },
+  noticeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  noticeTitle: {
+    flex: 1,
+  },
+  noticeClose: {
+    padding: space[1],
+  },
 });

@@ -5,15 +5,17 @@
  *
  * The grid was `flexWrap: 'wrap'` with `actionTile: { flex: 1, minWidth: '45%' }`
  * and FIVE tiles. Two-per-row leaves the fifth alone on its own row, and
- * `flex: 1` then stretches it to the full width — so the last action rendered as
- * a lone full-width bar pinned under the content, visually detached from the
- * two pairs above it.
+ * `flex: 1` then stretched it into a full-width bar pinned under the content,
+ * visually detached from the two pairs above it.
  *
- * ★ AND THE MISSING SETTINGS ENTRY.
+ * ★ THE FIRST FIX WAS WRONG, AND THIS FILE USED TO ENCODE IT.
  *
- * `/settings` existed as a route with nothing linking to it. It was unreachable
- * from the app. Adding it as the sixth tile fixes both problems at once: the
- * count becomes even, so no tile can be orphaned, and the screen gets a door.
+ * Settings was added here as a sixth tile purely so the COUNT became even — and
+ * the tests were written to assert that count. It made `/settings` reachable,
+ * but it put an app-wide door in a grid of per-event commands, so the grid read
+ * as "every button in the product". The count was never the invariant; a full
+ * ROW is. Settings now lives on the app's home screen, the grid is back to the
+ * five things an event has, and the last tile spans its row through the layout.
  *
  * These assertions are about COUNTS and LABELS in rendered markup, because that
  * is exactly what was wrong: the number of tiles and who was missing.
@@ -34,92 +36,77 @@ before(async () => {
   ({ renderComponent } = await import('./support/render'));
 });
 
+/** The five per-event actions, wired to no-op handlers. */
+function renderGrid(overrides: Partial<Record<'onOpenManagement', () => void>> = {}) {
+  return import('@/src/features/events/components/QuickActionsGrid').then(({ QuickActionsGrid }) =>
+    renderComponent(QuickActionsGrid, {
+      onOpenSlots: () => undefined,
+      onShare: () => undefined,
+      onOpenActivity: () => undefined,
+      onOpenChat: () => undefined,
+      onOpenManagement: () => undefined,
+      ...overrides,
+    }),
+  );
+}
+
 describe('event home quick actions', () => {
-  test('the grid renders an even number of tiles, so none can be orphaned', async () => {
-    // Arrange
-    const { QuickActionsGrid } = await import(
-      '@/src/features/events/components/QuickActionsGrid'
-    );
-
+  test('the grid carries only the per-event actions', async () => {
     // Act
-    const screen = renderComponent(QuickActionsGrid, {
-      onOpenSlots: () => {},
-      onShare: () => {},
-      onOpenActivity: () => {},
-      onOpenChat: () => {},
-      onOpenManagement: () => {},
-      onOpenSettings: () => {},
-    });
+    const screen = await renderGrid();
 
-    // Assert — six tiles fill three full rows of two; an odd count is what
-    // produced the stranded full-width bar in the first place. Counted by the
-    // accessible button role, because react-native-web's `Pressable` does not
-    // forward `testID` to the DOM, and semantic attributes are what a reader
-    // and the platform actually see.
+    // Assert — five event commands. Settings is NOT one of them: it is the
+    // app's door, and it lives on `/`. Counted by the accessible button role
+    // because react-native-web's `Pressable` does not forward `testID` to the
+    // DOM, and semantic attributes are what a reader and the platform see.
     const tiles = screen.html.match(/role="button"/g) ?? [];
-    assert.equal(tiles.length, 6, `expected 6 tiles, found ${tiles.length}`);
-    assert.equal(tiles.length % 2, 0, 'an odd tile count orphans the last one');
+    assert.equal(tiles.length, 5, `expected 5 event tiles, found ${tiles.length}`);
+    assert.equal(screen.has('تنظیمات'), false, 'the event grid still offers Settings');
   });
 
-  test('every documented action, including Settings, has a tile', async () => {
-    // Arrange
-    const { QuickActionsGrid } = await import(
-      '@/src/features/events/components/QuickActionsGrid'
-    );
+  test('★ exactly one tile spans a row, so no row is left half empty', async () => {
+    // Act — five tiles over two columns leaves one row incomplete, so the last
+    // tile must fill it. Counted in the markup, because the invariant is about
+    // the rendered style and not about the source.
+    const screen = await renderGrid();
 
+    // Assert
+    const fullWidth = screen.html.match(/flex-basis:\s*100%/g) ?? [];
+    assert.equal(fullWidth.length, 1, `expected one full-width tile, found ${fullWidth.length}`);
+  });
+
+  test('every event action has a tile', async () => {
     // Act
-    const screen = renderComponent(QuickActionsGrid, {
-      onOpenSlots: () => {},
-      onShare: () => {},
-      onOpenActivity: () => {},
-      onOpenChat: () => {},
-      onOpenManagement: () => {},
-      onOpenSettings: () => {},
-    });
+    const screen = await renderGrid();
 
     // Assert — react-native-web drops `testID` onto the DOM as a warning, so
     // the tiles are found by their accessible names instead.
-    for (const label of ['زمان‌های پیشنهادی', 'اشتراک‌گذاری', 'تاریخچهٔ رویداد', 'گفتگو', 'مدیریت رویداد', 'تنظیمات']) {
+    for (const label of ['زمان‌های پیشنهادی', 'اشتراک‌گذاری', 'تاریخچهٔ رویداد', 'گفتگو', 'مدیریت رویداد']) {
       assert.ok(screen.has(label), `no tile is labelled "${label}"`);
     }
   });
 
-  test('the settings tile renders and is wired to its handler', async () => {
+  test('the management tile renders and is wired to its handler', async () => {
     // Arrange
-    const { QuickActionsGrid } = await import(
-      '@/src/features/events/components/QuickActionsGrid'
-    );
     let opened = 0;
 
     // Act — the handler is passed in and must be ATTACHED to a real control,
     // so the assertion below is about the wiring, not about the label.
-    const screen = renderComponent(QuickActionsGrid, {
-      onOpenSlots: () => {},
-      onShare: () => {},
-      onOpenActivity: () => {},
-      onOpenChat: () => {},
-      onOpenManagement: () => {},
-      onOpenSettings: () => {
-        opened += 1;
-      },
-    });
+    const screen = await renderGrid({ onOpenManagement: () => (opened += 1) });
 
-    // Assert — six distinct controls, each labelled. A tile that renders but
-    // does not navigate is the bug `/settings` already had, so the controls are
+    // Assert — five distinct controls, each labelled. A tile that renders but
+    // does not open is the bug `/settings` already had, so the controls are
     // counted rather than assumed.
     const buttons = screen.html.match(/role="button"/g) ?? [];
-    assert.equal(buttons.length, 6, `expected 6 wired controls, found ${buttons.length}`);
-    assert.ok(screen.has('تنظیمات'), 'the settings tile is missing');
+    assert.equal(buttons.length, 5, `expected 5 wired controls, found ${buttons.length}`);
+    assert.ok(screen.has('مدیریت رویداد'), 'the management tile is missing');
     assert.equal(opened, 0, 'no handler should fire on render');
   });
 
   test('tiles declare a minimum width, so the row wraps instead of compressing', async () => {
     // Arrange — a previous fix used `flexBasis: 0` alone, which let all six
     // tiles shrink onto ONE row: squeezed columns with overlapping labels.
-    const source = readFileSync(
-      'src/features/events/components/QuickActionsGrid.tsx',
-      'utf8',
-    );
+    const source = readFileSync('src/features/events/components/QuickActionsGrid.tsx', 'utf8');
 
     // Act — the tile style block.
     const tile = /tile:\s*\{([\s\S]*?)\n {2}\},/.exec(source)?.[1] ?? '';
@@ -131,24 +118,12 @@ describe('event home quick actions', () => {
   });
 
   test('every tile carries an accessible name', async () => {
-    // Arrange
-    const { QuickActionsGrid } = await import(
-      '@/src/features/events/components/QuickActionsGrid'
-    );
-
     // Act
-    const screen = renderComponent(QuickActionsGrid, {
-      onOpenSlots: () => {},
-      onShare: () => {},
-      onOpenActivity: () => {},
-      onOpenChat: () => {},
-      onOpenManagement: () => {},
-      onOpenSettings: () => {},
-    });
+    const screen = await renderGrid();
 
     // Assert — react-native-web does not forward `testID`, so `aria-label` is
     // the only thing a screen reader (and this test) can rely on.
     const labels = screen.html.match(/aria-label="[^"]+"/g) ?? [];
-    assert.equal(labels.length, 6, `expected 6 accessible names, found ${labels.length}`);
+    assert.equal(labels.length, 5, `expected 5 accessible names, found ${labels.length}`);
   });
 });

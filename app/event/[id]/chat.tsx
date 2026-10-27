@@ -16,8 +16,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { Modal, ScrollView, StyleSheet, TextInput, View } from 'react-native';import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -88,6 +87,16 @@ const MASK_HEIGHT = 26;
  * which reads as a gradient rather than a band.
  */
 const MASK_STEPS = 8;
+
+/**
+ * `react-native`'s `TextInputProps` does not declare `dir` — it is a
+ * `react-native-web` extension, read from the PROP rather than the style — so
+ * the component type is widened once here rather than at the call site. Native
+ * ignores the prop and uses the `writingDirection` style instead.
+ */
+const WebTextInput = TextInput as unknown as React.ComponentType<
+  React.ComponentProps<typeof TextInput> & { dir?: 'rtl' | 'ltr' }
+>;
 
 function formatTime(iso: string, isFa: boolean): string {
   try {
@@ -479,7 +488,8 @@ export default function ChatScreen() {
               the same `surface2` pill the shared `Input` primitive uses, which
               is what makes the composer match the app. */}
           <View style={[styles.inputSurface, { backgroundColor: theme.surface2 }]}>
-            <TextInput
+            <WebTextInput
+              dir={isRtl ? 'rtl' : 'ltr'}
               value={draft}
               onChangeText={setDraft}
               placeholder={t('chat.placeholder', 'پیامی بنویسید...')}
@@ -488,11 +498,14 @@ export default function ChatScreen() {
                 styles.textInput,
                 {
                   color: theme.text,
-                  fontFamily: fonts.persian[500],
-                  // RTL for a Persian composer, so the caret and the alignment
-                  // follow the text instead of sitting on the left.
+                  fontFamily: isRtl ? fonts.persian[500] : fonts.latin[500],
+                  // ★ THE DIRECTION FOLLOWS THE INTERFACE, NOT THE DRAFT.
+                  //
+                  // A hardcoded `'rtl'` put an English session's caret on the
+                  // wrong side, and deriving it from the draft left an empty
+                  // field ltr until enough Persian had been typed to guess from.
                   textAlign: 'start',
-                  writingDirection: 'rtl',
+                  writingDirection: isRtl ? 'rtl' : 'ltr',
                 },
               ]}
               multiline
@@ -714,17 +727,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   textInput: {
-    flex: 1,
     fontSize: 15,
+    // ★ ONE LINE AT REST, A CEILING ON GROWTH.
+    //
+    // `flex: 1` inside a stretch row let the surface take the whole row height,
+    // so an empty room on the web build showed a tall empty box with the send
+    // control floating beside it. The app's composer is one line tall and grows
+    // as the text wraps; this is that shape, expressed as a resting height plus
+    // a maximum instead of a stretch.
     minHeight: 40,
     maxHeight: 100,
-    // ★ A FILLED FIELD, NOT A BARE LINE.
-    //
-    // The input had no surface of its own, so on web it read as loose text
-    // floating on the page — and `:focus-visible` drew a hard rectangle around
-    // it, because there was no styled border for focus to belong to. The pill
-    // below matches the shared `Input` primitive's surface so the composer
-    // looks the same on both platforms.
+    // A filled field, not a bare line: on web the bare `TextInput` read as loose
+    // text floating on the page, and `:focus-visible` drew a hard rectangle
+    // around it because there was no styled border for focus to belong to. The
+    // pill matches the shared `Input` primitive's surface.
     backgroundColor: 'transparent',
     borderRadius: radius.pill,
     paddingHorizontal: space[4],

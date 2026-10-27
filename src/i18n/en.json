@@ -924,7 +924,9 @@
       "apkBody": "Play Protect warns about any app installed from outside the store. That warning is not a sign of a problem with this one.",
       "apkDownload": "Open the download page",
       "backToApp": "Open the app"
-    }
+    },
+    "documentTitle": "FreeWhen — when is the group actually free?",
+    "documentDescription": "Turn a group's scattered suggestions into one confirmed decision: time, place and travel, together."
   },
   "chat": {
     "title": "In-room chat",

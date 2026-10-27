@@ -41,9 +41,15 @@ export function DeleteLocationAction({ onConfirm, busy = false, testID }: Delete
 
   return (
     <>
+      {/* ★ A SURFACE, LIKE EVERY OTHER CONTROL ON THE SCREEN.
+          This was `variant="ghost"`, which paints no fill, so «حذف مکان من» was
+          bare text among painted pills. It stays the quiet variant rather than
+          the danger one: this action is cheap to undo (adding a start point
+          again is one tap on this same screen), and painting it red would stop
+          people using the privacy control it exists to offer. */}
       <Button
         label={t('privacy.deleteLocation')}
-        variant="ghost"
+        variant="secondary"
         size="medium"
         loading={busy}
         onPress={() => {

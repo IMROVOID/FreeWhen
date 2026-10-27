@@ -16,6 +16,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { resolveLanguage } from '@/src/app-bootstrap';
 import { initI18n } from '@/src/i18n';
 import { applyDirection } from '@/src/platform/direction';
+import { useStackTransition } from '@/src/platform/stack-transition';
 import { vazirmatnFdFonts, vazirmatnFonts } from '@/src/theme/font-assets';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -41,6 +42,7 @@ initI18n(language);
 
 export default function RootLayout() {
   const { t, name } = useTheme();
+  const transition = useStackTransition();
   const [fontsLoaded, fontError] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -70,6 +72,14 @@ export default function RootLayout() {
         <Stack
           screenOptions={{
             headerShown: false,
+            // ★ A NAVIGATION SLIDES.
+            //
+            // Without this the web build swapped the page in a single frame, so
+            // a route change had no visual cause: the new screen was simply the
+            // only screen. The direction follows the layout (leading edge in
+            // each language) and collapses to a fade under Reduce Motion.
+            animation: transition.animation,
+            animationDuration: transition.animationDuration,
             contentStyle: { backgroundColor: t.bg },
           }}
         />

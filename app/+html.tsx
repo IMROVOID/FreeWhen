@@ -3,6 +3,7 @@
 import { ScrollViewStyleReset, useServerDocumentContext } from 'expo-router/html';
 
 import { resolveLanguage } from '@/src/app-bootstrap';
+import { resources } from '@/src/i18n';
 import { palette, themes } from '@/src/theme/tokens';
 
 /**
@@ -31,12 +32,26 @@ export default function Root({ children }: { children: React.ReactNode }) {
   const language = resolveLanguage();
   const dir = language === 'fa' ? 'rtl' : 'ltr';
 
+  /**
+   * ★ THE DOCUMENT NEEDS A TITLE.
+   *
+   * `expo-router`'s static export writes none unless the document asks for one,
+   * so every route shipped with an empty `<title>`: the browser tab showed the
+   * URL, a bookmark had no name, and the back button listed paths. Resolved
+   * from the catalogue rather than hardcoded, because the product ships in two
+   * languages and a literal would be wrong in one of them.
+   */
+  const { documentTitle, documentDescription } = resources[language].translation.web;
+
   return (
     <html lang={language} dir={dir} {...htmlAttributes}>
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+
+        <title>{documentTitle}</title>
+        <meta name="description" content={documentDescription} />
 
         {/* Expo emits a favicon and manifest from `app.json`. These add the
             surfaces it does not generate: a scalable icon, the multi-size ICO
