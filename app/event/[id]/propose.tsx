@@ -13,7 +13,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CaretLeft, CaretRight } from 'phosphor-react-native';
+import { CaretLeft, CaretRight, Check, Trash } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
@@ -28,7 +28,7 @@ import { trackDuplicateResolution } from '@/src/features/proposals/services/anal
 import { LocationMapPicker } from '@/src/components/ui/LocationMapPicker';
 import { isApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
-import { size, space } from '@/src/theme/tokens';
+import { radius, size, space } from '@/src/theme/tokens';
 import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { DuplicateHint, ProposalType, VenueRef } from '@/src/types/proposal';
@@ -181,7 +181,7 @@ export default function ProposeScreen() {
         <Pressy
           onPress={handleBack}
           accessibilityRole="button"
-          accessibilityLabel={t('common.back', 'بازگشت')}
+          accessibilityLabel={t('common.back')}
           style={styles.backButton}
         >
           <BackIcon size={24} color={theme.text} weight="bold" />
@@ -210,10 +210,10 @@ export default function ProposeScreen() {
       {/* 1. Time & Date Selection Section */}
       <Card variant="surface" style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text variant="h3">{t('proposals.form.timeSection', 'زمان پیشنهادی')}</Text>
+          <Text variant="h3">{t('proposals.form.timeSection')}</Text>
           {startUtc && (
             <Button
-              label={t('common.clear', 'حذف زمان')}
+              label={t('common.clear')}
               onPress={() => setStartUtc(null)}
               variant="ghost"
               size="small"
@@ -241,19 +241,7 @@ export default function ProposeScreen() {
       {/* 2. Location Selection Section */}
       <Card variant="surface" style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text variant="h3">{t('proposals.form.placeSection', 'مکان پیشنهادی')}</Text>
-          {venue && (
-            <Button
-              label={t('common.clear', 'حذف مکان')}
-              onPress={() => {
-                setVenue(null);
-                setShowLocationPicker(true);
-              }}
-              variant="ghost"
-              size="small"
-              fullWidth={false}
-            />
-          )}
+          <Text variant="h3">{t('proposals.form.placeSection')}</Text>
         </View>
 
         {errorFor('venue') && (
@@ -272,14 +260,6 @@ export default function ProposeScreen() {
                 {venue.address}
               </Text>
             )}
-            <Button
-              label={t('proposals.form.changePlace', 'تغییر مکان روی نقشه')}
-              onPress={() => setShowLocationPicker(true)}
-              variant="outline"
-              size="small"
-              fullWidth={false}
-              testID="propose-change-place"
-            />
           </View>
         ) : (
           <LocationMapPicker
@@ -288,6 +268,43 @@ export default function ProposeScreen() {
               setShowLocationPicker(false);
             }}
             onCancel={venue ? () => setShowLocationPicker(false) : undefined}
+            // ★ THE TWO PLACE ACTIONS LIVE ON THE MAP'S CORNER, NOT THE HEADER.
+            // Clearing and changing both act on the map, and they used to sit in
+            // two unrelated places — one in the section header, one below the
+            // venue name. Background-only icon buttons with no border, which is
+            // what a map overlay can carry without competing with the tiles.
+            cornerControls={
+              venue ? (
+                <>
+                  <Pressy
+                    onPress={() => {
+                      setVenue(null);
+                      setShowLocationPicker(true);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('common.clear')}
+                    testID="propose-clear-place"
+                    style={styles.mapControl}
+                  >
+                    <View style={[styles.mapControlInner, { backgroundColor: theme.surface1 }]}>
+                      <Trash size={18} color={theme.text} weight="bold" />
+                    </View>
+                  </Pressy>
+
+                  <Pressy
+                    onPress={() => setShowLocationPicker(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('proposals.form.changePlace')}
+                    testID="propose-change-place"
+                    style={styles.mapControl}
+                  >
+                    <View style={[styles.mapControlInner, { backgroundColor: theme.surface1 }]}>
+                      <Check size={18} color={theme.text} weight="bold" />
+                    </View>
+                  </Pressy>
+                </>
+              ) : null
+            }
             testID="propose-map-picker"
           />
         )}
@@ -316,14 +333,20 @@ export default function ProposeScreen() {
         </Text>
       )}
 
-      {/* Submit Button */}
-      <Button
-        label={t('proposals.form.submit')}
-        onPress={() => void submit()}
-        loading={isSubmitting}
-        disabled={isSubmitDisabled}
-        testID="propose-submit"
-      />
+      {/* Submit Button
+          ★ THE SPACING ABOVE IS DELIBERATE.
+          The submit sat directly under the previous field at the same gap every
+          input uses, so the one control that commits the form read as a third
+          field. The extra space separates the action from the form it submits. */}
+      <View style={styles.submitBlock}>
+        <Button
+          label={t('proposals.form.submit')}
+          onPress={() => void submit()}
+          loading={isSubmitting}
+          disabled={isSubmitDisabled}
+          testID="propose-submit"
+        />
+      </View>
     </ScrollView>
   );
 }
@@ -364,5 +387,21 @@ const styles = StyleSheet.create({
   },
   chosen: {
     gap: space[2],
+  },
+  mapControl: {
+    // The project's 44pt touch-control size, named in the tokens.
+    width: size.stepperButton,
+    height: size.stepperButton,
+  },
+  submitBlock: {
+    paddingTop: space[4],
+  },
+  mapControlInner: {
+    flex: 1,
+    borderRadius: radius.md,
+    // Background only, no border — a map overlay cannot carry an outline without
+    // competing with the tiles behind it.
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
