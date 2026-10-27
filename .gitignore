@@ -87,3 +87,6 @@ Thumbs.db
 # untracked build noise, never part of the repository.
 metro.log
 metro.err
+
+# Headless-browser verification artefacts (screenshots, DOM dumps, page probes).
+.verify/

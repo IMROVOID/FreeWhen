@@ -54,6 +54,14 @@ export function JoinEventCard({ onJoin, testID = 'join-event-card' }: JoinEventC
         onChangeText={handleChangeText}
         label={t('events.join.label')}
         error={errorKey ? t(errorKey) : undefined}
+        // ★ A CODE OR A URL IS A LEFT-TO-RIGHT RUN.
+        //
+        // The field follows the interface direction by default, which is right
+        // for a name. This one holds an invite token or an `https://…/e/…`
+        // address, and an RTL context reorders the scheme and the slashes
+        // around the Latin run — the address reads as corrupt even though the
+        // bytes are correct.
+        direction="ltr"
         testID="join-event-input"
         style={styles.input}
       />

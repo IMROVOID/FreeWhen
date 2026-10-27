@@ -69,21 +69,54 @@ export function BottomSheet({
 
   const isDynamic = snapPoints === undefined;
 
-  // Drive the sheet from the `visible` prop.
+  // ★ THE OPEN MUST WAIT FOR THE MOUNT.
+  //
+  // A closed sheet returns `null`, so on the first open the ref is still null in
+  // the effect that sets `mounted` — `snapToIndex(0)` would be a no-op against
+  // nothing and the sheet would mount at `index={-1}` and never open. Every
+  // caller flips `visible` in the same render as the trigger, so that is the
+  // common path, not an edge case.
+  //
+  // The two steps are therefore SEQUENCED: mount first, then open on the render
+  // that follows, when the ref exists.
   useEffect(() => {
     if (visible) {
       setMounted(true);
-      sheetRef.current?.snapToIndex(0);
       return;
     }
 
     sheetRef.current?.close();
   }, [visible]);
 
-  // Tearing down is what the CLOSE ANIMATION reports, not what the prop says.
+  useEffect(() => {
+    if (visible && mounted) {
+      sheetRef.current?.snapToIndex(0);
+    }
+  }, [visible, mounted]);
+
+  /**
+   * ★ A MOUNT-TIME CLOSE IS NOT A DISMISSAL.
+   *
+   * `@gorhom/bottom-sheet` reports `onClose` as soon as it settles at index -1,
+   * which includes the moment it mounts closed. Forwarding that to `onDismiss`
+   * would clear the caller's `visible` state on the same tick it set it, and the
+   * sheet would flash and vanish. Only a close while the caller still wants the
+   * sheet counts, and `visible` is read through a ref so the callback is stable
+   * across renders.
+   */
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
   const handleClose = useCallback(() => {
+    if (visibleRef.current) {
+      // The sheet closed itself (a drag, or the back button) while the caller
+      // still considers it open: the caller's state is now stale.
+      onDismiss();
+      return;
+    }
+
+    // The caller closed it. Tear down only now, so the close animation runs.
     setMounted(false);
-    onDismiss();
   }, [onDismiss]);
 
   if (!visible && !mounted) return null;

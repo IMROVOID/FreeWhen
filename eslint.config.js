@@ -80,6 +80,10 @@ export default tseslint.config(
       'android/**',
       'ios/**',
       'coverage/**',
+      // Headless-browser verification artefacts: screenshots, DOM dumps and
+      // small page-probe scripts, all gitignored. The probes are evaluated
+      // inside a browser and use `document` and DOM events by definition.
+      '.verify/**',
       'scripts/docs/**',
       // Agent tooling that ships with the workspace, not the app.
       '.agents/**',
