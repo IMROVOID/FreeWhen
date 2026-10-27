@@ -31,6 +31,17 @@ export interface ErrorStateProps {
   onRetry?: () => void;
   /** Shown above the message; defaults to the catalogue's generic heading. */
   titleKey?: string;
+  /**
+   * Fills the space it is given and centres its content.
+   *
+   * ★ FOR A WHOLE SCREEN, NOT FOR A CARD IN A LIST.
+   *
+   * A full-page failure used to render as a top-aligned card, so the message sat
+   * against the header with the rest of the viewport empty beneath it — the
+   * layout said "there is more content below" when there was none. A list of
+   * inline failures keeps the compact card, which is why this is opt-in.
+   */
+  centered?: boolean;
   testID?: string;
 }
 
@@ -39,6 +50,7 @@ export function ErrorState({
   retryKey = 'common.retry',
   onRetry,
   titleKey = 'states.errorTitle',
+  centered = false,
   testID,
 }: ErrorStateProps) {
   const { t } = useTranslation();
@@ -48,7 +60,11 @@ export function ErrorState({
     <View
       testID={testID ?? 'error-state'}
       accessibilityRole="alert"
-      style={[styles.container, { backgroundColor: theme.surface2 }]}
+      style={[
+        styles.container,
+        centered && styles.centered,
+        { backgroundColor: theme.surface2 },
+      ]}
     >
       <Text variant="h3">{t(titleKey)}</Text>
       <Text variant="body" color={theme.textMuted}>
@@ -62,7 +78,9 @@ export function ErrorState({
           variant="secondary"
           size="medium"
           testID={testID ? `${testID}-retry` : 'error-state-retry'}
-          style={styles.action}
+          // A centred card centres its one control; the compact card keeps the
+          // button on the leading edge under the text.
+          style={centered ? styles.actionCentered : styles.action}
         />
       )}
     </View>
@@ -75,8 +93,20 @@ const styles = StyleSheet.create({
     padding: space[4],
     gap: space[2],
   },
+  centered: {
+    // `flex: 1` claims the space the screen gave it; the two centring rules put
+    // the card in the middle of that space rather than at its top.
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    textAlign: 'center',
+  },
   action: {
     marginTop: space[2],
     alignSelf: 'flex-start',
+  },
+  actionCentered: {
+    marginTop: space[2],
+    alignSelf: 'center',
   },
 });
