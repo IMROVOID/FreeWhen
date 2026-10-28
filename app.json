@@ -2,7 +2,7 @@
   "expo": {
     "name": "FreeWhen",
     "slug": "freewhen",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "orientation": "portrait",
     "scheme": "freewhen",
     "userInterfaceStyle": "automatic",
@@ -35,6 +35,7 @@
         "monochromeImage": "./assets/images/monochrome-icon.png"
       },
       "edgeToEdgeEnabled": true,
+      "versionCode": 2,
       "usesCleartextTraffic": true,
       "intentFilters": [
         {
