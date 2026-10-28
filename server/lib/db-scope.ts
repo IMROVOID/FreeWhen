@@ -10,26 +10,39 @@
  *
  * Threading a connection parameter through every service function would be a
  * large, risky diff that changes nothing on the Node path. So the switch lives
- * here, in one module-level binding, and `scopedQueryable()` in `supabase.ts`
- * reads it.
+ * here, in one binding, and `scopedQueryable()` in `supabase.ts` reads it.
  *
- * ★ NODE BEHAVIOUR IS BYTE-IDENTICAL WHEN NOTHING IS BOUND.
+ * ★ THE BINDING IS PER ASYNC CONTEXT, NOT PER PROCESS.
  *
- * `withRequestQueryable` binds a queryable for the duration of a callback and
- * restores whatever was there before. When nothing binds it — the whole Node
- * server, and every DB test before Task 6 — `scopedQueryable()` returns the same
- * shared Pool object it always did.
+ * This used to be a single module-level slot with a `sharing` refcount, and a
+ * warm serverless function broke it: Vercel keeps an isolate alive between
+ * requests and will run several concurrently. Each request builds its OWN
+ * `pg.Client` (`server/runtime/driver.ts`), so the second concurrent request
+ * bound a different object than the first and the guard threw
+ * "nested/concurrent binding — a request scope is already active". The request
+ * then answered 500 `INTERNAL_ERROR`, and the client retried until it happened
+ * to land alone — the intermittent failure reported on every page load.
  *
- * ★ WHY NOT AsyncLocalStorage.
+ * A single slot cannot express "request A's queryable" and "request B's
+ * queryable" at once. `AsyncLocalStorage` can: it stores the binding in the
+ * async context rather than on the module, so overlapping requests each see
+ * their own value and neither can be served the other's connection.
  *
- * `node:async_hooks` is not available on Workers, and pulling it in for a
- * single-request binding would re-introduce the exact portability problem this
- * change exists to remove. An explicit bind/restore around a callback is
- * synchronous, predictable, and works on both runtimes.
+ * ★ WHY AsyncLocalStorage IS ALLOWED HERE NOW.
  *
- * The cost is that a binding is only visible to code running INSIDE the
- * callback, and that two overlapping callbacks would share one slot. The guard
- * below turns that cost into a hard error rather than a silent leak.
+ * The module previously avoided `node:async_hooks` for portability, because a
+ * Worker has no `node` built-ins. But the only runtime that binds a per-request
+ * client is the Node-style one — `driver.ts` and `long-lived-fetch.ts`, both of
+ * which run on Vercel's Node functions, not on Workers. `long-lived-fetch.ts`
+ * runs the always-on Node process. So the import is guarded: when
+ * `AsyncLocalStorage` is unavailable the module degrades to the old single-slot
+ * behaviour instead of failing to load.
+ *
+ * ★ NODE BEHAVIOUR IS UNCHANGED WHEN NOTHING IS BOUND.
+ *
+ * `withRequestQueryable` binds a queryable in the async context of a callback.
+ * When nothing binds it — the whole Node server's pool path — `scopedQueryable()`
+ * returns the same shared Pool object it always did.
  */
 
 import type { QueryResultRow } from 'pg';
@@ -37,90 +50,118 @@ import type { QueryResultRow } from 'pg';
 import type { Queryable } from './supabase';
 
 /**
- * The queryable bound for the current scope, or `undefined`.
+ * The async-context store, when the runtime has one.
  *
- * Module-level rather than per-request because both runtimes await the whole
- * request inside the binding: Node's `call()` harness and the Worker adapter
- * each bind once and await `handleRequest` to completion. `active` is what makes
- * that an invariant instead of an assumption.
+ * `require` rather than `import` on purpose: a static `import 'node:async_hooks'`
+ * is resolved at load time, and a bundler targeting a non-Node runtime fails the
+ * whole module for a feature it will never reach.
  */
-let bound: Queryable | undefined;
-let active = false;
-/** How many overlapping scopes are open on the SAME queryable. */
-let sharing = 0;
+type Store = { queryable: Queryable };
+
+interface AsyncStorageLike {
+  getStore(): Store | undefined;
+  run<R>(store: Store, callback: () => R): R;
+}
+
+function loadAsyncStorage(): AsyncStorageLike | null {
+  try {
+    // Dynamic on purpose: a static `import 'node:async_hooks'` is resolved at
+    // load time, so a bundler targeting a runtime without `node:` built-ins would
+    // fail this whole module for a feature that runtime never reaches.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const hooks = require('node:async_hooks') as {
+      AsyncLocalStorage: new () => AsyncStorageLike;
+    };
+    return new hooks.AsyncLocalStorage();
+  } catch {
+    return null;
+  }
+}
+
+const storage = loadAsyncStorage();
 
 /**
- * Runs `fn` with `queryable` bound as the process's database handle.
+ * The fallback slot, used only where `AsyncLocalStorage` is missing.
  *
- * ★ OVERLAPPING SCOPES ON DIFFERENT QUERYABLES THROW.
+ * Kept for the environments the previous single-slot design actually served
+ * correctly: a runtime that awaits one request at a time. The refcount lets
+ * overlapping scopes on the SAME queryable share it, which is the Node test
+ * harness's shape (one shared `Pool`).
+ */
+let fallbackBound: Queryable | undefined;
+let fallbackActive = false;
+/** How many overlapping scopes are open on the SAME queryable. */
+let fallbackSharing = 0;
+
+/**
+ * Runs `fn` with `queryable` bound as the database handle for this async context.
  *
- * There is exactly one slot. If a second scope opening while the first is still
- * active binds a DIFFERENT queryable, whichever bound last serves both — so
- * request A's queries would run on request B's connection. On Workers that
- * connection carries B's JWT claims and therefore B's identity: a cross-user RLS
- * leak, not a performance problem. It must fail loudly.
+ * ★ OVERLAPPING REQUESTS EACH SEE THEIR OWN BINDING.
  *
- * ★ OVERLAPPING SCOPES ON THE SAME QUERYABLE DO NOT.
+ * That is the whole point: Vercel runs requests concurrently in one warm
+ * isolate, and each one owns a separate `pg.Client`. Under the old single slot
+ * the second bind was fatal. Now the two contexts are independent, so there is
+ * no cross-request connection — and therefore no cross-user identity — to leak.
  *
- * On Node the harness binds one shared `Pool`, so concurrent requests bind the
- * identical object. There is no second connection to confuse it with, and no
- * identity to swap: `withCallerTransaction` sets the claims with transaction
- * scope, so each request's `auth.uid()` is its own regardless of interleaving.
- * Rejecting that case would fail the database suite's deliberate concurrency
- * tests — the cap race and the concurrent double-write both issue simultaneous
- * requests on purpose, and they are proving row locking, not scope isolation.
+ * ★ A NESTED SCOPE ON A DIFFERENT QUERYABLE IS STILL A BUG.
  *
- * The refcount exists so the slot is only cleared when the last sharer leaves;
- * clearing it on the first exit would unbind the requests still running.
- *
- * ★ A NESTED SCOPE ON A DIFFERENT QUERYABLE IS A BUG IN THE CALLER.
- *
- * Not a legitimate pattern to support: it means a request created a second
- * client, which on Workers is a connection the platform cannot reclaim.
+ * Inside one request, opening a second scope with a different client means the
+ * request built a client of its own that the platform cannot reclaim. That is
+ * not a concurrency pattern to support, so it still fails loudly.
  *
  * ★ `fn` MUST BE FULLY AWAITED.
  *
- * Anything started here and not awaited escapes the scope and will see the outer
- * (pool) binding. The Worker entry awaits `handleRequest` and every handler it
- * awaits in turn; the DB harness does the same.
+ * Anything started here and not awaited escapes the context and sees the
+ * outer (pool) binding. Every caller awaits `handleRequest` to completion.
  */
 export async function withRequestQueryable<T>(
   queryable: Queryable,
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (active && bound !== queryable) {
+  if (storage) {
+    const outer = storage.getStore()?.queryable;
+
+    if (outer !== undefined && outer !== queryable) {
+      throw new Error('db-scope: nested binding — a request scope is already active');
+    }
+
+    return storage.run({ queryable }, fn);
+  }
+
+  if (fallbackActive && fallbackBound !== queryable) {
     throw new Error('db-scope: nested/concurrent binding — a request scope is already active');
   }
 
-  const outermost = !active;
+  const outermost = !fallbackActive;
 
   if (outermost) {
-    bound = queryable;
-    active = true;
+    fallbackBound = queryable;
+    fallbackActive = true;
   }
-  sharing += 1;
+  fallbackSharing += 1;
 
   try {
     return await fn();
   } finally {
-    sharing -= 1;
-    if (sharing === 0) {
-      bound = undefined;
-      active = false;
+    fallbackSharing -= 1;
+    if (fallbackSharing === 0) {
+      fallbackBound = undefined;
+      fallbackActive = false;
     }
   }
 }
 
-/** The currently bound queryable, if any. The single switch `scopedQueryable()` reads. */
+/** The queryable bound to this async context, if any. What `scopedQueryable()` reads. */
 export function currentQueryable(): Queryable | undefined {
-  return bound;
+  if (storage) return storage.getStore()?.queryable;
+  return fallbackBound;
 }
 
-/** Clears the scope. Test hook only — a live request always leaves it clean. */
+/** Clears the fallback scope. Test hook only — a live request always leaves it clean. */
 export function resetDbScope(): void {
-  bound = undefined;
-  active = false;
-  sharing = 0;
+  fallbackBound = undefined;
+  fallbackActive = false;
+  fallbackSharing = 0;
 }
 
 export type { Queryable, QueryResultRow };

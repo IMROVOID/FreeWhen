@@ -100,7 +100,7 @@ describe('request-scoped queryable', () => {
           assert.fail('the inner scope must never run');
         });
       }),
-      /nested\/concurrent binding/,
+      /nested binding/,
     );
 
     // The outer scope's own `finally` still runs, so the slot is clean.
@@ -133,25 +133,37 @@ describe('request-scoped queryable', () => {
     assert.equal(currentQueryable(), undefined, 'the last scope out must clear the slot');
   });
 
-  it('rejects a concurrent binding of a different queryable while one is in flight', async () => {
+  /**
+   * ★ THE OLD GUARD WAS WRONG ABOUT CONCURRENCY, AND THIS TEST WAS THE PROOF.
+   *
+   * This asserted that a second scope opening on a different queryable while the
+   * first was in flight MUST reject. That is exactly the warm-isolate 500: two
+   * concurrent Vercel requests, each with its own client. Concurrency across
+   * scopes is legitimate; only a NESTED scope on a different queryable is a bug
+   * (covered by the test above, which runs the inner scope INSIDE the outer one).
+   *
+   * A concurrent sibling scope is a separate async context, so it must succeed
+   * and read its own client.
+   */
+  it('allows a concurrent sibling scope on a different queryable', async () => {
     const first = fakeQueryable('first');
-    let release!: () => void;
+    const second = fakeQueryable('second');
+
+    let releaseFirst!: () => void;
     const held = new Promise<void>((resolve) => {
-      release = resolve;
+      releaseFirst = resolve;
     });
 
     const running = withRequestQueryable(first, async () => {
       await held;
-      return 'first-done';
+      return scopedQueryable();
     });
 
-    await assert.rejects(
-      withRequestQueryable(fakeQueryable('second'), async () => 'second-done'),
-      /nested\/concurrent binding/,
-    );
+    const sibling = await withRequestQueryable(second, async () => scopedQueryable());
+    assert.equal(sibling, second, 'a concurrent sibling must read its own queryable');
 
-    release();
-    assert.equal(await running, 'first-done');
+    releaseFirst();
+    assert.equal(await running, first, 'the first scope must be unaffected');
     assert.equal(currentQueryable(), undefined, 'the first scope must still unwind cleanly');
   });
 
@@ -166,6 +178,77 @@ describe('request-scoped queryable', () => {
     await withRequestQueryable(second, async () => {
       assert.equal(currentQueryable(), second);
     });
+    assert.equal(currentQueryable(), undefined);
+  });
+
+  /**
+   * ★ THE WARM-ISOLATE REGRESSION (the production 500).
+   *
+   * Vercel keeps a function alive between requests and runs them concurrently.
+   * Each request builds its own `pg.Client`, so two in-flight requests bind two
+   * DIFFERENT queryables. The scope used to be one module-level slot with a guard
+   * that threw "nested/concurrent binding" on the second bind, which surfaced as
+   * an intermittent 500 from `GET /api/events/:id/proposals` and
+   * `/decision-status` — the client retried and eventually landed alone.
+   *
+   * The property that fixes it: overlapping requests must each read back THEIR OWN
+   * binding. Not merely "no throw" — a shared slot would serve request A's
+   * connection to request B, which on Workers carries B's JWT claims.
+   */
+  it('gives two concurrent requests their own queryable instead of rejecting the second', async () => {
+    const first = fakeQueryable('request-a');
+    const second = fakeQueryable('request-b');
+
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    let releaseSecond!: () => void;
+    const secondHeld = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+
+    // Request A binds its client and stays in flight.
+    const a = withRequestQueryable(first, async () => {
+      await firstHeld;
+      // Must still see ITS client after B has come and gone.
+      return scopedQueryable();
+    });
+
+    // Request B starts while A is still running, on a different client. This
+    // used to throw, which is the 500.
+    const b = withRequestQueryable(second, async () => {
+      await secondHeld;
+      return scopedQueryable();
+    });
+
+    releaseSecond();
+    assert.equal(await b, second, 'request B must read its own client');
+
+    releaseFirst();
+    assert.equal(await a, first, 'request A must still read its own client');
+
+    assert.equal(currentQueryable(), undefined, 'both scopes must unwind cleanly');
+  });
+
+  it('does not leak a binding across many interleaved requests', async () => {
+    const clients = Array.from({ length: 5 }, (_, index) => fakeQueryable(`req-${index}`));
+
+    // All five in flight at once, each with a distinct client, each yielding a
+    // different number of times so their lifetimes overlap unpredictably.
+    const seen = await Promise.all(
+      clients.map((client, index) =>
+        withRequestQueryable(client, async () => {
+          for (let tick = 0; tick <= index; tick++) {
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+          return scopedQueryable();
+        }),
+      ),
+    );
+
+    assert.deepEqual(seen, clients, 'every request must observe its own client');
     assert.equal(currentQueryable(), undefined);
   });
 
