@@ -104,9 +104,27 @@ test('the runner passes on this tree', () => {
   //
   // The runner is the deploy's first step; a version that cannot run it must
   // not be the version that ships.
+  // ★ THE CHILD GETS THE SAME ENVIRONMENT THE EXPORT DOES.
+  //
+  // `gate:env` checks that a required PUBLIC build variable is present, reading the
+  // process environment before `.env`. A local checkout has `.env`, so this passed --
+  // while CI has no `.env` and the spawned child inherited nothing, so the gate failed
+  // for a reason that had nothing to do with the tree. The value is taken from the
+  // parent when it is set (CI passes it) and otherwise from `.env`, which is the same
+  // precedence `gate:env` itself applies.
+  const forwarded = { ...process.env };
+  if (!forwarded.EXPO_PUBLIC_CARTO_API_KEY) {
+    const dotenv = existsSync('.env') ? readFileSync('.env', 'utf8') : '';
+    const match = /^EXPO_PUBLIC_CARTO_API_KEY\s*=\s*(.+)$/m.exec(dotenv);
+    if (match?.[1]) {
+      forwarded.EXPO_PUBLIC_CARTO_API_KEY = match[1].trim().replace(/^['"]|['"]$/g, '');
+    }
+  }
+
   const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/gate/all.ts'], {
     cwd: process.cwd(),
     encoding: 'utf8',
+    env: forwarded,
   });
 
   // Act
