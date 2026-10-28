@@ -81,7 +81,16 @@ jobs:
           EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
         run: npm run export:web
 
+      # ★ THE TESTS GET THE SAME ENVIRONMENT THE EXPORT DID.
+      #
+      # `tests/deploy/gates.test.ts` spawns `gate:all` as a child, and `gate:env`
+      # checks that a required PUBLIC build variable is present -- reading the process
+      # environment before `.env`, because CI has no `.env` file. Without this the test
+      # step saw neither, so the spawned gate failed on the very run that proves the
+      # export works, and reported it as a failing test in the tree.
       - name: Unit and component tests
+        env:
+          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
         run: npm test
 
       # The engine suite names its cases (AC-12.1.1), so it reports *which*
@@ -90,7 +99,7 @@ jobs:
         run: npm run test:engine
 
   gates:
-    name: Release gates (7)
+    name: Release gates (8)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
