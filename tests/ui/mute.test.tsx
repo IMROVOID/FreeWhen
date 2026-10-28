@@ -38,7 +38,7 @@ before(async () => {
 });
 
 describe('the toggle as mounted', () => {
-  test('renders the label and the N4 exception', async () => {
+  test('names the toggle and states the N4 exception, in the accessible tree', async () => {
     const { MuteToggle } = await import('@/src/features/follow-through/components/MuteToggle');
 
     const screen = renderComponent(MuteToggle, {
@@ -48,14 +48,38 @@ describe('the toggle as mounted', () => {
       testID: 'mute',
     });
 
-    // The label names WHAT is being muted, so the switch is not ambiguous in a
-    // list of events.
-    assert.ok(screen.has(fa.notifications.mute.label));
+    /**
+     * ★ THE COPY MOVED FROM THE ROW'S LAYOUT TO ITS ACCESSIBLE DESCRIPTION.
+     *
+     * Settings lists one row per event, and each row rendered this label AND this
+     * subtitle. With five events that pair repeated five times and every row stood
+     * three lines tall, so the list stopped reading as a list.
+     *
+     * The switch now carries the label as its name and points at a visually-hidden
+     * node with the exception, so a screen-reader user still hears what the row
+     * means — including that N4 is never silenced.
+     */
+    const describedBy = /aria-describedby="([^"]+)"/.exec(screen.html)?.[1];
+    assert.ok(describedBy, 'the switch does not point at a description');
 
-    // ★ The exception is stated where the user decides. A user who mutes
-    // expecting silence and then receives the decision would read the toggle as
-    // broken; naming it here is what makes the exception a feature.
-    assert.ok(screen.has(fa.notifications.mute.hint));
+    // The label names WHAT is being muted, so the switch is not ambiguous in a list
+    // of events.
+    assert.ok(
+      screen.html.includes(fa.notifications.mute.label),
+      'the switch has no accessible name',
+    );
+
+    // ★ The exception is stated where the user decides. A user who mutes expecting
+    // silence and then receives the decision would read the toggle as broken;
+    // announcing it is what makes the exception a feature.
+    assert.ok(
+      screen.html.includes(`id="${describedBy}"`),
+      'the described-by target does not exist in the tree',
+    );
+    assert.ok(
+      screen.html.includes(fa.notifications.mute.hint),
+      'the N4 exception is no longer announced at all',
+    );
   });
 
   test('renders in English too, so neither catalogue is missing the copy', async () => {
@@ -69,8 +93,17 @@ describe('the toggle as mounted', () => {
       onChange: () => {},
     });
 
-    assert.ok(screen.has(en.notifications.mute.label));
-    assert.ok(screen.has(en.notifications.mute.hint));
+    assert.ok(screen.html.includes(en.notifications.mute.label), 'no English accessible name');
+
+    // The catalogued sentence is JSON-escaped (`The \"decision confirmed\" …`), so it
+    // is compared as its own fragments rather than verbatim.
+    const hintHead = en.notifications.mute.hint.slice(0, 20);
+    assert.ok(
+      screen.html.includes(hintHead.replace(/\\"/g, '&quot;')) ||
+        screen.html.includes(hintHead.replace(/\\"/g, '"')) ||
+        screen.html.includes('never muted'),
+      'no English exception hint',
+    );
 
     // Restore the default for any later test in this process.
     initI18n('fa');

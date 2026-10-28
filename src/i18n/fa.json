@@ -191,6 +191,12 @@
       "title": "جستجو در رویدادهای شما",
       "placeholder": "نام رویداد",
       "noResults": "رویدادی با «{{query}}» مطابقت ندارد."
+    },
+    "contextMenu": {
+      "leave": "ترک رویداد",
+      "changeLocation": "تغییر موقعیت من",
+      "configure": "پیکربندی رویداد",
+      "delete": "حذف رویداد"
     }
   },
   "invite": {
@@ -517,7 +523,8 @@
       "proposalWithdrawn": "این پیشنهاد پس گرفته شده و رأی‌گیری ندارد",
       "eventConfirmed": "پس از ثبت تصمیم نهایی، رأی‌گیری بسته است"
     },
-    "changeVote": "تغییر رأی"
+    "changeVote": "تغییر رأی",
+    "clearVote": "پاک کردن رأی"
   },
   "decision": {
     "title": "تصمیم نهایی",

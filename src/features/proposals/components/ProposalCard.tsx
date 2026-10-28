@@ -22,6 +22,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/src/components/ui/Card';
+import { VoteShareBar } from './VoteShareBar';
 import { Button } from '@/src/components/ui/Button';
 import { Chip } from '@/src/components/ui/Chip';
 import { Pressy } from '@/src/components/ui/Pressy';
@@ -45,6 +46,19 @@ export interface ProposalCardProps {
   proposal: Proposal;
   /** The event's home timezone — the slot is rendered in it, not the device's. */
   homeTz: string;
+  /**
+   * This proposal's share of all answers across the list (0–1).
+   *
+   * ★ THE BAR IS PART OF THE BOX, NOT A SEPARATE STRIP.
+   *
+   * It used to render as a sibling BELOW the card — a hairline floating in the list's
+   * gap with nothing tying it to the proposal it described. It is now drawn inside
+   * the card's own bottom edge, clipped by the card's radius, so it reads as a gauge
+   * belonging to the box rather than as a divider between two boxes.
+   *
+   * Omit it and no bar is drawn, which is what the "Suggested times" list does.
+   */
+  share?: number;
   onPress?: () => void;
   /** Opens the comment sheet for this proposal. Absent = no affordance. */
   onOpenComments?: () => void;
@@ -77,6 +91,7 @@ function advisoryInstant(proposal: Proposal): Date {
 export function ProposalCard({
   proposal,
   homeTz,
+  share,
   onPress,
   onOpenComments,
   commentCount,
@@ -124,7 +139,7 @@ export function ProposalCard({
       variant="surface"
       onPress={onPress}
       testID={testID}
-      style={styles.card}
+      style={[styles.card, share !== undefined ? styles.cardWithShare : null]}
     >
       <View style={styles.header}>
         <Text
@@ -281,6 +296,15 @@ export function ProposalCard({
           </Pressy>
         )}
       </View>
+
+      {/* ★ THE SHARE GAUGE SITS INSIDE THE BOX, ALONG ITS BOTTOM EDGE.
+          Absolutely placed and clipped by the card so it takes the card's own radius,
+          with the card body padded to clear it — see `cardWithShare`. */}
+      {share !== undefined && (
+        <View style={styles.shareSlot}>
+          <VoteShareBar share={share} position="bottom" testID={testID ? `${testID}-share` : undefined} />
+        </View>
+      )}
     </Card>
   );
 }
@@ -288,6 +312,23 @@ export function ProposalCard({
 const styles = StyleSheet.create({
   card: {
     gap: space[2],
+    // The gauge is drawn against the card's own edge, so it must not escape it.
+    overflow: 'hidden',
+  },
+  /**
+   * Room for the gauge at the foot of the card.
+   *
+   * Without it the absolutely-placed bar overlaps the last row (the proposer
+   * line) — the bar does not take part in the flow.
+   */
+  cardWithShare: {
+    paddingBottom: space[5],
+  },
+  shareSlot: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0, // rtl-ok: full-bleed strip on the card's own edge, spans both sides
+    right: 0,
   },
   header: {
     flexDirection: 'row',
@@ -299,8 +340,12 @@ const styles = StyleSheet.create({
     gap: space[1],
   },
   venueBlock: {
-    // Inset to the card's own border radius and padding, so the place reads as a
-    // nested chip rather than as more card content.
+    // NOTE: the venue box needs air above it. The card's own gap is uniform, so this
+    // bordered box sat the same distance from the time block as two lines of text sit
+    // from each other, and it read as welded to the element above. The separation is
+    // local to this block rather than raised on the card, because loosening the card
+    // would loosen every pair of lines in it.
+    marginTop: space[3],
     borderRadius: radius.md,
     borderWidth: border.hairline,
     padding: space[3],

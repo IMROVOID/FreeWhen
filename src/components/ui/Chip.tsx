@@ -1,10 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { IconWeight } from 'phosphor-react-native';
 
 import { Text } from './Text';
 import { Pressy } from './Pressy';
+import { indicatorLeftFor, segmentWidthFor } from './segmented-geometry';
+import { isRtlLayout } from '@/src/platform/layout-direction';
 import { dur, ease } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useMotion } from '@/src/theme/useMotion';
@@ -98,6 +101,14 @@ export interface SegmentedControlProps {
  * The indicator is measured from the container rather than each segment: segments
  * are `flex: 1`, so `width / count` IS the segment width, and measuring per
  * segment would need a layout pass per child for the same number.
+ *
+ * ★ THE SLIDE'S SIGN IS THE LAYOUT DIRECTION, AND IT IS NOT COSMETIC.
+ *
+ * The pill is anchored at a PHYSICAL `left` and moved by `indicatorOffsetFor`,
+ * which negates the travel in a right-to-left layout. Anchoring with a logical
+ * inline inset instead made the anchor direction-dependent while the translate
+ * stayed positive, so in Persian the pill walked off the rail entirely — the
+ * defect `tests/ui/segmented-indicator.test.ts` pins.
  */
 export function SegmentedControl({
   options,
@@ -109,7 +120,12 @@ export function SegmentedControl({
   style,
 }: SegmentedControlProps) {
   const { t } = useTheme();
+  const { i18n } = useTranslation();
   const motion = useMotion();
+
+  // `I18nManager.isRTL` is a hardcoded `false` on react-native-web, so the
+  // resolved direction is asked instead — see `src/platform/layout-direction.ts`.
+  const rtl = isRtlLayout(i18n.language);
 
   /**
    * ★ BOTH LABELS ARE FULL-STRENGTH TEXT.
@@ -130,18 +146,33 @@ export function SegmentedControl({
 
   // The horizontal padding inside `segmented`, so the indicator covers only the
   // inner track and not the rail's own border area.
-  const innerWidth = Math.max(0, trackWidth - space[1] * 2);
-  const segmentWidth = options.length > 0 ? innerWidth / options.length : 0;
+  const segmentWidth = segmentWidthFor({ trackWidth, inset: space[1], count: options.length });
 
-  const offset = useSharedValue(0);
+  /**
+   * The pill's ABSOLUTE left edge, not a delta from a logical start edge.
+   *
+   * A signed translate from `insetInlineStart` disagreed with itself about which
+   * way "start" pointed once the document was `dir="rtl"`, which is how the
+   * selection ended up outside the rail. An absolute position has no such
+   * ambiguity — see `segmented-geometry.ts`.
+   */
+  // Seeded at the rail's own inset, which is where the first option's pill sits
+  // before the track has measured. The explicit `number` keeps the shared value
+  // assignable — `space[1]` alone infers a literal.
+  const offset = useSharedValue<number>(space[1]);
 
   useEffect(() => {
-    const target = segmentWidth * selectedIndex;
+    const target = indicatorLeftFor(selectedIndex, {
+      trackWidth,
+      inset: space[1],
+      count: options.length,
+      rtl,
+    });
 
     offset.value = motion.reduce
       ? target
       : withTiming(target, { duration: dur.fast, easing: ease.out });
-  }, [segmentWidth, selectedIndex, offset, motion.reduce]);
+  }, [trackWidth, segmentWidth, selectedIndex, offset, motion.reduce, rtl, options.length]);
 
   const indicatorStyle = useAnimatedStyle(() => ({ transform: [{ translateX: offset.value }] }));
 
@@ -226,7 +257,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: space[1],
     bottom: space[1],
-    insetInlineStart: space[1],
+    // ★ ANCHORED AT PHYSICAL ZERO, NOT AT A LOGICAL INSET.
+    //
+    // The offset now carries the pill's absolute left edge, so the anchor has to
+    // be 0 for the two not to add up. `insetInlineStart` resolved against the
+    // document direction, which is what put the selection outside the rail in a
+    // right-to-left layout.
+    left: 0, // rtl-ok: the offset carries the position; this anchor is direction-free
     borderRadius: radius.pill,
   },
   segmentInner: {

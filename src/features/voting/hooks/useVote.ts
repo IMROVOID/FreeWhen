@@ -29,8 +29,12 @@ import { ApiFailure } from '@/src/lib/api';
 import { getStoredUserId } from '@/src/lib/session';
 import type { VoteValue } from '@/src/types/vote';
 
-import { putVote } from '../services/voting-api';
+import { deleteVote, putVote } from '../services/voting-api';
+import { optimisticVote } from './optimistic-vote';
 import type { DecisionStatusResponse } from '../services/voting-api';
+
+// Re-exported so existing callers of this module keep one import path.
+export { optimisticVote } from './optimistic-vote';
 
 export interface UseVoteOptions {
   /** The payload currently on screen, used for the snapshot. */
@@ -73,68 +77,18 @@ export interface UseVoteResult {
    * force the group's hand.
    */
   toggleVeto: (proposalId: string, vetoNow: boolean) => Promise<void>;
+  /**
+   * Removes the caller's vote, returning the proposal to "unanswered".
+   *
+   * The missing operation behind "I edited my vote and took it back": `cast` can only
+   * write a value, and there is no value that means "nothing".
+   */
+  withdraw: (proposalId: string) => Promise<void>;
   /** The proposal currently being written, or `null`. */
   pending: string | null;
   /** A catalogue key for the last failure, cleared on the next attempt. */
   errorKey: string | null;
   clearError: () => void;
-}
-
-/**
- * Patches one proposal's tally optimistically.
- *
- * The counts move by exactly one in each direction, and the names move with
- * them, because the tally shows names as well as counts (FR-2.15) — a
- * count-only patch would leave the name row disagreeing with the number beside
- * it for as long as the request takes.
- *
- * `outstanding` loses the voter's name on the first vote, which is the visible
- * proof their answer counted.
- */
-export function optimisticVote(
-  status: DecisionStatusResponse,
-  proposalId: string,
-  value: VoteValue,
-  voterName: string,
-): DecisionStatusResponse {
-  const previous = status.myVotes[proposalId] ?? null;
-  if (previous === value) return status;
-
-  return {
-    ...status,
-    myVotes: { ...status.myVotes, [proposalId]: value },
-    proposals: status.proposals.map((entry) => {
-      if (entry.proposal.id !== proposalId) return entry;
-
-      const tally = {
-        ...entry.tally,
-        voters: {
-          yes: [...entry.tally.voters.yes],
-          maybe: [...entry.tally.voters.maybe],
-          no: [...entry.tally.voters.no],
-        },
-        outstanding: [...entry.tally.outstanding],
-      };
-
-      // Undo the old answer first, so a change is one out and one in rather
-      // than a value appearing twice with the counts overflowing.
-      if (previous) {
-        const list = tally.voters[previous];
-        const index = list.indexOf(voterName);
-        if (index >= 0) list.splice(index, 1);
-        tally[previous] = Math.max(0, tally[previous] - 1);
-      } else {
-        const index = tally.outstanding.indexOf(voterName);
-        if (index >= 0) tally.outstanding.splice(index, 1);
-        tally.unanswered = Math.max(0, tally.unanswered - 1);
-      }
-
-      tally.voters[value].push(voterName);
-      tally[value] += 1;
-
-      return { ...entry, tally };
-    }),
-  };
 }
 
 export function useVote({ status, setStatus, reload, onVoted }: UseVoteOptions): UseVoteResult {
@@ -264,7 +218,54 @@ export function useVote({ status, setStatus, reload, onVoted }: UseVoteOptions):
     [write],
   );
 
+  /**
+   * ★ A WITHDRAWAL IS ITS OWN TRANSACTION, NOT A `null` CAST.
+   *
+   * It has its own verb (`DELETE`), its own optimistic patch (back to
+   * `outstanding`), and its own cleanup: the veto flag must go with the vote.
+   *
+   * ★ AND IT NEVER FIRES THE PUSH PROMPT.
+   *
+   * `onVoted` is the push-permission moment (FR-6.14). Taking an answer back is not
+   * a vote, so this path does not touch it — that is why the shared `write` body is
+   * not reused here, and `reportVote` cannot be passed by accident.
+   */
+  const withdraw = useCallback(
+    async (proposalId: string) => {
+      setErrorKey(null);
+
+      if (status) {
+        snapshot.current = status;
+        const patched = optimisticVote(status, proposalId, null, status.me.display_name);
+
+        // The veto rides ON the `no`, so removing the `no` must remove the flag —
+        // otherwise the venue stays excluded by someone who no longer votes for it.
+        setStatus({
+          ...patched,
+          myDealbreakers: patched.myDealbreakers.filter((id) => id !== proposalId),
+        });
+      }
+
+      setPending(proposalId);
+
+      try {
+        const userId = await getStoredUserId();
+        await deleteVote(proposalId, userId);
+        await reload();
+      } catch (error) {
+        if (snapshot.current) setStatus(snapshot.current);
+
+        setErrorKey(
+          error instanceof ApiFailure ? error.messageKey : 'voting.castFailedReverted',
+        );
+      } finally {
+        setPending(null);
+      }
+    },
+    [status, setStatus, reload],
+  );
+
   const clearError = useCallback(() => setErrorKey(null), []);
 
-  return { cast, toggleVeto, pending, errorKey, clearError };
+  return { cast, toggleVeto, withdraw, pending, errorKey, clearError };
 }

@@ -1,8 +1,8 @@
 /**
- * `npm run gate:all` — all seven release gates, in order, stopping at the first
+ * `npm run gate:all` — all eight release gates, in order, stopping at the first
  * failure (PRD-13 §7).
  *
- * ★ SEVEN, NOT SIX, BECAUSE THERE ARE TWO SHIPPING ARTIFACTS.
+ * ★ MORE THAN SIX, BECAUSE THERE ARE TWO SHIPPING ARTIFACTS AND A BUILD-TIME ENV.
  *
  * The native bundle and the web bundle are built by different pipelines and one
  * can carry a key the other does not. Before PRD-18 the gates named only
@@ -12,7 +12,7 @@
  *
  * ★ IT STOPS AT THE FIRST FAILURE AND NAMES IT.
  *
- * Running all seven after one has failed buries the first — and the first is
+ * Running the gate names after one has failed buries the first — and the first is
  * almost always the cause. The severity is not uniform either: `gate:secrets`
  * and `gate:web` are the two that protect against a credential reaching a
  * stranger's device, and everything after a leak is noise.
@@ -54,7 +54,7 @@ interface Gate {
 }
 
 /**
- * The seven gates, in PRD-13 §7's order.
+ * the gate names, in PRD-13 §7's order.
  *
  * The order runs from the most severe failure to the least: a leaked credential
  * first, then a privacy capability, then architectural purity, then the three
@@ -75,6 +75,12 @@ const GATES: readonly Gate[] = [
     name: 'gate:engine-purity',
     script: 'scripts/gate/engine-purity.ts',
     protects: 'the engine stays platform-free, so its results are testable without a device',
+  },
+  {
+    name: 'gate:env',
+    script: 'scripts/gate/env.ts',
+    protects:
+      'a required public build variable is present, so the shipped bundle does not silently lose a feature (the map shipped dead without it)',
   },
   {
     name: 'gate:logs',
@@ -100,7 +106,7 @@ const GATES: readonly Gate[] = [
   },
 ];
 
-/** The seven gate names, for the tests and the deploy script. */
+/** the gate names, for the tests and the deploy script. */
 export const GATE_NAMES: readonly string[] = GATES.map((gate) => gate.name);
 
 const DIST = join(PROJECT_ROOT, 'dist');

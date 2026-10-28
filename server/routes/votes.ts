@@ -29,7 +29,7 @@ import {
 } from '../lib/http';
 import { limiters } from '../lib/rate-limit';
 import { resolveCaller, type Caller } from '../lib/supabase';
-import { castVote, eventForParticipant, proposalGuard } from '../lib/vote-service';
+import { castVote, eventForParticipant, proposalGuard, withdrawVote } from '../lib/vote-service';
 
 /** The caller, or `null` when the request carries no usable identity. */
 async function callerFrom(request: Request): Promise<Caller | null> {
@@ -115,4 +115,61 @@ export async function castVoteHandler(
     previous: result.previous,
     is_change: result.isChange,
   });
+}
+
+/**
+ * `DELETE /api/proposals/:id/vote` — removes the caller's own vote.
+ *
+ * ★ THIS IS THE OPERATION THE PRODUCT WAS MISSING.
+ *
+ * `PUT` is an upsert, so there was no way to express "I take my answer back": the
+ * closest thing a user could do was re-send the value they had already chosen, which
+ * wrote the same row and left the button coloured. The edit affordance on a vote
+ * therefore had no way to end in an empty state.
+ *
+ * ★ NOT `DELETE /api/proposals/:id` — THAT IS ALREADY TAKEN.
+ *
+ * That path withdraws the proposal itself (`server/app.ts`), by its author. Reusing
+ * it would have made one verb mean two different destructive things on adjacent
+ * paths.
+ *
+ * Guarded exactly like the write: participant, proposal not withdrawn, event not
+ * confirmed. A withdrawal after confirmation would change a tally the decision was
+ * derived from.
+ */
+export async function withdrawVoteHandler(
+  request: Request,
+  params: Record<string, string>,
+): Promise<Response> {
+  const caller = await callerFrom(request);
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const proposalId = params.id ?? '';
+  if (!isUuid(proposalId)) return wireError('NOT_PARTICIPANT');
+
+  const guard = await proposalGuard(proposalId);
+  if (!guard) return wireError('NOT_PARTICIPANT');
+
+  const event = await eventForParticipant(caller, guard.eventId);
+  if (!event) return wireError('NOT_PARTICIPANT');
+
+  const budget = limiters.mutationByParticipant.check(`vote:${caller.userId}`);
+  if (!budget.allowed) return wireError('RATE_LIMITED');
+
+  if (guard.status === 'WITHDRAWN') {
+    return validationFailed([{ path: ['value'], message: VOTE_VALIDATION.proposalWithdrawn }]);
+  }
+
+  if (guard.eventStatus === 'CONFIRMED') {
+    return validationFailed([{ path: ['value'], message: VOTE_VALIDATION.eventConfirmed }]);
+  }
+
+  const result = await withdrawVote(caller, proposalId);
+
+  // ★ NOT AN ERROR WHEN THERE WAS NOTHING TO REMOVE.
+  //
+  // A double-tap on "remove", or two devices racing, would otherwise surface a
+  // failure for a state the user already wanted. The client treats this as success
+  // and its reload settles on whatever is stored.
+  return json({ previous: result?.previous ?? null });
 }

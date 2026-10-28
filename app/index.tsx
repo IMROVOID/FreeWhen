@@ -20,7 +20,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +31,11 @@ import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { ScreenStateGate, type ScreenState } from '@/src/components/states/ScreenStateGate';
 import { EventRow } from '@/src/features/events/components/EventRow';
+import { EventContextMenu } from '@/src/features/events/components/EventContextMenu';
+import { deleteEvent, leaveEvent } from '@/src/features/events/services/event-management';
+import { ConfirmSheet } from '@/src/components/ui/ConfirmSheet';
+import { getStoredUserId } from '@/src/lib/session';
+import type { EventSummary } from '@/src/types/event';
 import { EventSearchSheet } from '@/src/features/events/components/EventSearchSheet';
 import { JoinEventCard } from '@/src/features/events/components/JoinEventCard';
 import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
@@ -43,17 +48,58 @@ export default function EventListScreen() {
   const { t: theme } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // The menu has to know what it must fit inside — see menu-placement.ts.
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
   const { events, isLoading, errorKey, errorTitleKey, reload } = useMyEvents();
   const { isOffline } = useOffline();
 
   const [searchOpen, setSearchOpen] = useState(false);
 
+  /**
+   * The event whose context menu is open, and the row's rect on screen.
+   *
+   * ★ THE MENU IS A HOLD, BECAUSE THE ROW HAD NO ROOM FOR A THIRD CONTROL.
+   *
+   * The row already carries a status chip and an attention badge. Leaving an event,
+   * changing where you travel from, and — for the owner — renaming or deleting it were
+   * all reachable only from INSIDE the event, so the row you are looking at was the one
+   * place you could not act on it.
+   */
+  const [menuFor, setMenuFor] = useState<{
+    event: EventSummary;
+    bounds: { x: number; y: number; width: number; height: number };
+  } | null>(null);
+
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
   const openEvent = useCallback(
     (eventId: string) => {
       router.push(`/event/${eventId}`);
     },
     [router],
+  );
+
+  const closeMenu = useCallback(() => setMenuFor(null), []);
+
+  /**
+   * Runs an event action, then refreshes the list.
+   *
+   * ★ THE LIST IS THE SOURCE OF TRUTH AFTER ANY WRITE.
+   *
+   * Leaving or deleting removes the row, and the API answers 200 either way — so
+   * relying on an optimistic removal would leave the row on screen if the request was
+   * rejected. Refetching shows what the server actually holds.
+   */
+  const runEventAction = useCallback(
+    async (action: () => Promise<void>) => {
+      try {
+        await action();
+      } finally {
+        await reload();
+      }
+    },
+    [reload],
   );
 
   /**
@@ -115,7 +161,12 @@ export default function EventListScreen() {
             children: (
               <>
                 {events.map((event) => (
-                  <EventRow key={event.id} event={event} onPress={() => openEvent(event.id)} />
+                  <EventRow
+                    key={event.id}
+                    event={event}
+                    onPress={() => openEvent(event.id)}
+                    onLongPress={(bounds) => setMenuFor({ event, bounds })}
+                  />
                 ))}
               </>
             ),
@@ -188,6 +239,63 @@ export default function EventListScreen() {
         onDismiss={() => setSearchOpen(false)}
         events={events}
         onOpenEvent={openEvent}
+      />
+
+      {/* ★ A HOLD ON AN EVENT ROW OPENS ITS ACTIONS HERE.
+          Rendered at the screen's root, not inside the `ScrollView`: a menu laid out
+          against scroll content is positioned against a box taller than the viewport,
+          which is the trap `BottomSheet.tsx` documents. */}
+      <EventContextMenu
+        anchor={menuFor?.bounds ?? null}
+        viewport={{ width: windowWidth, height: windowHeight }}
+        eventTitle={menuFor?.event.title ?? ''}
+        isOwner={Boolean(menuFor?.event.is_organizer)}
+        onChangeLocation={() => {
+          if (menuFor) {
+            router.push({ pathname: '/event/[id]/map', params: { id: menuFor.event.id } });
+          }
+        }}
+        onLeave={() => {
+          const target = menuFor;
+          if (!target) return;
+          void runEventAction(async () => {
+            await leaveEvent(target.event.id, await getStoredUserId());
+          });
+        }}
+        onOpenConfiguration={
+          menuFor
+            ? () => {
+                const target = menuFor;
+                router.push({ pathname: '/event/[id]/config', params: { id: target.event.id } });
+              }
+            : undefined
+        }
+        onDelete={() => {
+          if (menuFor) setPendingDeleteId(menuFor.event.id);
+        }}
+        onDismiss={closeMenu}
+      />
+
+      {/* ★ DELETION IS CONFIRMED, AND THE CONFIRMATION NAMES THE EVENT.
+          It is the one action on this screen that cannot be undone, so it does not
+          happen on the menu tap — the sheet is the second, deliberate act. */}
+      <ConfirmSheet
+        visible={pendingDeleteId !== null}
+        title={t('events.management.deleteTitle')}
+        body={t('events.management.deleteBody')}
+        confirmLabel={t('events.management.delete')}
+        cancelLabel={t('common.cancel')}
+        tone="danger"
+        onConfirm={() => {
+          const id = pendingDeleteId;
+          setPendingDeleteId(null);
+          if (!id) return;
+          void runEventAction(async () => {
+            await deleteEvent(id, await getStoredUserId());
+          });
+        }}
+        onDismiss={() => setPendingDeleteId(null)}
+        testID="event-list-delete-confirm"
       />
     </ScrollView>
   );

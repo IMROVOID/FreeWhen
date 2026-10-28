@@ -36,6 +36,7 @@
     "gate:secrets": "tsx scripts/gate/secrets.ts",
     "gate:location": "tsx scripts/gate/location.ts",
     "gate:engine-purity": "tsx scripts/gate/engine-purity.ts",
+    "gate:env": "tsx scripts/gate/env.ts",
     "gate:logs": "tsx scripts/gate/logs.ts",
     "gate:design": "tsx scripts/gate/design.ts",
     "gate:i18n": "tsx scripts/gate/i18n.ts",

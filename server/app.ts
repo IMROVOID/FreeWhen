@@ -46,7 +46,7 @@ import {
 import { activityHandler } from './routes/activity';
 import { confirmHandler } from './routes/confirm';
 import { decisionStatusHandler } from './routes/decision-status';
-import { castVoteHandler } from './routes/votes';
+import { castVoteHandler, withdrawVoteHandler } from './routes/votes';
 // Phase 10 — follow-through (PRD-06 §3, §6).
 import { getRsvpHandler, putRsvpHandler } from './routes/rsvp';
 import { notificationsHandler } from './routes/notifications';
@@ -124,6 +124,14 @@ const ROUTES: Route[] = [
   { method: 'GET', segments: ['api', 'place-search'], handler: placeSearchHandler },
   // Phase 7 — voting, the Decision Status area, confirmation and the log.
   { method: 'PUT', segments: ['api', 'proposals', ':id', 'vote'], handler: castVoteHandler },
+  // Removing one's own vote. `PUT` above is an upsert, so without this there is no
+  // way to end in an unanswered state — and `DELETE /api/proposals/:id` already
+  // means "withdraw the proposal".
+  {
+    method: 'DELETE',
+    segments: ['api', 'proposals', ':id', 'vote'],
+    handler: withdrawVoteHandler,
+  },
   {
     method: 'GET',
     segments: ['api', 'events', ':id', 'decision-status'],

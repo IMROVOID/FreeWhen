@@ -191,6 +191,12 @@
       "title": "Search your events",
       "placeholder": "Event name",
       "noResults": "No event matches “{{query}}”."
+    },
+    "contextMenu": {
+      "leave": "Leave event",
+      "changeLocation": "Change my location",
+      "configure": "Event configuration",
+      "delete": "Delete event"
     }
   },
   "invite": {
@@ -517,7 +523,8 @@
       "proposalWithdrawn": "This proposal was withdrawn and is no longer votable",
       "eventConfirmed": "Voting is closed once the final decision is recorded"
     },
-    "changeVote": "Change your vote"
+    "changeVote": "Change your vote",
+    "clearVote": "Remove your vote"
   },
   "decision": {
     "title": "Final decision",

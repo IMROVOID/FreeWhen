@@ -237,6 +237,69 @@ export async function castVote(
   });
 }
 
+/**
+ * Removes the caller's vote on one proposal.
+ *
+ * ★ A WITHDRAWAL IS A DELETE, NOT A SENTINEL VALUE.
+ *
+ * There is no "no answer" value in the vote enum and adding one would make every
+ * tally query carry a filter it does not expect. Removing the row is what puts the
+ * participant back into `outstanding` — the same state they were in before they
+ * answered — which is exactly what the card renders as "not yet voted".
+ *
+ * ★ THE PARTICIPANT COMES FROM THE CALLER.
+ *
+ * `participantIn(found.event_id, caller, client)` resolves the caller's own
+ * participant row inside the event; nothing here accepts a participant id from the
+ * request. A client-supplied id plus this delete would be an oracle for wiping
+ * other people's votes.
+ *
+ * Returns the value that was removed, or `null` when there was nothing to remove or
+ * the caller is not in the event.
+ */
+export async function withdrawVote(
+  caller: Caller,
+  proposalId: string,
+): Promise<{ previous: VoteValue } | null> {
+  return withTransaction(async (client) => {
+    const proposal = await client.query<{ event_id: string }>(
+      `select pr.event_id from proposal pr where pr.id = $1`,
+      [proposalId],
+    );
+
+    const found = proposal.rows[0];
+    if (!found) return null;
+
+    const voter = await participantIn(found.event_id, caller, client);
+    if (!voter) return null;
+
+    const removed = await client.query<{ value: VoteValue }>(
+      `delete from vote where proposal_id = $1 and participant_id = $2 returning value`,
+      [proposalId, voter.id],
+    );
+
+    const previous = removed.rows[0]?.value;
+    if (!previous) return null;
+
+    // ★ THE HISTORY KEEPS THE FACT THAT A VOTE EXISTED AND WAS TAKEN BACK.
+    //
+    // Deleting the row silently would leave "Sara answered yes" in the activity log
+    // with no counterpart, so the group would read the log as still true. The entry
+    // records only the value that left — no coordinates, only enum tokens, the same
+    // rule the cast path follows.
+    await appendActivity(client, {
+      eventId: found.event_id,
+      actorId: voter.id,
+      action: 'vote_withdrawn',
+      subjectType: 'proposal',
+      subjectId: proposalId,
+      detail: { from: previous },
+    });
+
+    return { previous };
+  });
+}
+
 /** The proposal's status and event, for the vote route's guards. */
 export async function proposalGuard(
   proposalId: string,

@@ -74,10 +74,15 @@ export function MuteList({ events, isLoading, interactive = true, testID }: Mute
 
   return (
     <View style={styles.list} testID={testID}>
-      <Text variant="caption" color={theme.textMuted}>
-        {t('notifications.muteList.hint')}
-      </Text>
+      {/*
+        ★ NO SECTION HINT.
+        This read «انتخاب کنید کدام رویدادها می‌توانند به شما اطلاع دهند.» above a
+        list whose rows are literally event names with a switch beside each one. The
+        sentence explained the only thing the shape already said, on a screen the
+        user asked to be less wordy.
 
+        Each row is now the NAME and its SWITCH and nothing else.
+      */}
       {events.map((event) => (
         <View key={event.id} style={styles.row} testID={`${testID ?? 'mute-list'}-${event.id}`}>
           {/* ★ `align="start"` IS NOT OPTIONAL HERE.

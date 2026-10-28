@@ -32,9 +32,31 @@ import { useTranslation } from 'react-i18next';
 
 import { Text } from './Text';
 import { fonts } from '@/src/theme/fonts';
+import { resolveLanguageFrom } from '@/src/i18n/resolve';
+import { readStoredLanguage } from '@/src/i18n/store';
 import { isRtlLayout } from '@/src/platform/layout-direction';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
+
+/**
+ * The interface language, asked WITHOUT the bootstrap module.
+ *
+ * `src/app-bootstrap.ts` imports `expo-localization`, which pulls
+ * `expo-modules-core` — a native module the Node test runner cannot load, so a
+ * static import of it from here makes this component unrenderable in the UI suite.
+ * `resolveLanguageFrom` plus the lazy-reading store answer the same question for
+ * the cases that matter: a stored preference, else the Persian default.
+ *
+ * The value is consulted only when `i18n.language` is empty, which is exactly the
+ * static-prerender situation described at the call site.
+ */
+function fallbackLanguage(): string {
+  try {
+    return resolveLanguageFrom({ stored: readStoredLanguage(), deviceLanguageCode: undefined });
+  } catch {
+    return 'fa';
+  }
+}
 
 export interface InputProps {
   value: string;
@@ -79,7 +101,22 @@ export function Input({
   const { i18n } = useTranslation();
   const [isFocused, setIsFocused] = useState(false);
 
-  const rtl = direction ? direction === 'rtl' : isRtlLayout(i18n.language);
+  /**
+   * ★ THE FIELD ASKS THE RESOLVED LANGUAGE, NOT THE LIVE ONE.
+   *
+   * `i18n.language` is set by `initI18n`, which runs at module scope on the client
+   * but is not consulted during the static export that prerenders the web document.
+   * So the served markup for the join box contained `dir="ltr"` and a Latin family
+   * inside a `dir="rtl"` page — the Persian placeholder was pinned to the wrong
+   * edge and set in the wrong typeface.
+   *
+   * `fallbackLanguage()` answers the same question from the same inputs
+   * (`localStorage` on web, the file store elsewhere) without depending on React
+   * or on i18next having initialised.
+   */
+  const rtl = direction
+    ? direction === 'rtl'
+    : isRtlLayout(i18n.language || fallbackLanguage());
   const hasError = Boolean(error);
   const isFloating = isFocused || value.length > 0;
 
@@ -94,6 +131,20 @@ export function Input({
   const WebTextInput = TextInput as unknown as React.ComponentType<
     React.ComponentProps<typeof TextInput> & { dir?: 'rtl' | 'ltr' }
   >;
+
+  /**
+   * ★ THE TYPEFACE FOLLOWS THE INTERFACE; THE DIRECTION CAN FOLLOW THE CONTENT.
+   *
+   * These were one flag, so a `direction="ltr"` field — an invite code, an email, a
+   * phone number — dropped to the Latin family on a Persian screen, while every
+   * label around it stayed Vazirmatn. The field looked like a stranger in the form.
+   *
+   * Vazirmatn covers Latin, so a Persian interface can use it for every field
+   * regardless of that field's own reading direction. The reverse is not true, so an
+   * English interface keeps Jakarta.
+   */
+  const interfaceIsPersian = (i18n.language || fallbackLanguage()) !== 'en';
+  const fieldFont = interfaceIsPersian ? fonts.persian[500] : fonts.latin[500];
 
   return (
     <View style={[styles.container, style]}>
@@ -121,7 +172,7 @@ export function Input({
             hiddenOutline,
             {
               color: t.text,
-              fontFamily: rtl ? fonts.persian[500] : fonts.latin[500],
+              fontFamily: fieldFont,
               // `start` rather than a literal side: the field's `dir` decides
               // which edge that is, so the caret follows the direction instead
               // of a hardcoded side that would not mirror.

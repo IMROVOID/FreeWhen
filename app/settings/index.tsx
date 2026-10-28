@@ -39,7 +39,7 @@ import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
 import { clearStoredUserId, getStoredUserId } from '@/src/lib/session';
 import type { Language } from '@/src/i18n/types';
-import { space } from '@/src/theme/tokens';
+import { border, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 export default function SettingsScreen() {
@@ -172,20 +172,21 @@ export default function SettingsScreen() {
             {t('retention.decisionHistoryKept')}
           </Text>
 
-          {/* ★ A SURFACE, NOT BARE TEXT.
-              This was `variant="ghost"`, which paints no fill at all, so the
-              one control that opens the policy was the only unpainted row on a
-              screen made entirely of pills. */}
+          {/* ★ A SURFACE THAT IS ACTUALLY VISIBLE ON THIS CARD.
+              `secondary` fills with `surface2` — and this card is `raised`, which
+              is ALSO `surface2` (see `Card.tsx:27`). The button was therefore
+              painted the exact colour of the surface behind it, so the one control
+              that opens the policy read as bare text on a screen made of pills.
+              `outline` draws a `line`-coloured edge on top of the same fill, which
+              gives the control an edge here without changing `secondary` for every
+              other caller. */}
           <Button
             label={t('privacy.noticeAction')}
-            variant="secondary"
+            variant="outline"
             size="medium"
             onPress={() => setShowNotice(true)}
             testID="settings-notice-open"
           />
-          <Text variant="caption" color="textFaint">
-            {t('privacy.noticeFootnote')}
-          </Text>
         </Card>
       </Section>
 
@@ -220,9 +221,11 @@ export default function SettingsScreen() {
         />
       </Section>
 
-      <Text variant="caption" color="textFaint" align="center">
-        {t('privacy.knownGapsBody')}
-      </Text>
+      {/* ★ THE TRAILING DISCLAIMER IS GONE ON PURPOSE.
+          It read «این نسخه احراز هویت مهمان، مسدود کردن کاربر و محافظت از عکس
+          صفحه ندارد.» — a list of things this build cannot do, sitting as the last
+          thing on the screen. A limitations paragraph is a store-review note, not a
+          setting, and it was the only content under the Account section. */}
 
       {/* ★ THE NOTICE IS A DOCUMENT, SO IT OPENS OVER THE PAGE.
           It used to render inline in the section above, which shoved the
@@ -268,8 +271,15 @@ export default function SettingsScreen() {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const { t: theme } = useTheme();
+
   return (
-    <View style={styles.section}>
+    /* ★ A RULE BETWEEN BLOCKS, NOT ONLY WHITESPACE.
+       The sections are separated by a `line` hairline as well as by the gap, so the
+       screen reads as distinct groups at a glance. Pure spacing at this many
+       controls made Language, Theme, Nickname, Notifications and Account run
+       together into one long column. */
+    <View style={[styles.section, { borderTopColor: theme.line }]}>
       <Text variant="h3">{title}</Text>
       {children}
     </View>
@@ -278,8 +288,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { paddingHorizontal: space[5], gap: space[5] },
-  section: { gap: space[3] },
+  content: { paddingHorizontal: space[5], gap: space[8] },
+  section: {
+    gap: space[4],
+    borderTopWidth: border.hairline,
+    paddingTop: space[5],
+  },
   cardBody: { gap: space[3] },
   noticeContainer: {
     flex: 1,

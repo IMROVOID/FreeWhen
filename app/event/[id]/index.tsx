@@ -56,7 +56,6 @@ import { deleteEvent, leaveEvent, renameEvent } from '@/src/features/events/serv
 import { rotateInvite } from '@/src/features/events/services/invite';
 import { extractInviteToken } from '@/src/features/events/utils/invite-token';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
-import { VoteShareBar } from '@/src/features/proposals/components/VoteShareBar';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { RANKED_VIEW, rankProposals, shareOfAllAnswers } from '@/src/features/proposals/services/ranking';
 import { DecisionStatusBand } from '@/src/features/voting/components/DecisionStatusBand';
@@ -167,7 +166,7 @@ export default function EventHomeScreen() {
     setLocalVotes(voteStatus);
   }, [voteStatus]);
 
-  const { cast, pending: pendingVote, errorKey: voteError, clearError } = useVote({
+  const { cast, withdraw, pending: pendingVote, errorKey: voteError, clearError } = useVote({
     status: localVotes,
     setStatus: setLocalVotes,
     reload: reloadVotes,
@@ -464,54 +463,63 @@ export default function EventHomeScreen() {
             </Text>
           ) : null}
 
-          {rankedProposals.map((proposal) => (
-            <View key={proposal.id} style={styles.proposalBlock}>
-              <ProposalCard proposal={proposal} homeTz={homeTz} testID={`event-home-proposal-${proposal.id}`} />
+          {rankedProposals.map((proposal) => {
+            const tally = tallyFor(proposal.id);
 
-              {/* Phase 7 — vote controls belong ON the first screen, not behind
-                  a tab (PRD-11 §4.2). The 20-second acquisition rule depends on
-                  it, so the card gains its controls in place. */}
-              <TallyBar
-                tally={tallyFor(proposal.id)}
-                showNames
-                testID={`event-home-tally-${proposal.id}`}
-              />
+            return (
+              <View key={proposal.id} style={styles.proposalBlock}>
+                {/*
+                  ★ THE CARD CARRIES ITS OWN SHARE BAR NOW.
+                  It used to be a sibling BELOW the card, a hairline floating between
+                  two boxes with nothing tying it to the proposal it described. It is
+                  now drawn inside the card, flush against its bottom edge and clipped
+                  by its radius, so it reads as a gauge belonging to this proposal.
+                */}
+                <ProposalCard
+                  proposal={proposal}
+                  homeTz={homeTz}
+                  share={shareOfAllAnswers(
+                    { ...proposal, tally },
+                    rankedProposals.map((entry) => ({ ...entry, tally: tallyFor(entry.id) })),
+                  )}
+                  testID={`event-home-proposal-${proposal.id}`}
+                />
 
-              {/* ★ THE SHARE BAR IS NOT A REPLACEMENT FOR THE PILL ABOVE.
-                  The pill answers "how many of this group answered THIS
-                  proposal"; the bar answers "what fraction of all answers are
-                  this proposal's". Both are shown, because neither answers the
-                  other's question. */}
-              <VoteShareBar
-                share={shareOfAllAnswers(
-                  { ...proposal, tally: tallyFor(proposal.id) },
-                  rankedProposals.map((entry) => ({ ...entry, tally: tallyFor(entry.id) })),
+                {/*
+                  ★ THE ACTION COMES BEFORE THE READING.
+                  This was TallyBar → VoteShareBar → VoteControl, so on every card the
+                  numbers arrived before the thing the reader is meant to press — the
+                  tallies read as a result to interpret rather than as context for a
+                  question that is still open. The control is what the screen is for
+                  (PRD-11 §4.2, the 20-second rule), so it goes first and the tallies
+                  follow as the guide.
+                */}
+                <VoteControl
+                  current={myVotes[proposal.id] ?? null}
+                  onVote={(value) => void cast(proposal.id, value)}
+                  onClear={() => void withdraw(proposal.id)}
+                  disabled={proposal.status === 'WITHDRAWN' || isConfirmed}
+                  pending={pendingVote === proposal.id}
+                  showHelper={(myVotes[proposal.id] ?? null) === null}
+                  testID={`event-home-vote-${proposal.id}`}
+                />
+
+                {/* ★ AC-11.7.1 — a queued vote is MARKED. A vote that looks
+                    submitted but is still on the device would poison the tally. */}
+                {isOffline && myVotes[proposal.id] && (
+                  <Text
+                    variant="caption"
+                    color={theme.textMuted}
+                    testID={`event-home-pending-${proposal.id}`}
+                  >
+                    {t('offline.pendingWrite')}
+                  </Text>
                 )}
-                testID={`event-home-share-${proposal.id}`}
-              />
 
-              {/* ★ AC-11.7.1 — a queued vote is MARKED. A vote that looks
-                  submitted but is still on the device would poison the tally. */}
-              {isOffline && myVotes[proposal.id] && (
-                <Text
-                  variant="caption"
-                  color={theme.textMuted}
-                  testID={`event-home-pending-${proposal.id}`}
-                >
-                  {t('offline.pendingWrite')}
-                </Text>
-              )}
-
-              <VoteControl
-                current={myVotes[proposal.id] ?? null}
-                onVote={(value) => void cast(proposal.id, value)}
-                disabled={proposal.status === 'WITHDRAWN' || isConfirmed}
-                pending={pendingVote === proposal.id}
-                showHelper={(myVotes[proposal.id] ?? null) === null}
-                testID={`event-home-vote-${proposal.id}`}
-              />
-            </View>
-          ))}
+                <TallyBar tally={tally} showNames testID={`event-home-tally-${proposal.id}`} />
+              </View>
+            );
+          })}
         </View>
       )}
 

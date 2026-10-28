@@ -25,16 +25,23 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Platform, StyleSheet, View } from 'react-native';
+import { PanResponder, Platform, StyleSheet, View } from 'react-native';
+import Reanimated, {
+  cancelAnimation,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { ArrowsClockwise } from 'phosphor-react-native';
 
 import {
   BAND_HEIGHT,
-  bandOpacityFor,
+  MAX_PULL,
+  REFRESH_THRESHOLD,
   cornerRadiusFor,
   displacementFor,
   shouldRefresh,
-  spinnerRotationFor,
 } from '@/src/components/ui/pull-to-sync-geometry';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -49,19 +56,31 @@ export interface PullToSyncProps {
 export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: PullToSyncProps) {
   const { t } = useTheme();
 
-  const [displaced, setDisplaced] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const translateY = useRef(new Animated.Value(0)).current;
+  /**
+   * ★ ONE ANIMATED VALUE DRIVES THE TRANSLATION, THE RADIUS AND THE BAND.
+   *
+   * The displacement used to live in React state, written on every move frame, and
+   * the corner radius was derived from it. Two things went wrong with that:
+   *
+   *  - it re-rendered per frame, so the radius arrived a frame late and read as
+   *    stepped rather than smooth;
+   *  - `settle()` animated `translateY` but only updated the state in the animation's
+   *    COMPLETION callback, so on release the radius held its pulled value through
+   *    the whole spring and then snapped to 0 — the "sharp again" the report
+   *    describes.
+   *
+   * Keeping it in the animation graph means the radius cannot disagree with the
+   * translation at any point in either direction, and the page rounds and un-rounds
+   * with the same curve it slides on.
+   */
+  const translateY = useSharedValue(0);
   const busy = useRef(false);
+
+  const [refreshing, setRefreshing] = useState(false);
 
   const settle = useCallback(
     (to: number) => {
-      Animated.timing(translateY, {
-        toValue: to,
-        duration: 180,
-        useNativeDriver: true,
-      }).start(() => setDisplaced(to));
+      translateY.value = withTiming(to, { duration: 180 });
     },
     [translateY],
   );
@@ -83,6 +102,47 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
       busy.current = false;
     }
   }, [onRefresh, settle]);
+
+  /**
+   * The radius, read off the same value the page slides on.
+   *
+   * `cornerRadiusFor` turns a displacement into a radius; driving it through
+   * `interpolate` over the value's whole range keeps the mapping in one place (the
+   * geometry module) while the animation stays on the native thread.
+   */
+  const pageStyle = useAnimatedStyle(() => {
+    // Mirror the displacement→radius curve at a fixed sample rate. `interpolate`
+    // needs static stops, and `MAX_PULL` is the largest displacement the gesture can
+    // produce, so the two curves agree everywhere the page can actually be.
+    const steps = 32;
+    const inputRange = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * MAX_PULL);
+    const outputRange = inputRange.map((value) => cornerRadiusFor(value));
+
+    return {
+      transform: [{ translateY: translateY.value }],
+      borderTopLeftRadius: interpolate(translateY.value, inputRange, outputRange, 'clamp'),
+      borderTopRightRadius: interpolate(translateY.value, inputRange, outputRange, 'clamp'),
+    };
+  });
+
+  const bandStyle = useAnimatedStyle(() => ({
+    opacity: refreshing ? 1 : Math.min(1, Math.max(0, translateY.value) / BAND_HEIGHT),
+  }));
+
+  const spinnerStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        // One full turn by the time the page reaches the refresh threshold, then it
+        // holds — past that the release WILL refresh, so more rotation says nothing.
+        rotate: `${interpolate(
+          translateY.value,
+          [0, REFRESH_THRESHOLD],
+          [0, 360],
+          'clamp',
+        )}deg`,
+      },
+    ],
+  }));
 
   /**
    * ★ THE GESTURE IS WEB-ONLY, AND THE COMMENT ABOVE USED TO PROMISE THAT
@@ -107,9 +167,17 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
 
             onPanResponderMove: (_event, gesture) => {
               if (busy.current) return;
-              const next = displacementFor(gesture.dy);
-              translateY.setValue(next);
-              setDisplaced(next);
+              translateY.value = displacementFor(gesture.dy);
+            },
+
+            onPanResponderGrant: () => {
+              // ★ THE ANIMATION MUST BE STOPPED WHEN THE FINGER LANDS.
+              //
+              // Without this, a pull that starts while the page is still settling from
+              // the previous one fights the running timing animation: both write the
+              // same value, the later frame wins, and the page judders. The settle has
+              // to yield to the finger immediately.
+              cancelAnimation(translateY);
             },
 
             onPanResponderRelease: (_event, gesture) => {
@@ -136,40 +204,22 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
     <View style={styles.root} testID={testID}>
       {/* The revealed band. It sits BEHIND the page, so the page's rounded top
           corners show it through rather than over it. */}
-      <View
+      <Reanimated.View
         pointerEvents="none"
-        style={[
-          styles.band,
-          {
-            backgroundColor: t.surface2,
-            opacity: refreshing ? 1 : bandOpacityFor(displaced),
-          },
-        ]}
+        style={[styles.band, { backgroundColor: t.surface2 }, bandStyle]}
         testID={`${testID}-band`}
       >
-        <Animated.View
-          style={{
-            transform: [{ rotate: `${refreshing ? 360 : spinnerRotationFor(displaced)}deg` }],
-          }}
-        >
+        <Reanimated.View style={spinnerStyle}>
           <ArrowsClockwise size={22} color={t.textMuted} weight="bold" />
-        </Animated.View>
-      </View>
+        </Reanimated.View>
+      </Reanimated.View>
 
-      <Animated.View
+      <Reanimated.View
         {...(responder?.panHandlers ?? {})}
-        style={[
-          styles.page,
-          {
-            backgroundColor: t.bg,
-            transform: [{ translateY }],
-            borderTopLeftRadius: cornerRadiusFor(displaced),
-            borderTopRightRadius: cornerRadiusFor(displaced),
-          },
-        ]}
+        style={[styles.page, { backgroundColor: t.bg }, pageStyle]}
       >
         {children}
-      </Animated.View>
+      </Reanimated.View>
     </View>
   );
 }

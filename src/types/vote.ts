@@ -179,6 +179,10 @@ export const ACTIVITY_ACTIONS = [
   'proposal_withdrawn',
   'vote_cast',
   'vote_changed',
+  // A vote removed by the participant who cast it. The row keeps the value that
+  // left, so the history does not read as "Sara answered yes" when she has since
+  // taken that answer back.
+  'vote_withdrawn',
   'confirmed',
   'reopened',
   // P14 — deleting a per-proposal comment. The row records that something was

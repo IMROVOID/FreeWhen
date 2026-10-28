@@ -129,6 +129,32 @@ export async function putVote(
   return data;
 }
 
+/**
+ * Removes the caller's vote on one proposal.
+ *
+ * ★ `PUT` COULD NOT EXPRESS THIS.
+ *
+ * `putVote` above is an upsert, so the only thing a user could do to "take a vote
+ * back" was re-send the value they had already chosen — which wrote the same row and
+ * left the button coloured. There is no "no answer" value in the vote enum, and
+ * adding one would put a filter on every tally query; the row is deleted instead,
+ * which is what returns the participant to `outstanding`.
+ *
+ * The server answers `{ previous: null }` when there was nothing to remove rather
+ * than failing, so a double-tap is not an error.
+ */
+export async function deleteVote(
+  proposalId: string,
+  userId: string | null,
+): Promise<{ previous: VoteValue | null }> {
+  const { data } = await apiRequest<{ previous: VoteValue | null }>(
+    `/api/proposals/${proposalId}/vote`,
+    { method: 'DELETE', userId },
+  );
+
+  return data;
+}
+
 export interface ConfirmResponse {
   decision: WireDecision | null;
   outstanding: string[];

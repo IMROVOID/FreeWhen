@@ -11,11 +11,14 @@
  * screen reader (PRD-11 §8).
  */
 
+import { useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
+import type { ElementRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/src/components/ui/Text';
 import { Card } from '@/src/components/ui/Card';
+import { haptics } from '@/src/platform/haptics';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { EventStatus, EventSummary } from '@/src/types/event';
@@ -23,7 +26,25 @@ import type { EventStatus, EventSummary } from '@/src/types/event';
 export interface EventRowProps {
   event: EventSummary;
   onPress: () => void;
+  /**
+   * Opens the row's context menu, with the row's own position on screen.
+   *
+   * ★ THE ROW IS THE ONLY PLACE THE EVENT CAN BE ACTED ON.
+   *
+   * Leaving an event, changing where you travel from, and — for the owner — renaming
+   * or deleting it all lived inside the event, behind an action grid. The row you are
+   * looking at was the one surface where none of it was reachable, so this is a hold
+   * rather than another button: the row already carries a status chip and an
+   * attention badge, and a third control would make a list of them unreadable.
+   *
+   * The bounds come from `measureInWindow` at the moment of the hold, because the list
+   * scrolls and an offset captured earlier would place the menu somewhere else.
+   */
+  onLongPress?: (bounds: { x: number; y: number; width: number; height: number }) => void;
 }
+
+/** How long a press must hold before the menu opens. */
+const LONG_PRESS_MS = 420;
 
 /** The status colours. Volt stays reserved for "decided" and nothing else. */
 function statusColor(status: EventStatus, theme: ReturnType<typeof useTheme>['t']): string {
@@ -41,19 +62,52 @@ function statusColor(status: EventStatus, theme: ReturnType<typeof useTheme>['t'
   }
 }
 
-export function EventRow({ event, onPress }: EventRowProps) {
+export function EventRow({ event, onPress, onLongPress }: EventRowProps) {
   const { t } = useTranslation();
   const { t: theme } = useTheme();
 
   const statusLabel = t(`events.status.${event.status}`);
 
+  /**
+   * The wrapper this row measures.
+   *
+   * The bounds are taken at the moment of the hold, not on layout: the list scrolls,
+   * so a rect captured during layout would place the menu wherever the row used to be.
+   */
+  const containerRef = useRef<ElementRef<typeof View>>(null);
+
   return (
-    <Card
-      variant="surface"
-      onPress={onPress}
-      testID={`event-row-${event.id}`}
-      style={styles.card}
+    <View
+      ref={containerRef}
+      // Screen readers get the menu as an explicit action, since a hold is not a
+      // gesture they perform.
+      accessibilityActions={
+        onLongPress ? [{ name: 'longpress', label: t('events.contextMenu.open') }] : undefined
+      }
+      onAccessibilityAction={(event_) => {
+        if (event_.nativeEvent.actionName !== 'longpress' || !onLongPress) return;
+        containerRef.current?.measureInWindow((x, y, width, height) =>
+          onLongPress({ x, y, width, height }),
+        );
+      }}
     >
+      <Card
+        variant="surface"
+        onPress={onPress}
+        onLongPress={
+          onLongPress
+            ? () => {
+                haptics.impact('medium');
+                containerRef.current?.measureInWindow((x, y, width, height) =>
+                  onLongPress({ x, y, width, height }),
+                );
+              }
+            : undefined
+        }
+        delayLongPress={LONG_PRESS_MS}
+        testID={`event-row-${event.id}`}
+        style={styles.card}
+      >
       <View style={styles.header}>
         {/* ★ THE TITLE STARTS WHERE THE LANGUAGE STARTS.
             `align="start"` is the RIGHT edge in a Persian layout and the left in
@@ -96,6 +150,7 @@ export function EventRow({ event, onPress }: EventRowProps) {
         )}
       </View>
     </Card>
+    </View>
   );
 }
 

@@ -51,13 +51,14 @@ function htmlText(): string {
 // The gate runner
 // ──────────────────────────────────────────────────────────────────────────
 
-test('the runner covers all seven gates, in the documented order', () => {
+test('the runner covers every gate, in the documented order', () => {
   // Arrange — PRD-13 §7 numbers them, and the order is what makes the first
   // failure the interesting one.
   const expected = [
     'gate:secrets',
     'gate:location',
     'gate:engine-purity',
+    'gate:env',
     'gate:logs',
     'gate:design',
     'gate:i18n',
@@ -75,6 +76,7 @@ test('every gate the runner names has a script that exists', () => {
     'gate:secrets': 'secrets.ts',
     'gate:location': 'location.ts',
     'gate:engine-purity': 'engine-purity.ts',
+    'gate:env': 'env.ts',
     'gate:logs': 'logs.ts',
     'gate:design': 'design.ts',
     'gate:i18n': 'i18n.ts',
@@ -112,7 +114,12 @@ test('the runner passes on this tree', () => {
 
   // Assert
   assert.equal(result.status, 0, `gate:all exited ${result.status}:\n${output}`);
-  assert.match(output, /gate:all: all 7 gates passed/, output);
+  // Derived from the runner's own list, so adding a gate cannot leave this asserting
+  // a count that no longer exists.
+  assert.ok(
+    output.includes(`gate:all: all ${GATE_NAMES.length} gates passed`),
+    output,
+  );
 });
 
 // ──────────────────────────────────────────────────────────────────────────

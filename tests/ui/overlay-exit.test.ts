@@ -108,9 +108,14 @@ test('the toast fades both ways instead of snapping', () => {
 test('no overlay reaches for a raw platform Modal', () => {
   // Arrange — a bare `Modal` uses the OS presentation, which has no exit on
   // either platform, so an overlay built on one can only vanish.
+  //
+  // `BottomSheet` and `Popover` are the two sanctioned overlay primitives: both wrap a
+  // transparent `Modal` in an absolutely-inset root and own their entrance and exit
+  // timing. Using one of them IS the fix, so a file that renders through either is not
+  // an offender.
   const offenders = [...tsxFiles('app'), ...tsxFiles('src')].filter((file) => {
     const source = code(file);
-    return /<Modal\b/.test(source) && !/BottomSheet|useSheetTransition/.test(source);
+    return /<Modal\b/.test(source) && !/BottomSheet|Popover|useSheetTransition/.test(source);
   });
 
   // Assert

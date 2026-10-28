@@ -14,6 +14,8 @@ import {
   softwareApplicationSchema,
 } from '@/src/lib/seo';
 import { palette, themes } from '@/src/theme/tokens';
+import { vazirmatnFdFonts, vazirmatnFonts } from '@/src/theme/font-assets';
+import { fontFaceCss } from '@/src/theme/web-font-face';
 
 /**
  * This file is web-only and configures the root HTML for every web page
@@ -88,6 +90,20 @@ export default function Root({ children }: { children: React.ReactNode }) {
     '\\u003c',
   );
 
+  /**
+   * ★ THE FACES ARE DECLARED HERE BECAUSE `expo-font` DECLARES THEM TOO LATE.
+   *
+   * On web, `useFonts` appends `<style id="expo-generated-fonts">` after `</body>`.
+   * Static export prerenders the app's markup, so a `TextInput` — a real `<input>`
+   * on web — that names a family resolved before that block existed, and the
+   * browser kept the fallback. Text boxes in particular lost their font.
+   *
+   * Declaring them in `<head>` puts the families in place before first paint and
+   * ahead of the prerendered document. `useFonts` still runs, and a duplicate
+   * `@font-face` for one family and file is harmless, so nothing changes natively.
+   */
+  const fontFaces = fontFaceCss({ vazirmatn: vazirmatnFonts, vazirmatnFd: vazirmatnFdFonts });
+
   return (
     <html lang={language} dir={dir} {...htmlAttributes}>
       <head>
@@ -155,6 +171,9 @@ export default function Root({ children }: { children: React.ReactNode }) {
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: schema }}
         />
+
+        {/* ★ THE FONT FACES, BEFORE ANY MARKUP THAT NAMES THEM. */}
+        <style id="freewhen-fonts" dangerouslySetInnerHTML={{ __html: fontFaces }} />
 
         {/* Expo emits a favicon and manifest from `app.json`. These add the
             surfaces it does not generate: a scalable icon, the multi-size ICO

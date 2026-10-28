@@ -85,6 +85,27 @@ export function LocationMapPicker({
   const [placeAddress, setPlaceAddress] = useState('');
   const [isDragging, setIsDragging] = useState(false);
 
+  /**
+   * ★ A TILE THAT CANNOT LOAD IS A VISIBLE STATE, NOT AN EMPTY FRAME.
+   *
+   * The tiles come from CARTO's basemap CDN, keyed by `EXPO_PUBLIC_CARTO_API_KEY`. If
+   * that key is ever absent from a build every request fails — and there was no
+   * `onError`, so each `<Image>` simply painted nothing: the frame stayed a blank
+   * rectangle, no error was thrown, and the runtime log was clean. The user could not
+   * tell "loading" from "broken" and had no retry.
+   *
+   * ★ THIS WAS NOT THE BLANK-MAP BUG, THOUGH. See `tileLayer` below.
+   *
+   * The blank map people actually reported had a VALID key and `200` tile responses;
+   * the grid was simply anchored with a logical inset and rendered outside the frame.
+   * Both failure modes look identical — an empty rectangle — which is exactly why the
+   * symptom has to be made visible rather than inferred.
+   *
+   * One failed tile is enough to say so. Rendering a blank frame while the other
+   * eight tiles happen to succeed would be a worse lie than admitting the failure.
+   */
+  const [tilesFailed, setTilesFailed] = useState(false);
+
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -299,6 +320,8 @@ export function LocationMapPicker({
                         source={{ uri }}
                         style={styles.tile}
                         resizeMode="cover"
+                        onError={() => setTilesFailed(true)}
+                        onLoad={() => setTilesFailed(false)}
                       />
                     );
                   })}
@@ -307,6 +330,26 @@ export function LocationMapPicker({
             })}
           </View>
         </View>
+
+        {/* ★ A BLANK FRAME IS NOT A FAILURE STATE.
+            Until this existed, a deployment without the basemap key rendered an empty
+            rectangle with no explanation and no way to tell whether the map was still
+            loading. The copy is the one `VenueMap.web.tsx` already uses for an
+            unavailable map, so the product says the same thing in both places. */}
+        {tilesFailed && (
+          <View
+            pointerEvents="none"
+            style={[styles.tileFailure, { backgroundColor: theme.surface2 }]}
+            testID={testID ? `${testID}-unavailable` : undefined}
+          >
+            <Text variant="caption" color={theme.textMuted} align="center">
+              {t('map.unavailableOnWeb')}
+            </Text>
+            <Text variant="caption" color={theme.textFaint} align="center">
+              {t('map.unavailableOnWebBody')}
+            </Text>
+          </View>
+        )}
 
         {/* Center Target Pin */}
         <View style={styles.centerPinContainer} pointerEvents="none">
@@ -460,6 +503,17 @@ const styles = StyleSheet.create({
     // The layer inside is translated, so the canvas only has to clip it.
     overflow: 'hidden',
   },
+  tileFailure: {
+    position: 'absolute',
+    top: 0,
+    left: 0, // rtl-ok: full-bleed inset, symmetric so there is nothing to mirror
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space[5],
+    gap: space[1],
+  },
   /**
    * ★ THE GRID ANCHORS ON THE FRAME'S TOP-LEFT, NOT ON ITS MIDDLE.
    *
@@ -475,7 +529,18 @@ const styles = StyleSheet.create({
   tileLayer: {
     position: 'absolute',
     top: -TILE_SIZE,
-    start: -TILE_SIZE,
+    // ★ A PHYSICAL `left`, NOT `start`.
+    //
+    // `start` compiles to `inset-inline-start`, which react-native-web resolves against
+    // the DOCUMENT direction. `app/+html.tsx` puts `dir="rtl"` on `<html>`, so in Persian
+    // this inset the 3x3 grid 256px from the RIGHT edge instead of the left — carrying
+    // the whole picture out of the frame. Every tile request still succeeded and CARTO
+    // still answered `200 image/png`, which is why a blank map looked like "the tiles
+    // did not load" rather than "the tiles are somewhere else".
+    //
+    // The shift is a statement about a 256px image grid, not about reading direction, so
+    // it has to be physical.
+    left: -TILE_SIZE, // rtl-ok: a tile-grid offset, not a text-direction inset
   },
   tileRow: {
     flexDirection: 'row',

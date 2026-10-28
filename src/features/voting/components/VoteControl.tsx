@@ -24,7 +24,7 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { PencilSimple } from 'phosphor-react-native';
+import { PencilSimple, XCircle } from 'phosphor-react-native';
 
 import { Text } from '@/src/components/ui/Text';
 import { Pressy } from '@/src/components/ui/Pressy';
@@ -56,6 +56,18 @@ export interface VoteControlProps {
   veto?: boolean;
   /** Toggles the veto. Absent means the affordance is not offered at all. */
   onToggleVeto?: () => void;
+  /**
+   * Removes the caller's vote and returns the card to "unanswered".
+   *
+   * ★ THIS IS AN EXPLICIT CONTROL, NOT A RE-TAP ON THE SELECTED PILL.
+   *
+   * "Take my vote back" had no implementation at all — the route was an upsert, so
+   * re-tapping the selected answer re-wrote the same row and the button stayed
+   * coloured. Even now that the operation exists, a re-tap cannot express it: a
+   * selected pill carries no visual affordance for "press again to clear", so the
+   * only discoverable form is a labelled control.
+   */
+  onClear?: () => void;
   testID?: string;
 }
 
@@ -67,6 +79,7 @@ export function VoteControl({
   showHelper = false,
   veto = false,
   onToggleVeto,
+  onClear,
   testID,
 }: VoteControlProps) {
   const { t: theme } = useTheme();
@@ -132,20 +145,45 @@ export function VoteControl({
           </View>
         </View>
 
-        <Pressy
-          onPress={busy ? undefined : () => setEditing(true)}
-          disabled={busy}
-          haptic="light"
-          testID={testID ? `${testID}-edit` : undefined}
-          accessibilityRole="button"
-          accessibilityLabel={t('voting.changeVote')}
-          accessibilityState={{ disabled: busy }}
-          style={styles.editButton}
-        >
-          <View style={[styles.editInner, { backgroundColor: theme.surface2 }]}>
-            <PencilSimple size={18} color={theme.text} weight="bold" />
-          </View>
-        </Pressy>
+        {/* The two trailing actions travel together, so the answer keeps the
+            leading edge and `space-between` still has only two groups to place. */}
+        <View style={styles.trailingActions}>
+          <Pressy
+            onPress={busy ? undefined : () => setEditing(true)}
+            disabled={busy}
+            haptic="light"
+            testID={testID ? `${testID}-edit` : undefined}
+            accessibilityRole="button"
+            accessibilityLabel={t('voting.changeVote')}
+            accessibilityState={{ disabled: busy }}
+            style={styles.editButton}
+          >
+            <View style={[styles.editInner, { backgroundColor: theme.surface2 }]}>
+              <PencilSimple size={18} color={theme.text} weight="bold" />
+            </View>
+          </Pressy>
+
+          {/* ★ THE VOTE CAN BE TAKEN BACK, AND THE CONTROL SAYS SO.
+              Withdrawing is a different act from changing, so it is a different
+              control: the pencil re-opens the three pills, this removes the answer
+              entirely and returns the card to "not yet answered". */}
+          {onClear && (
+            <Pressy
+              onPress={busy ? undefined : onClear}
+              disabled={busy}
+              haptic="light"
+              testID={testID ? `${testID}-clear` : undefined}
+              accessibilityRole="button"
+              accessibilityLabel={t('voting.clearVote')}
+              accessibilityState={{ disabled: busy }}
+              style={styles.editButton}
+            >
+              <View style={[styles.editInner, { backgroundColor: theme.surface2 }]}>
+                <XCircle size={18} color={theme.text} weight="bold" />
+              </View>
+            </Pressy>
+          )}
+        </View>
       </View>
     );
   }
@@ -294,6 +332,11 @@ const styles = StyleSheet.create({
   answerPill: {
     alignSelf: 'flex-start',
     minWidth: size.buttonLarge,
+  },
+  trailingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
   },
   editButton: {
     width: size.stepperButton,

@@ -30,22 +30,89 @@ const NATIVE_ONLY_MODULES = [
  *
  * `// rtl-ok: <reason>` on the offending line is the documented escape.
  */
-const rtlBannedPropertyRule = {
-  'no-restricted-syntax': [
-    'error',
-    {
-      selector:
-        'ObjectExpression > Property[key.name=/^(left|right|marginLeft|marginRight|paddingLeft|paddingRight|borderLeftWidth|borderRightWidth|borderLeftColor|borderRightColor)$/]',
-      message:
-        'Use logical properties (marginStart/marginEnd/paddingStart/paddingEnd) — physical ones do not mirror in RTL. Add `// rtl-ok: <reason>` to override.',
-    },
-    {
-      selector:
-        "Property[key.name='textAlign'][value.value=/^(left|right)$/]",
-      message:
-        "Use textAlign: 'start' | 'end' — 'left' | 'right' do not mirror in RTL. Add `// rtl-ok: <reason>` to override.",
-    },
-  ],
+/**
+ * The banned-physical-property rule (PRD-11 §7, Style Guide §5), WITH its escape.
+ *
+ * `marginStart`/`paddingStart`/`textAlign: 'start'` mirror automatically;
+ * `marginLeft`/`textAlign: 'left'` do not, and each one is an RTL bug that only shows
+ * up visually on a Persian-locale device. Lint is far cheaper than finding it in Phase
+ * 11.
+ *
+ * ★ THE DOCUMENTED `// rtl-ok: <reason>` ESCAPE IS HONOURED HERE.
+ *
+ * The message always told authors to write it, but `no-restricted-syntax` has no such
+ * concept — the escape was prose that no code read. A file that legitimately needs a
+ * physical `left` (a window coordinate from `measureInWindow`, an off-canvas parking
+ * spot) had no way to say so, and the only options were disabling the rule for the
+ * whole file or inventing a logical property that does not mean what the code needs.
+ *
+ * A comment carrying `rtl-ok` on the offending property's line, or on the line
+ * immediately above it, suppresses the report for that property and no other.
+ */
+
+const RTL_BANNED_KEYS = new Set([
+  'left',
+  'right',
+  'marginLeft',
+  'marginRight',
+  'paddingLeft',
+  'paddingRight',
+  'borderLeftWidth',
+  'borderRightWidth',
+  'borderLeftColor',
+  'borderRightColor',
+]);
+
+const RTL_ESCAPE = /\/\/\s*rtl-ok\b/;
+
+const PHYSICAL_MESSAGE =
+  'Use logical properties (marginStart/marginEnd/paddingStart/paddingEnd) — physical ones do not mirror in RTL. Add `// rtl-ok: <reason>` to override.';
+
+const TEXT_ALIGN_MESSAGE =
+  "Use textAlign: 'start' | 'end' — 'left' | 'right' do not mirror in RTL. Add `// rtl-ok: <reason>` to override.";
+
+const rtlPhysicalPropertyRule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'Bans physical left/right layout properties in favour of logical ones.' },
+    schema: [],
+  },
+  create(context) {
+    const sourceCode = context.sourceCode ?? context.getSourceCode();
+
+    /** Whether the property, or the line above it, carries the escape. */
+    const escaped = (node) => {
+      const line = node.loc.start.line;
+      const lines = sourceCode.getLines();
+
+      // The property's own line covers a trailing comment and a single-line object; the
+      // line above covers the usual "explain, then the value" shape.
+      return [lines[line - 1] ?? '', lines[line - 2] ?? ''].some((text) => RTL_ESCAPE.test(text));
+    };
+
+    return {
+      Property(node) {
+        const key = node.key;
+        const name = key && key.type === 'Identifier' ? key.name : null;
+        if (!name) return;
+
+        if (RTL_BANNED_KEYS.has(name)) {
+          if (escaped(node)) return;
+          context.report({ node, message: PHYSICAL_MESSAGE });
+          return;
+        }
+
+        if (
+          name === 'textAlign' &&
+          node.value?.type === 'Literal' &&
+          (node.value.value === 'left' || node.value.value === 'right')
+        ) {
+          if (escaped(node)) return;
+          context.report({ node, message: TEXT_ALIGN_MESSAGE });
+        }
+      },
+    };
+  },
 };
 
 /** The engine is pure: no React Native, no Expo, no Supabase (PRD-10 §6). */
@@ -122,9 +189,11 @@ export default tseslint.config(
     },
   },
   {
-    // The banned-physical-property rule, scoped to app/** and src/** only.
+    // The banned-physical-property rule, scoped to app/** and src/** only, with the
+    // documented `// rtl-ok:` escape honoured.
     files: ['app/**/*.{ts,tsx}', 'src/**/*.{ts,tsx}'],
-    rules: rtlBannedPropertyRule,
+    plugins: { rtl: { rules: { 'physical-only-when-stated': rtlPhysicalPropertyRule } } },
+    rules: { 'rtl/physical-only-when-stated': 'error' },
   },
   {
     // Logging discipline: only src/lib/redact.ts may write to the console.

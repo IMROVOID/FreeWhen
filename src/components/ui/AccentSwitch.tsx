@@ -94,6 +94,14 @@ export interface AccentSwitchProps {
   /** Required: a switch with no name is unusable with a screen reader. */
   accessibilityLabel: string;
   accessibilityHint?: string;
+  /**
+   * The id of a visually-hidden node describing this switch, for the web build.
+   *
+   * `accessibilityHint` has no DOM equivalent and `aria-description` is filtered by
+   * react-native-web's prop allowlist, but `aria-describedby` survives — see the
+   * note at the call site.
+   */
+  describedBy?: string;
   disabled?: boolean;
   testID?: string;
 }
@@ -103,6 +111,7 @@ export function AccentSwitch({
   onValueChange,
   accessibilityLabel,
   accessibilityHint,
+  describedBy,
   disabled = false,
   testID,
 }: AccentSwitchProps) {
@@ -141,6 +150,17 @@ export function AccentSwitch({
     ? { transform: [{ translateX: value ? travel : 0 }] }
     : undefined;
 
+  /**
+   * ★ THE HINT NEEDS A SECOND CHANNEL ON WEB, AND `aria-description` IS NOT IT.
+   *
+   * `accessibilityHint` is a React Native property with no DOM equivalent, so
+   * react-native-web drops it and every switch hint was silent in the browser.
+   * `aria-description` looks like the answer but is filtered out by the same prop
+   * allowlist. `aria-describedby` is forwarded, so callers pass the id of a
+   * visually-hidden description node and the sentence reaches the DOM.
+   */
+  const describedByProp = describedBy ? { 'aria-describedby': describedBy } : {};
+
   return (
     <Pressy
       onPress={() => onValueChange(!value)}
@@ -148,6 +168,7 @@ export function AccentSwitch({
       accessibilityRole="switch"
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
+      {...(describedByProp as Record<string, unknown>)}
       accessibilityState={{ selected: value, disabled }}
       testID={testID}
       style={styles.hit}

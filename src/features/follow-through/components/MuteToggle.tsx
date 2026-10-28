@@ -15,7 +15,7 @@
  * still arrive is what makes the exception read as a feature.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
@@ -60,6 +60,12 @@ export function MuteToggle({ eventId, muted, onChange, disabled = false, testID 
   const [pending, setPending] = useState(false);
   const [errorKey, setErrorKey] = useState<string | null>(null);
 
+  /**
+   * A stable id for the visually-hidden description, so several rows on one screen
+   * cannot point at each other's text.
+   */
+  const descriptionId = useId();
+
   const toggle = useCallback(
     async (next: boolean) => {
       setErrorKey(null);
@@ -92,34 +98,44 @@ export function MuteToggle({ eventId, muted, onChange, disabled = false, testID 
     [eventId, onChange],
   );
 
+  /**
+   * ★ THE ROW IS A NAME AND A SWITCH. THE WORDS MOVE TO THE ACCESSIBLE TREE.
+   *
+   * This rendered the label «بی‌صدا کردن اعلان‌های این برنامه» and the subtitle
+   * «اعلان «تصمیم نهایی» هرگز بی‌صدا نمی‌شود.» under EVERY event row. Settings lists
+   * one row per event, so a group of five repeated that pair five times and each row
+   * stood three lines tall — the list stopped reading as a list.
+   *
+   * The exception still has to be announced: a user who mutes expecting silence and
+   * then receives the decision reads the toggle as broken. So the text survives as
+   * the switch's accessible name plus a description element it points at.
+   *
+   * ★ `aria-describedby`, NOT `aria-description`.
+   *
+   * react-native-web filters unknown `aria-*` props, so `aria-description` never
+   * reaches the DOM and the hint would be silently lost on web — which is what
+   * `accessibilityHint` alone already did, since it has no web equivalent. An
+   * `aria-describedby` reference to a visually-hidden node is forwarded, so the
+   * sentence is announced on both platforms.
+   */
   return (
     <View style={styles.wrapper} testID={testID}>
       <View style={styles.row}>
-        <View style={styles.labels}>
-          <Text variant="body">{t('notifications.mute.label')}</Text>
-          {/* ★ The exception, stated where the user decides. */}
-          <Text
-            variant="caption"
-            color={theme.textMuted}
-            testID={testID ? `${testID}-hint` : undefined}
-          >
-            {t('notifications.mute.hint')}
-          </Text>
-        </View>
-
-        {/* ★ THE THEMED SWITCH, NOT THE PLATFORM ONE.
-            `react-native`'s `<Switch>` is the operating system's control: a
-            Material pill on Android, an Apple switch on iOS, and on web a bare
-            checkbox. None of them reads a theme token, so this was the only
-            control on Settings that did not look like the app. */}
         <AccentSwitch
           value={muted}
           onValueChange={(next) => void toggle(next)}
           disabled={pending || disabled}
           accessibilityLabel={t('notifications.mute.label')}
           accessibilityHint={t('notifications.mute.hint')}
+          describedBy={descriptionId}
           testID={testID ? `${testID}-switch` : undefined}
         />
+
+        {/* Present in the accessibility tree, absent from the layout. Zero size rather
+            than `display: none`, which would remove it from that tree as well. */}
+        <View style={styles.srOnly} nativeID={descriptionId} accessibilityRole="text">
+          <Text variant="caption">{t('notifications.mute.hint')}</Text>
+        </View>
       </View>
 
       {errorKey !== null && (
@@ -138,11 +154,12 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: space[3],
   },
-  labels: {
-    flex: 1,
-    gap: space[1],
+  srOnly: {
+    width: 0,
+    height: 0,
+    overflow: 'hidden',
   },
 });
