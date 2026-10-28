@@ -400,6 +400,25 @@ export default function EventHomeScreen() {
         shared={{ status: localVotes, connection: voteConnection }}
       />
 
+      {/* ★ THE EVENT'S OWN CONTROLS SIT DIRECTLY UNDER THE STATUS PILL.
+          They used to be at the very foot of the page, below the whole proposal
+          list, so on an event with several proposals the actions that manipulate
+          the event were a full scroll away from the state they act on — and they
+          read as a footer rather than as the event's toolbar. Below the Total
+          Votes pill they are reachable without scrolling past every proposal, and
+          the proposal list still owns the body of the screen. */}
+      <QuickActionsGrid
+        onOpenSlots={() =>
+          router.push({ pathname: '/event/[id]/time', params: { id: event.id, homeTz } })
+        }
+        onShare={() => setShareModalVisible(true)}
+        onOpenActivity={() =>
+          router.push({ pathname: '/event/[id]/activity', params: { id: event.id } })
+        }
+        onOpenChat={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
+        onOpenManagement={() => setManagementModalVisible(true)}
+      />
+
       {/* FR-2.4 — the ordering is stated, never implied. */}
       <View style={styles.listHeading}>
         <Text variant="h3">{t('proposals.heading')}</Text>
@@ -532,18 +551,6 @@ export default function EventHomeScreen() {
         />
       )}
 
-      <QuickActionsGrid
-        onOpenSlots={() =>
-          router.push({ pathname: '/event/[id]/time', params: { id: event.id, homeTz } })
-        }
-        onShare={() => setShareModalVisible(true)}
-        onOpenActivity={() =>
-          router.push({ pathname: '/event/[id]/activity', params: { id: event.id } })
-        }
-        onOpenChat={() => router.push({ pathname: '/event/[id]/chat', params: { id: event.id } })}
-        onOpenManagement={() => setManagementModalVisible(true)}
-      />
-
       <EventShareModal
         visible={shareModalVisible}
         onDismiss={() => setShareModalVisible(false)}
@@ -628,11 +635,11 @@ const styles = StyleSheet.create({
     gap: space[1],
   },
   list: {
-    gap: space[3],
+    gap: space[6],
     marginTop: space[3],
   },
   proposalBlock: {
-    gap: space[3],
+    gap: space[2],
   },
   action: {
     marginTop: space[6],

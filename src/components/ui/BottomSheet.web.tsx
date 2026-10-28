@@ -61,6 +61,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { radius, size, space } from '@/src/theme/tokens';
 import { REDUCED_MOTION_DURATION, dur, ease } from '@/src/theme/motion';
 import { useMotion } from '@/src/theme/useMotion';
+import { usePageScrollLock } from './page-scroll-lock';
 import { useTheme } from '@/src/theme/useTheme';
 
 /**
@@ -198,6 +199,17 @@ export function BottomSheet({
 
   // Nothing is mounted while closed: a sheet that is not open must not leave a
   // handle, a scrim or a focus target behind.
+  //
+  // ★ THE PAGE BEHIND A MODAL STILL SCROLLS ON THE WEB.
+  //
+  // `Modal` renders a fixed layer but leaves the document scrollable, so a wheel
+  // or a drag that lands on the scrim moves the page under the sheet. The hook is
+  // called unconditionally, before the early return, because hooks cannot be
+  // conditional — it locks only while `visible`, and its own cleanup releases the
+  // shared counter, so one sheet closing cannot unlock another that is stacked
+  // above it.
+  usePageScrollLock(visible);
+
   if (!rendered) return null;
 
   return (

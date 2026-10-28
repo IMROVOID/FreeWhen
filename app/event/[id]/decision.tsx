@@ -25,15 +25,18 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CaretLeft, CaretRight } from 'phosphor-react-native';
 
 import { Banner } from '@/src/components/ui/Toast';
 import { Button } from '@/src/components/ui/Button';
+import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { getStoredUserId } from '@/src/lib/session';
 import { isApiFailure } from '@/src/lib/api';
-import { space } from '@/src/theme/tokens';
+import { isRtlLayout } from '@/src/platform/layout-direction';
+import { size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
 import type { DecisionAxis } from '@/src/types/vote';
@@ -92,6 +95,29 @@ export default function DecisionScreen() {
 
   const eventId = typeof params.id === 'string' ? params.id : '';
   const axis: DecisionAxis = params.axis === 'place' ? 'place' : 'time';
+
+  /**
+   * ★ BACK MUST WORK EVEN WITH NO HISTORY TO POP.
+   *
+   * `router.back()` does nothing when this screen is the first entry in the
+   * stack — the case for a deep link, a notification tap, or a web reload on
+   * this URL — so the button looked broken and the user was stranded on a
+   * screen whose only other exits are event-specific. `canGoBack` distinguishes
+   * the two, and the fallback lands on the event home the user came from.
+   * `activity.tsx` already does exactly this.
+   */
+  const handleBack = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace({ pathname: '/event/[id]', params: { id: eventId } });
+  }, [router, eventId]);
+
+  // A back chevron points the other way in an RTL layout, read from the
+  // resolved direction rather than `I18nManager` (always false on web).
+  const BackIcon = isRtlLayout(i18n.language) ? CaretRight : CaretLeft;
 
   const locale: Language = i18n.language === 'en' ? 'en' : 'fa';
 
@@ -363,13 +389,36 @@ export default function DecisionScreen() {
         ]}
         testID="decision-screen"
       >
-        <Text variant="h1" numberOfLines={2}>
-          {t('decision.title')}
-        </Text>
+        {/* ★ THE BACK CONTROL SITS BESIDE THE TITLE, NOT ONLY AT THE FOOT.
+            This is the shape `ScreenHeader` and `activity.tsx` already share: a
+            bare chevron on the leading edge, the title beside it, and a spacer
+            mirroring the chevron so the title centres on the screen. It is
+            repeated here rather than delegated to `ScreenHeader` because this
+            screen's header is inside a `ScrollView` (it scrolls away) and its
+            title carries a caption the component cannot express. */}
+        <View style={styles.topHeader}>
+          <Pressy
+            onPress={handleBack}
+            accessibilityRole="button"
+            accessibilityLabel={t('common.back')}
+            haptic="light"
+            style={styles.backButton}
+          >
+            <BackIcon size={22} color={theme.text} weight="bold" />
+          </Pressy>
 
-        <Text variant="caption" color={theme.textMuted}>
-          {t(`decision.axes.${axis}`)}
-        </Text>
+          <View style={styles.header}>
+            <Text variant="h1" align="center" numberOfLines={2}>
+              {t('decision.title')}
+            </Text>
+
+            <Text variant="caption" color={theme.textMuted} align="center">
+              {t(`decision.axes.${axis}`)}
+            </Text>
+          </View>
+
+          <View style={styles.headerSpacer} />
+        </View>
 
         {/* Phase 7 — the band, fed by THIS screen's payload. The layout suppresses
             its own on this route so one screen has one poller (FR-2.25). */}
@@ -526,7 +575,21 @@ export default function DecisionScreen() {
                 style={[styles.proposalRow, excluded ? styles.proposalRowMuted : undefined]}
                 testID={`decision-proposal-${entry.id}`}
               >
-                <Text variant="h3" numberOfLines={2} color={excluded ? theme.textFaint : undefined}>
+                {/* ★ THE TITLE IS RIGHT-ALIGNED, AND IT IS `textAlign`, NOT
+                    `align`.
+                    `Text`'s `align` prop becomes `textAlign`, where `start` and
+                    `end` are BIDI-LOGICAL: `end` is the left edge in this
+                    Persian interface, and `start` is the right edge — which is
+                    also what a bare `start` already produced, so neither value
+                    moves the text. An explicit `textAlign: 'right'` is a
+                    physical side, so the titles sit against the right edge in
+                    both layouts, which is the alignment that was asked for. */}
+                <Text
+                  variant="h3"
+                  numberOfLines={2}
+                  color={excluded ? theme.textFaint : undefined}
+                  style={styles.proposalTitle}
+                >
                   {entry.title}
                 </Text>
 
@@ -592,7 +655,7 @@ export default function DecisionScreen() {
             stays last so the screen's own actions come first. */}
         <Button
           label={t('common.back')}
-          onPress={() => router.back()}
+          onPress={handleBack}
           variant="secondary"
           size="medium"
           testID="decision-back"
@@ -699,10 +762,42 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: space[5],
-    gap: space[4],
+    // ★ SPACE BETWEEN THE BLOCKS ON THIS SCREEN, AND BETWEEN ITS PROPOSALS.
+    //
+    // `space[4]` left the per-proposal rows reading as one long list; the rows
+    // keep their own `space[3]` inside, so widening the container's gap is what
+    // separates one proposal from the next without changing either row's shape.
+    gap: space[6],
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+  },
+  header: {
+    flex: 1,
+    alignItems: 'center',
+    gap: space[1],
+  },
+  backButton: {
+    padding: space[1],
+  },
+  headerSpacer: {
+    // The same footprint as the back control, so the centred title is centred on
+    // the screen rather than offset by the control beside it.
+    width: size.stepperButton,
+    height: size.stepperButton,
   },
   proposalRow: {
     gap: space[3],
+  },
+  /** Right-aligned in both layouts — see the note at the title itself. */
+  proposalTitle: {
+    // The request is a PHYSICAL right edge: this is an RTL-first product, so `start`
+    // resolves right in fa and left in en, and pinning the side is the only way the
+    // titles sit right in both.
+    // rtl-ok: physically right by request
+    textAlign: 'right',
   },
   /**
    * The muted treatment for a dealbroken proposal.

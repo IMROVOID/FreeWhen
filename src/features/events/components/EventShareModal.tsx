@@ -7,8 +7,18 @@
  * `space[5]` — and the sheet already pads by `space[5]`. The rows therefore
  * stopped well short of the Share button beneath them, and the inset read as
  * nesting: as though the code and the link belonged to some inner group. The
- * container no longer pads horizontally, so both rows and the button span the
- * same width.
+ * container no longer pads horizontally.
+ *
+ * ★ THE BUTTON NEEDS THE WIDTH THE CARD GETS FOR FREE (see `shareButton`).
+ *
+ * Removing the container's padding made the rows full width but left the button
+ * narrow, because the two do not earn their width the same way: a `Card`
+ * renders a plain `View`, which stretches to a block's width, while `Button`'s
+ * `width: '100%'` lands on `Pressy`'s OUTER `Animated.View`. That view has no
+ * height, so it is not block-level — React Native Web lays it out inline-block
+ * and resolves `100%` against a shrink-to-fit basis (the label's width). The
+ * caller therefore has to make the width a FLEX fact (`flexGrow`), exactly as
+ * `LocationMapPicker` does with `flex: 1` in its action row.
  *
  * ★ A COPY PROVES ITSELF WHERE THE TAP LANDED.
  *
@@ -306,5 +316,19 @@ const styles = StyleSheet.create({
   },
   shareButton: {
     marginTop: space[2],
+    /**
+     * ★ THE ROW'S LEFT AND RIGHT EDGES, WITHOUT PADDING THE CONTAINER.
+     *
+     * `flexGrow` (mirrored by `width: '100%'` in `Pressy`) takes the button to
+     * the container's full width, so it stops on the same outer edges as the
+     * cards above it. The container stays free of horizontal padding — that was
+     * the double inset — so this is the only width the button needs.
+     *
+     * `flexShrink` is not decoration: the button's `fill` has
+     * `paddingHorizontal: space[5]`, and a long label in Persian must stay
+     * inside the sheet rather than push both edges outward.
+     */
+    flexGrow: 1,
+    flexShrink: 1,
   },
 });

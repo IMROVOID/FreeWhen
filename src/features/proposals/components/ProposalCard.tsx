@@ -67,6 +67,15 @@ export interface ProposalCardProps {
   testID?: string;
 }
 
+/**
+ * The transparent band under the gauge.
+ *
+ * It lets the slot's own bottom radii land BELOW the visible bar, so the card's
+ * corner curve is finished without the bar's fill or top edge crossing it — see
+ * `shareSlot`.
+ */
+const shareBarTail = space[3];
+
 /** The digits rule: Persian numerals in `fa`, Latin in `en` (AC-3.1.1). */
 function localiseDigits(value: string, language: string): string {
   return language === 'en' ? value : toPersianDigits(value);
@@ -322,13 +331,31 @@ const styles = StyleSheet.create({
    * line) — the bar does not take part in the flow.
    */
   cardWithShare: {
-    paddingBottom: space[5],
+    // The gauge's own height PLUS the tail below it, so the last text row clears
+    // both the bar and the strip that reaches down into the card's corners.
+    paddingBottom: space[5] + shareBarTail,
   },
+  /**
+   * ★ THE STRIP TAKES THE CARD'S OWN BOTTOM CURVE.
+   *
+   * The slot is full-bleed, so its bottom corners sat OUTSIDE the card's
+   * `radius.lg` curve and the bar's fill crossed the corner on both sides.
+   * The radii here are the card's, and the `shareBarTail` of padding pushes them
+   * BELOW the visible band: the curve is finished in transparent space, so
+   * neither the fill nor the bar's top edge draws on it. The tail is also why
+   * the bar's top edge stays one straight full-width line — rounding the bar
+   * itself would pull its top corners inside the card's and open a gap at each
+   * end of the gauge.
+   */
   shareSlot: {
     position: 'absolute',
     bottom: 0,
     left: 0, // rtl-ok: full-bleed strip on the card's own edge, spans both sides
     right: 0,
+    paddingBottom: shareBarTail,
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',

@@ -175,10 +175,32 @@ export function LocationMapPicker({
     setTileResidual(offsetWithinTile(centreRef.current.lat, centreRef.current.lng, next));
   };
 
+  /**
+   * ★ THE MAP ONLY CLAIMS A GESTURE IT CAN ACTUALLY PAN WITH.
+   *
+   * `true` on both of these made the map a black hole for touch: EVERY gesture
+   * starting on it became a map drag, including a vertical swipe meant for the
+   * page. Tapping the map, then trying to scroll the sheet it sits in, did
+   * nothing — the map had claimed the responder and held it, which is the
+   * "the prompt is still on focus and I cannot scroll" report.
+   *
+   * The map still takes any deliberate drag: a press that moves is a pan. What
+   * it no longer takes is the tap (a press that does not move), so a tap falls
+   * through to the page and the sheet keeps its scroll.
+   *
+   * ★ `onPanResponderTerminationRequest` KEEPS IT FROM LOCKING THE PAGE OUT.
+   *
+   * Even mid-drag, the parent scroll view may ask for the responder back. The
+   * old responder never got asked because it declined to start on a tap; this
+   * one does drag, so it must yield rather than fight the scroll view — the
+   * gesture ends cleanly instead of leaving `isDragging` stuck true.
+   */
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_event, gesture) =>
+        Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,
+      onPanResponderTerminationRequest: () => true,
       onPanResponderGrant: () => {
         setIsDragging(true);
         // A new gesture starts from zero, and its first move must be measured

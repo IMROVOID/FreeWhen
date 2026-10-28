@@ -24,13 +24,15 @@
  * `RefreshControl` at all.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanResponder, Platform, StyleSheet, View } from 'react-native';
 import Reanimated, {
+  Easing,
   cancelAnimation,
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from 'react-native-reanimated';
 import { ArrowsClockwise } from 'phosphor-react-native';
@@ -129,20 +131,52 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
     opacity: refreshing ? 1 : Math.min(1, Math.max(0, translateY.value) / BAND_HEIGHT),
   }));
 
-  const spinnerStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        // One full turn by the time the page reaches the refresh threshold, then it
-        // holds — past that the release WILL refresh, so more rotation says nothing.
-        rotate: `${interpolate(
-          translateY.value,
-          [0, REFRESH_THRESHOLD],
-          [0, 360],
-          'clamp',
-        )}deg`,
-      },
-    ],
-  }));
+  /**
+   * ★ THE SPINNER KEEPS TURNING WHILE THE REFRESH IS IN FLIGHT.
+   *
+   * It used to rotate only with the FINGER: one full turn by the threshold, then
+   * it held. That is right while pulling, but the moment the finger lifts the
+   * page settles to BAND_HEIGHT and the icon froze — a static arrow next to a
+   * refresh that was still running, which reads as a hung refresh rather than a
+   * busy one. The report was "there is no rotating animation on the refresh icon".
+   *
+   * So there are two rotation sources and they never fight:
+   *
+   *  - dragging (not yet released): the pull angle, so the turn still tracks the
+   *    finger and the threshold is still legible;
+   *  - refreshing: a continuous linear rotation, which is the only thing that
+   *    tells the reader work is happening when the screen is otherwise still.
+   *
+   * `spin` is its own value rather than being folded into `translateY` so the
+   * release animation cannot interrupt the loop, and `withRepeat(-1)` keeps it
+   * going for as long as the refresh lasts.
+   */
+  const spin = useSharedValue(0);
+
+  useEffect(() => {
+    if (refreshing) {
+      spin.value = 0;
+      spin.value = withRepeat(
+        withTiming(360, { duration: 900, easing: Easing.linear }),
+        -1,
+        false,
+      );
+      return;
+    }
+
+    // Back to the pull angle when the refresh ends: cancelAnimation freezes the
+    // loop where it is, and the pull rotation below takes over again.
+    cancelAnimation(spin);
+    spin.value = 0;
+  }, [refreshing, spin]);
+
+  const spinnerStyle = useAnimatedStyle(() => {
+    const pullAngle = interpolate(translateY.value, [0, REFRESH_THRESHOLD], [0, 360], 'clamp');
+
+    return {
+      transform: [{ rotate: `${refreshing ? spin.value : pullAngle}deg` }],
+    };
+  });
 
   /**
    * ★ THE GESTURE IS WEB-ONLY, AND THE COMMENT ABOVE USED TO PROMISE THAT
@@ -201,9 +235,21 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
   );
 
   return (
-    <View style={styles.root} testID={testID}>
-      {/* The revealed band. It sits BEHIND the page, so the page's rounded top
-          corners show it through rather than over it. */}
+    <View style={[styles.root, { backgroundColor: t.surface2 }]} testID={testID}>
+      {/* ★ THE WHOLE BACKDROP IS THE BAND'S COLOUR, NOT JUST THE STRIP.
+
+          The band was only `BAND_HEIGHT` tall, so it covered the 64px the pull is
+          meant to reveal and nothing else — everything below that showed the page
+          background. Once the drag passed `BAND_HEIGHT` the reader saw the light
+          band on top and the darker page colour underneath in the same frame, so
+          the pull read as the page sliding off a strip rather than as the page
+          lifting away from a surface behind it. Filling `root` means there is one
+          colour behind the page however far it travels: an over-pull looks
+          identical to a normal one, and on release the page settles back to
+          `BAND_HEIGHT` where the tint is exactly the band.
+
+          `root` is allowed to paint here because it is `overflow: hidden` and the
+          page covers it completely at rest. */}
       <Reanimated.View
         pointerEvents="none"
         style={[styles.band, { backgroundColor: t.surface2 }, bandStyle]}
