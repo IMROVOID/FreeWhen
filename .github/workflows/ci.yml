@@ -127,9 +127,22 @@ jobs:
           EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
           EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
           EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+          # LocationMapPicker builds its tile URLs from this, and the bundler inlines
+          # it. Without it the exported bundle has keyless tile URLs and gate:env`r
+          # refuses the tree — which is the point: the same omission on a deploy ships a
+          # map whose tiles CARTO will not serve.
+          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
         run: npm run export:web
 
-      - name: All seven gates
+      # ★ THE GATES READ THE SAME ENVIRONMENT THE EXPORT DID.
+      #
+      # gate:env checks that a REQUIRED public build variable is present, and it looks in
+      # the process environment before .env — because CI has no .env file. Running it
+      # here with an empty environment made it fail on the very run that proves the export
+      # works, which is a gate reporting its own missing input as a defect in the tree.
+      - name: All eight gates
+        env:
+          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
         run: npm run gate:all
 
       # A failure here means a server credential reached the bundle. The log
