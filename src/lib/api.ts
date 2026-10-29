@@ -17,6 +17,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { resolveBaseUrlFrom } from './api-base-url';
+import { mintedUserId } from './minted-identity';
 import { ApiFailure, FALLBACK_KEY, isApiFailure } from './api-failure';
 import type { ApiErrorCode } from './errors';
 import { REQUEST_PLATFORM, type RequestPlatform } from './platform-tag';
@@ -144,7 +145,7 @@ export async function apiRequest<T>(
   const payload: unknown = await response.json().catch(() => null);
 
   if (response.ok) {
-    return { data: payload as T, userId: response.headers.get('x-user-id') };
+    return { data: payload as T, userId: mintedUserId(response, payload) };
   }
 
   const envelope = (payload ?? {}) as {
