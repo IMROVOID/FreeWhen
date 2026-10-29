@@ -47,19 +47,37 @@ function code(path: string): string {
     .replace(/^\s*\/\/.*$/gm, '');
 }
 
-test('the web sheet runs its exit exactly once', () => {
+test('the web sheet runs its exit exactly once, and never loses its teardown', () => {
   // Arrange
   const sheet = code('src/components/ui/BottomSheet.web.tsx');
 
-  // Act — the teardown timer must not be re-armed by the flag it sets.
+  // Act — the teardown timer must not be re-armed by the flag it sets, AND it
+  // must not be cancellable by an unrelated re-render.
   const guard = /const \[ready, setReady\] = useState\(visible\)/.test(sheet);
-  const keyedOnReady = /if \(!ready\) return;/.test(sheet);
+  const keyedOnReady = /if \(!ready\) \{/.test(sheet);
   const notKeyedOnRender = !/\[visible, rendered,/.test(sheet);
+
+  /**
+   * ★ THE ONE-SHOT MUST STILL SCHEDULE THE UNMOUNT.
+   *
+   * The guard used to `return` with nothing scheduled, and the effect's cleanup
+   * ran on every dependency change. A re-render in the 420ms between the close
+   * and the unmount — a parent's `setExpanded(false)`, a layout pass moving
+   * `panelHeight` — therefore cancelled the only timer that would ever clear
+   * `rendered`, and the sheet stayed mounted with a full-bleed scrim over the
+   * page FOR EVER. That is "after closing an overlay I can't click anything".
+   */
+  const schedulesOnGuard = /if \(!ready\) \{\s*ensureUnmountScheduled\(\);/.test(sheet);
+  const timerInRef = /const unmountTimer = useRef/.test(sheet);
+  const notClearedByDeps = !/return \(\) => clearTimeout\(timer\)/.test(sheet);
 
   // Assert
   assert.ok(guard, 'the exit has no one-shot guard, so setting `rendered` re-runs it');
   assert.ok(keyedOnReady, 'the exit does not check the one-shot guard');
   assert.ok(notKeyedOnRender, 'the exit effect is still keyed on the flag it writes');
+  assert.ok(schedulesOnGuard, 'the one-shot can return without scheduling the unmount');
+  assert.ok(timerInRef, 'the teardown timer lives in the effect, where a re-render clears it');
+  assert.ok(notClearedByDeps, 'a dependency change can still cancel the only teardown');
 });
 
 test('the web sheet keeps its slide, its scrim and its Reduce Motion path', () => {

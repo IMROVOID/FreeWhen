@@ -18,18 +18,27 @@
  * `position` prop is the caller's computed rect — see `menu-placement.ts`, which holds
  * the "under the row, or above it when there is no room" rule.
  *
- * ★ IT MUST KEEP ITSELF MOUNTED TO LEAVE.
+ * ★ IT MUST KEEP ITS `Modal` PRESENTED UNTIL THE EXIT HAS RUN.
  *
- * `rendered` is set on open and cleared when the exit animation finishes, so the
- * closing fade has something to fade.
+ * This is the Android focus-lock bug, and it is not cosmetic. The component used to
+ * `return null` on the same tick `visible` went false — while its `Modal` was still on
+ * screen. On Android a `Modal` removed while presented leaves its window behind: a
+ * transparent `TYPE_APPLICATION` window that covers the app and swallows every touch.
+ * The page underneath looked completely normal and nothing responded, which is exactly
+ * the reported "after closing an overlay I can't click anything any more, like the
+ * focus is still on the closed overlay". Four screens reach this component, and the
+ * set is not guessable from the symptom.
+ *
+ * `mounted` outlives `visible` by one animation for the same reason `BottomSheet`
+ * has one, and the teardown is armed ONCE per close so a re-render cannot restart it.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-import { dur, ease } from '@/src/theme/motion';
-import { border, radius, space } from '@/src/theme/tokens';
+import { REDUCED_MOTION_DURATION, dur, ease } from '@/src/theme/motion';
+import { radius, space } from '@/src/theme/tokens';
 import { useMotion } from '@/src/theme/useMotion';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -57,26 +66,55 @@ export function Popover({
   const motion = useMotion();
 
   const [rendered, setRendered] = useState(visible);
+
+  /** The one-shot that keeps the exit from re-arming itself. See the effect. */
+  const [ready, setReady] = useState(visible);
+
   const progress = useSharedValue(visible ? 1 : 0);
+
+  /**
+   * The caller's latest intent.
+   *
+   * A ref, so a dismissal the caller initiated (the menu's own item tap, for
+   * instance) does not race the caller's `visible` update and get reported twice.
+   */
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   useEffect(() => {
     if (visible) {
       setRendered(true);
+      setReady(true);
       progress.value = motion.reduce ? 1 : withTiming(1, { duration: dur.fast, easing: ease.out });
       return;
     }
 
-    if (!motion.reduce) {
-      progress.value = withTiming(0, { duration: dur.base, easing: ease.out });
-    } else {
-      progress.value = 0;
-    }
+    /**
+     * ★ THE EXIT RUNS ONCE.
+     *
+     * `rendered` is set by the open branch above, which re-runs this effect. On
+     * that second pass `visible` is false and the first pass's cleanup has
+     * already cancelled the teardown timer, so the branch would animate out
+     * AGAIN and arm a fresh timer — the panel never settled. `ready` is the
+     * one-shot.
+     */
+    if (!ready) return;
 
-    // The unmount waits out the exit, so the fade completes instead of being cut off
-    // one frame after it starts.
-    const timer = setTimeout(() => setRendered(false), motion.reduce ? 0 : dur.base);
+    progress.value = motion.reduce ? 0 : withTiming(0, { duration: dur.base, easing: ease.out });
+    setReady(false);
+
+    /**
+     * ★ THE TEARDOWN WAITS FOR THE EXIT, AND IT MUST BE THE `Modal`'S TEARDOWN.
+     *
+     * Waiting out `dur.base` is what lets the fade finish instead of being cut
+     * one frame in, and — the part that matters on Android — it keeps the
+     * `Modal` presented until the animation is over, so removing it cannot
+     * strand its window over the app.
+     */
+    const lift = motion.reduce ? REDUCED_MOTION_DURATION : dur.base;
+    const timer = setTimeout(() => setRendered(false), lift);
     return () => clearTimeout(timer);
-  }, [visible, progress, motion.reduce]);
+  }, [visible, ready, motion.reduce, progress]);
 
   // Escape is the dismissal a keyboard user expects, and react-native-web gives no
   // key handler of its own.
@@ -93,10 +131,15 @@ export function Popover({
 
   const panelStyle = useAnimatedStyle(() => ({
     opacity: progress.value,
-    transform: [{ scale: 0.96 + progress.value * 0.04 }],
+    // A transformer-style pop about the panel's own leading/top edge, which is
+    // the corner nearest the point that was pressed. A scale about the centre
+    // reads as a fade with a slight swell, and a scale about 0,0 reads as the
+    // panel flying in from the screen's corner — neither is a menu.
+    transform: [{ scale: 0.92 + progress.value * 0.08 }],
   }));
 
-  // Nothing is mounted while closed — not a scrim, not a focus target.
+  // Nothing is mounted while closed — not a scrim, not a focus target. The check
+  // is on `rendered`, NOT on `visible`: keying it on `visible` is the bug above.
   if (!rendered) return null;
 
   return (
@@ -116,14 +159,13 @@ export function Popover({
           accessibilityLabel={accessibilityLabel}
           style={[
             styles.panel,
-            { backgroundColor: t.surface2, borderColor: t.line },
-            // rtl-ok: window coordinates from measureInWindow are PHYSICAL, so a physical
-            // offset is the only correct one — a logical start would mirror a rect that
-            // already did not.
+            { backgroundColor: t.surface2 },
+            // rtl-ok: window coordinates from measureInWindow are PHYSICAL, so a
+            // physical offset is the only correct one — a logical start would
+            // mirror a rect that already did not.
             position === null
               ? styles.unplaced
-              : // rtl-ok: window coords from measureInWindow are physical, not logical
-                { top: position.top, left: position.left },
+              : { top: position.top, left: position.left }, // rtl-ok: physical window coords
             panelStyle,
           ]}
         >
@@ -154,9 +196,22 @@ const styles = StyleSheet.create({
   panel: {
     position: 'absolute',
     borderRadius: radius.lg,
-    borderWidth: border.hairline,
+    // ★ NO BORDER.
+    //
+    // A hairline around a floating menu reads as a dropdown control rather than
+    // as a menu belonging to the row that was held, and it is the only hard edge
+    // on a surface that is already lifted by its scrim. The fill alone carries
+    // it, which is the same reasoning the map's search pill uses.
     paddingVertical: space[2],
     paddingHorizontal: space[2],
+    // ★ THE POP GROWS FROM ITS OWN CORNER.
+    //
+    // `transformOrigin` is the react-native-web spelling and is honoured there;
+    // on native the same effect comes from the scale being small (8%) and short
+    // (160ms), which reads as a pop either way. Without pinning the origin the
+    // exit appears to slide towards the viewport's corner — the reported "it
+    // moves to the top right before disappearing".
+    ...({ transformOrigin: 'top left' } as object),
   },
   unplaced: {
     // rtl-ok: an off-canvas parking spot, not a layout position.
@@ -167,4 +222,3 @@ const styles = StyleSheet.create({
     left: 0, // rtl-ok: off-canvas parking, not a layout position
   },
 });
-
