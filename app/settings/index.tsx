@@ -39,7 +39,7 @@ import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
 import { clearStoredUserId, getStoredUserId } from '@/src/lib/session';
 import type { Language } from '@/src/i18n/types';
-import { border, space } from '@/src/theme/tokens';
+import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 export default function SettingsScreen() {
@@ -186,6 +186,7 @@ export default function SettingsScreen() {
             size="medium"
             onPress={() => setShowNotice(true)}
             testID="settings-notice-open"
+            style={styles.noticeAction}
           />
         </Card>
       </Section>
@@ -271,15 +272,16 @@ export default function SettingsScreen() {
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  const { t: theme } = useTheme();
-
   return (
-    /* ★ A RULE BETWEEN BLOCKS, NOT ONLY WHITESPACE.
-       The sections are separated by a `line` hairline as well as by the gap, so the
-       screen reads as distinct groups at a glance. Pure spacing at this many
-       controls made Language, Theme, Nickname, Notifications and Account run
-       together into one long column. */
-    <View style={[styles.section, { borderTopColor: theme.line }]}>
+    /* ★ GROUPS ARE SEPARATED BY SPACE, NOT BY A RULE.
+       The section carried a `line` hairline above it "so the screen reads as
+       distinct groups at a glance". In practice the rules drew a table around a
+       settings page — a rule above Language, above Theme, above Nickname, above
+       Notifications, above Privacy, above Account — and the request was to take
+       them out. The content container's `space[8]` gap already separates the
+       groups, and that is the separation the design system uses everywhere else.
+       The heading is what identifies a group. */
+    <View style={styles.section}>
       <Text variant="h3">{title}</Text>
       {children}
     </View>
@@ -291,10 +293,19 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: space[5], gap: space[8] },
   section: {
     gap: space[4],
-    borderTopWidth: border.hairline,
-    paddingTop: space[5],
   },
   cardBody: { gap: space[3] },
+  /**
+   * ★ AIR ABOVE THE ONE CONTROL THAT OPENS A DOCUMENT.
+   *
+   * The button was the last child of a `Card` whose gap is `space[3]`, directly
+   * under two caption lines — so the action read as a third line of the retention
+   * text rather than as the control it is. The margin is on the button, not a
+   * wrapper, so the card's own rhythm is unchanged for everything else.
+   */
+  noticeAction: {
+    marginTop: space[4],
+  },
   noticeContainer: {
     flex: 1,
     gap: space[3],

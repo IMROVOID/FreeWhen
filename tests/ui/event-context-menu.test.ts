@@ -3,14 +3,20 @@
  *
  * ★ TWO THINGS THAT GO WRONG WITHOUT A TEST AND A SCREENSHOT CANNOT CATCH.
  *
- * 1. PLACEMENT. A menu anchored under a row is right until the row is near the foot of
- *    the screen — then it is clipped, and the LAST event in a long list becomes the one
- *    you cannot act on. The requirement is explicit: open under the row, above it when
- *    there is not enough room under.
+ * 1. PLACEMENT. The menu opens AT THE PRESSED POINT. It used to be positioned
+ *    from the row's rect — its `left` was the row's leading edge and its `top`
+ *    was under the row — so with a row spanning the whole list the menu was
+ *    pinned to the list's edge, which the report describes as "always at the
+ *    bottom right (or left), not where I held my finger". A press carries a
+ *    point, and the anchor is now that point.
+ *
+ *    It must also stay reachable: a press near the foot of the screen would put
+ *    the menu off the bottom, so it lifts; a press past the trailing edge would
+ *    push it off the side, so it pulls back. Each branch is swept, not sampled.
  *
  * 2. OWNERSHIP. "Delete event" shown to a member is a dead end at best and a
- *    permission probe at worst. The two menus are built separately so the member's menu
- *    is exactly the two things they can do.
+ *    permission probe at worst. The two menus are built separately so the member's
+ *    menu is exactly the two things they can do.
  */
 
 import assert from 'node:assert/strict';
@@ -20,6 +26,8 @@ import { readFileSync } from 'node:fs';
 import {
   MENU_ANCHOR_GAP,
   MENU_EDGE_MARGIN,
+  anchorFromPress,
+  anchorFromRow,
   placeMenu,
 } from '@/src/features/events/services/menu-placement';
 
@@ -32,35 +40,86 @@ function code(path: string): string {
 const WINDOW = { windowWidth: 390, windowHeight: 800 };
 const MENU = { menuWidth: 220, menuHeight: 200 };
 
-test('a row with room under it opens the menu below', () => {
-  // Arrange
-  const anchor = { x: 16, y: 200, width: 358, height: 96 };
+/** A press at the middle of a row that starts at `rowTop`. */
+function pressInRow(rowTop: number, x = 100, rowHeight = 96) {
+  return anchorFromPress({ x: 16, y: rowTop, width: 358, height: rowHeight }, { x, y: rowHeight / 2 });
+}
+
+test('the menu opens at the pressed point, not at a corner of the row', () => {
+  // Arrange — the finger is a third of the way across the row.
+  const anchor = anchorFromPress({ x: 16, y: 200, width: 358, height: 96 }, { x: 120, y: 48 });
 
   // Act
   const placement = placeMenu({ anchor, ...WINDOW, ...MENU });
 
-  // Assert
-  assert.equal(placement.above, false, 'the menu opened above a row with room below');
-  assert.equal(placement.top, anchor.y + anchor.height + MENU_ANCHOR_GAP);
+  // Assert — the menu's leading edge follows the finger, and its top is at the
+  // press rather than under the whole row.
+  assert.equal(placement.left, 16 + 120 + MENU_ANCHOR_GAP);
+  assert.equal(placement.top, 200 + 48 - MENU_ANCHOR_GAP);
+  assert.equal(placement.above, false);
 });
 
-test('a row near the foot of the screen opens the menu ABOVE', () => {
-  // Arrange — the last event in a list. Below would overflow the viewport.
-  const anchor = { x: 16, y: 700, width: 358, height: 96 };
+test('the horizontal side follows the reading direction', () => {
+  // Arrange — a 220px menu in a 390px window cannot fit on both sides of the SAME
+  // press, so each direction is given a press where its own reading side has room.
+  // That is the honest statement of the rule: the menu opens on the reading side
+  // when there is room, and flips when there is not.
+  const nearLeading = anchorFromPress({ x: 0, y: 200, width: 358, height: 96 }, { x: 60, y: 48 });
+  const nearTrailing = anchorFromPress({ x: 0, y: 200, width: 358, height: 96 }, { x: 300, y: 48 });
+
+  // Act
+  const ltr = placeMenu({ anchor: nearLeading, ...WINDOW, ...MENU, rtl: false });
+  const rtl = placeMenu({ anchor: nearTrailing, ...WINDOW, ...MENU, rtl: true });
+
+  // Assert — in RTL the menu hangs to the LEFT of the finger, so its item labels
+  // read from the same edge the finger is on.
+  assert.equal(ltr.left, nearLeading.x + MENU_ANCHOR_GAP);
+  assert.equal(rtl.left, nearTrailing.x - MENU.menuWidth - MENU_ANCHOR_GAP);
+});
+
+test('a press with no room on its reading side flips, rather than jumping to the margin', () => {
+  // Arrange — an RTL press 30px from the leading edge cannot put a 220px menu to
+  // its left. Clamping to MENU_EDGE_MARGIN parked it at the far left, which read
+  // as the menu jumping across the screen instead of opening at the finger.
+  const anchor = anchorFromPress({ x: 0, y: 200, width: 358, height: 96 }, { x: 30, y: 48 });
+
+  // Act
+  const rtl = placeMenu({ anchor, ...WINDOW, ...MENU, rtl: true });
+
+  // Assert — it opens on the OTHER side of the press, which still fits.
+  assert.equal(rtl.left, anchor.x + MENU_ANCHOR_GAP);
+});
+
+test('a press near the trailing edge flips the LTR menu the same way', () => {
+  // Arrange
+  const anchor = anchorFromPress({ x: 0, y: 200, width: 358, height: 96 }, { x: 360, y: 48 });
+
+  // Act
+  const ltr = placeMenu({ anchor, ...WINDOW, ...MENU, rtl: false });
+
+  // Assert
+  assert.equal(ltr.left, anchor.x - MENU.menuWidth - MENU_ANCHOR_GAP);
+});
+
+test('a press near the foot of the screen lifts the menu', () => {
+  // Arrange — the last event in a list.
+  const anchor = pressInRow(700);
 
   // Act
   const placement = placeMenu({ anchor, ...WINDOW, ...MENU });
 
   // Assert
   assert.equal(placement.above, true, 'the menu stayed below and would be clipped');
-  assert.equal(placement.top, anchor.y - MENU_ANCHOR_GAP - MENU.menuHeight);
-  assert.ok(placement.top >= 0, `the menu was placed above the viewport top: ${placement.top}`);
+  assert.ok(
+    placement.top + MENU.menuHeight <= WINDOW.windowHeight - MENU_EDGE_MARGIN + 0.001,
+    `the menu runs off the bottom: ${placement.top + MENU.menuHeight}`,
+  );
 });
 
 test('the menu is always fully inside the viewport, vertically', () => {
-  // Arrange — sweep the row from the top edge to the bottom one.
+  // Arrange — sweep the press from above the top edge to below the bottom one.
   for (let y = -40; y <= WINDOW.windowHeight + 40; y += 8) {
-    const anchor = { x: 16, y, width: 358, height: 72 };
+    const anchor = pressInRow(y);
 
     // Act
     const placement = placeMenu({ anchor, ...WINDOW, ...MENU });
@@ -77,36 +136,42 @@ test('the menu is always fully inside the viewport, vertically', () => {
   }
 });
 
-test('below is preferred, not the roomier side', () => {
-  // Arrange — a menu that fits below but has MORE room above. It must still open
-  // below: a menu that flips sides for a few pixels of advantage is unpredictable.
-  const anchor = { x: 16, y: 300, width: 358, height: 72 };
+test('the menu is always fully inside the viewport, horizontally', () => {
+  // Arrange — sweep the press across the row, in both directions.
+  for (const rtl of [false, true]) {
+    for (let x = -40; x <= 380; x += 10) {
+      const anchor = pressInRow(300, x);
 
-  // Act
-  const placement = placeMenu({ anchor, ...WINDOW, ...MENU });
+      // Act
+      const placement = placeMenu({ anchor, ...WINDOW, ...MENU, rtl });
 
-  // Assert
-  assert.equal(placement.above, false, 'the menu flipped above despite fitting below');
+      // Assert
+      assert.ok(
+        placement.left >= MENU_EDGE_MARGIN - 0.001,
+        `rtl=${rtl} x=${x}: the menu starts at ${placement.left}`,
+      );
+      assert.ok(
+        placement.left + MENU.menuWidth <= WINDOW.windowWidth - MENU_EDGE_MARGIN + 0.001,
+        `rtl=${rtl} x=${x}: the menu runs off the trailing edge at ${placement.left}`,
+      );
+    }
+  }
 });
 
-test('the menu is pulled back inside the viewport, horizontally', () => {
-  // Arrange — a row at the trailing edge of a narrow window.
-  const anchor = { x: 340, y: 200, width: 40, height: 96 };
+test('a press in the middle of a tall screen does not flip', () => {
+  // Arrange — the menu fits both ways, so it must stay at the press.
+  const anchor = pressInRow(300);
 
   // Act
   const placement = placeMenu({ anchor, ...WINDOW, ...MENU });
 
   // Assert
-  assert.ok(
-    placement.left + MENU.menuWidth <= WINDOW.windowWidth - MENU_EDGE_MARGIN + 0.001,
-    `the menu runs off the trailing edge: left=${placement.left}`,
-  );
-  assert.ok(placement.left >= MENU_EDGE_MARGIN - 0.001, `the menu starts at ${placement.left}`);
+  assert.equal(placement.above, false, 'the menu flipped despite fitting at the press');
 });
 
 test('a menu taller than the window is still reachable', () => {
   // Arrange — a long action list at a large text scale fits in neither direction.
-  const anchor = { x: 16, y: 400, width: 358, height: 72 };
+  const anchor = pressInRow(400);
   const tall = { menuWidth: 220, menuHeight: 900 };
 
   // Act
@@ -114,6 +179,18 @@ test('a menu taller than the window is still reachable', () => {
 
   // Assert — clamped to the top margin rather than placed off-screen.
   assert.equal(placement.top, MENU_EDGE_MARGIN, 'an over-tall menu was not clamped');
+});
+
+test('a keyboard or screen-reader anchor lands on the row centre', () => {
+  // Arrange
+  const row = { x: 16, y: 200, width: 358, height: 96 };
+
+  // Act
+  const anchor = anchorFromRow(row);
+
+  // Assert
+  assert.equal(anchor.x, row.x + row.width / 2);
+  assert.equal(anchor.y, row.y + row.height / 2);
 });
 
 test('a member sees only the two actions they can take', async () => {
@@ -200,6 +277,16 @@ test('the menu is rendered outside the scrolling list', () => {
   assert.ok(menuAt < scrollCloseAt, 'the menu is rendered after the scroll view closes');
 });
 
+test('the row reports WHERE it was pressed, not only which row', () => {
+  // Arrange — without the point, the menu has no choice but a corner of the row.
+  const row = code('src/features/events/components/EventRow.tsx');
+
+  // Assert
+  assert.ok(/locationX/.test(row), 'the row discards the horizontal press position');
+  assert.ok(/locationY/.test(row), 'the row discards the vertical press position');
+  assert.ok(/anchorFromPress/.test(row), 'the row does not convert the press to a window point');
+});
+
 test('the row exposes the menu to a screen reader as an action', () => {
   // Arrange — a hold is not a gesture a screen-reader user performs.
   const row = code('src/features/events/components/EventRow.tsx');
@@ -208,4 +295,42 @@ test('the row exposes the menu to a screen reader as an action', () => {
   assert.ok(/accessibilityActions/.test(row), 'the row has no accessibility action');
   assert.ok(/onAccessibilityAction/.test(row), 'the action is never handled');
   assert.ok(/measureInWindow/.test(row), 'the row does not measure itself for placement');
+});
+
+test('the menu has no border', () => {
+  // Arrange — "also remove the Menu border (on Web and App)".
+  const popover = code('src/components/ui/Popover.tsx');
+  const panel = /panel:\s*\{([^}]*)\}/.exec(popover)?.[1] ?? '';
+
+  // Assert
+  assert.ok(!/borderWidth/.test(panel), 'the menu panel still paints a border');
+});
+
+test('the menu opens with a pop, not a fade', () => {
+  // Arrange — "replace open fade in animation with Popup animation as well".
+  const popover = code('src/components/ui/Popover.tsx');
+
+  // Act
+  const scales = /transform:\s*\[\{\s*scale:/.test(popover);
+  const fromOrigin = /transformOrigin/.test(popover) || /originX/.test(popover);
+
+  // Assert — a scale about the panel's own centre reads as popping out of the
+  // page; the origin has to be pinned or the panel appears to fly in from a
+  // corner, which is the "moves to the top right before disappearing" report.
+  assert.ok(scales, 'the menu does not scale on open');
+  assert.ok(fromOrigin, 'the menu scales about an unpinned origin');
+});
+
+test('the menu closes where it opened', () => {
+  // Arrange — "it should pop out and close in same place as appears".
+  const popover = code('src/components/ui/Popover.tsx');
+
+  // Act
+  const keepsPosition = /position === null\s*\?\s*styles\.unplaced\s*:\s*\{/.test(popover);
+  const consistentScale = /0\.92 \+ progress\.value \* 0\.08/.test(popover);
+
+  // Assert — the position is NOT reset when the exit runs, and the scale is one
+  // expression for both directions, so open and close are mirror images.
+  assert.ok(keepsPosition, 'the panel drops its position while closing');
+  assert.ok(consistentScale, 'the entrance and the exit use different scale curves');
 });

@@ -89,18 +89,81 @@ export const themes = {
      * translucent black rather than a theme colour.
      */
     scrim: 'rgba(0, 0, 0, 0.5)',
+    /**
+     * A card's edge — see the light theme's note.
+     *
+     * Dark surfaces already separate: `surface1` is six points lighter than `bg`
+     * and the difference is visible. The edge is present anyway so a card reads
+     * the same in both themes, and it is a LIGHT hairline because a dark one on a
+     * dark card is invisible in the other direction.
+     */
+    cardEdge: 'rgba(255, 247, 242, 0.08)',
   },
   light: {
-    bg: '#FBF5EF',
-    surface1: '#FFFFFF',
-    surface2: '#F4EAE1',
-    surface3: '#EADBCE',
-    // Was #E4D3C5 (1.35:1 on bg). Now 3.00–4.06:1 across all surfaces.
-    line: '#8C7B6D',
+    /**
+     * ★ THE LIGHT THEME WAS NEARLY WHITE, AND THE REQUEST WAS FOR MORE SATURATION.
+     *
+     * `bg` was `#FBF5EF` — 97% lightness. On a bright panel the page and a white
+     * card were the same value to the eye, and every surface step below it was a
+     * 3–4 point nudge. Each was stepped down one notch into the warm hue the
+     * palette is built on, so the page has a colour rather than an absence of one
+     * and the three surfaces remain distinguishable in sunlight.
+     *
+     * Every documented pair below was RE-MEASURED after the change; the ratios in
+     * the header are the new numbers, and `tests/ui/a11y.test.tsx` re-measures
+     * them on every run.
+     */
+    bg: '#F7EDE3',
+    surface1: '#FFFCF9',
+    surface2: '#F0E2D4',
+    surface3: '#E6D2C1',
+    /**
+     * ★ DARKENED WITH THE SURFACES, LIKE `textFaint`.
+     *
+     * `#8C7B6D` was the smallest value that cleared 3:1 against the OLD, lighter
+     * surface3. Stepping the surfaces down dropped it to 2.78:1 there — an
+     * outlined control's border with no boundary at all. `#827163` is again the
+     * smallest step that clears every surface the token is drawn on (3.20–4.57).
+     */
+    line: '#827163',
+    /**
+     * A card's edge, and ONLY a card's edge.
+     *
+     * ★ A WHITE CARD ON A NEARLY-WHITE PAGE HAD NO BOUNDARY ON WEB.
+     *
+     * `Card variant="surface"` fills with `surface1` — pure white — over a `bg`
+     * that was 97% lightness. On native the `Pressy` scale and elevation made the
+     * box read as a box; on the web build there is no elevation, so the event
+     * boxes on the home screen looked like the page had no cards at all: "the
+     * Event boxes on Home page are missing BG on Light Theme on Web".
+     *
+     * This is a BOUNDARY, not text, so it does not have to clear 4.5:1 — the 3:1
+     * UI bar applies to a control's boundary against its background, and a
+     * decorative card edge is exempt. A hairline at 10% is what every card idiom
+     * uses, and it is deliberately NOT `line`, which is the border of an outlined
+     * CONTROL and must be much stronger.
+     */
+    cardEdge: 'rgba(23, 14, 10, 0.10)',
     text: '#170E0A',
-    textMuted: '#6E5A4E',
-    // Was #A3907F (3.06:1 on white). Now clears 4.5:1 body on every surface.
-    textFaint: '#8D7A69',
+    /**
+     * ★ DARKENED WITH THE SURFACES, LIKE `textFaint` AND `line`.
+     *
+     * It was `#6E5A4E`, tuned against the old page; on the deeper `surface3` it
+     * measured 4.44:1, just under the 4.5:1 body bar. One step into the same hue
+     * clears every surface (4.80–6.87) and stays clearly darker than
+     * `textFaint`'s 3.08:1, so the three text tiers are still in order.
+     */
+    textMuted: '#695546',
+    /**
+     * ★ DARKENED WITH THE SURFACES, BECAUSE A DARKER PAGE NEEDS DARKER FAINT TEXT.
+     *
+     * It was `#8D7A69`, tuned against a 97%-lightness page. Stepping the surfaces
+     * down for saturation dropped it to 2.80:1 on `surface3` — under the 3:1 bar
+     * this token is held to — so it is moved one step into the same hue until it
+     * clears. It stays LIGHTER than `textMuted` (4.44:1 on the same surface),
+     * which is what makes it the faint tier rather than a second muted one.
+     */
+    textFaint: '#877362',
     primary: palette.espresso,
     onPrimary: '#FFF6EF',
     brand: palette.tangerine,
@@ -214,6 +277,8 @@ export interface Theme {
   info: string;
   /** The translucent fill behind a modal layer. Never `bg` — see the dark theme. */
   scrim: string;
+  /** A card's hairline edge. A boundary, not a control border — see the light theme. */
+  cardEdge: string;
 }
 
 /** Semantic colours that live outside the per-theme neutrals (Style Guide §2.4). */

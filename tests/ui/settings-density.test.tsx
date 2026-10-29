@@ -133,13 +133,19 @@ test('sections are spaced further apart than the old uniform gap', async () => {
   assert.ok(space[8] > space[5], 'space[8] is not larger than space[5]');
 });
 
-test('a rule separates the sections, not whitespace alone', () => {
-  // Arrange
+test('sections are separated by space, not by a rule', () => {
+  // Arrange — the sections carried a `line` hairline above each one. Six of them
+  // drew a table around a settings page, and the request was to take them out.
+  // The `content` gap is what separates the groups now.
   const settings = code('app/settings/index.tsx');
 
-  // Act / Assert
-  assert.ok(/borderTopWidth/.test(settings), 'the sections carry no separating rule');
-  assert.ok(/theme\.line/.test(settings), 'the separating rule is not themed');
+  // Act
+  const section = /section:\s*\{([^}]*)\}/.exec(settings)?.[1] ?? '';
+
+  // Assert
+  assert.ok(section.length > 0, 'the section style is missing');
+  assert.ok(!/borderTopWidth/.test(section), 'the section still draws a separating rule');
+  assert.ok(/gap:\s*space\[4\]/.test(section), 'the section lost its internal rhythm too');
 });
 
 test('the privacy button is not painted the colour of the card behind it', () => {

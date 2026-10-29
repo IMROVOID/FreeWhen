@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/src/components/ui/Text';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
+import { NotificationRow } from '@/src/features/notifications/components/NotificationRow';
 import type { EventSummary } from '@/src/types/event';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -84,19 +85,11 @@ export function MuteList({ events, isLoading, interactive = true, testID }: Mute
         Each row is now the NAME and its SWITCH and nothing else.
       */}
       {events.map((event) => (
-        <View key={event.id} style={styles.row} testID={`${testID ?? 'mute-list'}-${event.id}`}>
-          {/* ★ `align="start"` IS NOT OPTIONAL HERE.
-              The default is `start`, but the ROW it sits in is a plain
-              `View` whose direction comes from the document. On the web build a
-              `Text` that did not declare its own alignment inherited the
-              container's, and the container had no `dir`, so the event name
-              rendered left-aligned inside an otherwise RTL screen. Declaring it
-              puts the name on the reading edge — the right one in Persian —
-              independent of what the row does. */}
-          <Text variant="body" weight={600} numberOfLines={1} align="start" style={styles.title}>
-            {event.title}
-          </Text>
-
+        <NotificationRow
+          key={event.id}
+          title={event.title}
+          testID={`${testID ?? 'mute-list'}-${event.id}`}
+        >
           <MuteToggle
             eventId={event.id}
             muted={interactive ? (overrides[event.id] ?? event.notifications_muted) : true}
@@ -104,7 +97,7 @@ export function MuteList({ events, isLoading, interactive = true, testID }: Mute
             disabled={!interactive}
             testID={`mute-${event.id}`}
           />
-        </View>
+        </NotificationRow>
       ))}
     </View>
   );
@@ -113,22 +106,5 @@ export function MuteList({ events, isLoading, interactive = true, testID }: Mute
 const styles = StyleSheet.create({
   list: {
     gap: space[4],
-  },
-  row: {
-    // ★ A ROW, WITH THE NAME TAKING THE FREE SPACE.
-    //
-    // This was a plain column, so the event name sat ABOVE its switch instead of
-    // beside it, and the name's leading edge followed the column's stretch rather
-    // than its own `align="start"`. Laying it out as a row with `flex: 1` on the
-    // name is what puts the title on the reading edge and the switch on the
-    // opposite one — mirrored automatically by the document direction, so no
-    // `row-reverse` branch is needed.
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space[3],
-  },
-  title: {
-    flex: 1,
   },
 });

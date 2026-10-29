@@ -22,7 +22,6 @@ import { useTranslation } from 'react-i18next';
 import { AccentSwitch } from '@/src/components/ui/AccentSwitch';
 import { Text } from '@/src/components/ui/Text';
 import { getStoredUserId } from '@/src/lib/session';
-import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 import { toggleMute } from '../services/mute';
@@ -119,23 +118,36 @@ export function MuteToggle({ eventId, muted, onChange, disabled = false, testID 
    * sentence is announced on both platforms.
    */
   return (
-    <View style={styles.wrapper} testID={testID}>
-      <View style={styles.row}>
-        <AccentSwitch
-          value={muted}
-          onValueChange={(next) => void toggle(next)}
-          disabled={pending || disabled}
-          accessibilityLabel={t('notifications.mute.label')}
-          accessibilityHint={t('notifications.mute.hint')}
-          describedBy={descriptionId}
-          testID={testID ? `${testID}-switch` : undefined}
-        />
+    /**
+     * ★ NO ROW HERE, AND THAT IS THE ALIGNMENT FIX.
+     *
+     * This used to wrap the switch in its own `row` — `flexDirection: 'row'`,
+     * `justifyContent: 'flex-end'` and `gap: space[3]` — with a zero-size
+     * description node as its second child. That gap applied to the hidden node
+     * too, so the switch sat 12px inside the row it was placed in, while the
+     * general switch above it had no such wrapper. Two switches on one screen,
+     * one gap apart: "align the Event notifications toggles with the General
+     * notifications toggle horizontally".
+     *
+     * The ROW belongs to `NotificationRow`, which both call sites render. This
+     * component is the switch and its accessible description; where it sits is
+     * not its business.
+     */
+    <View testID={testID}>
+      <AccentSwitch
+        value={muted}
+        onValueChange={(next) => void toggle(next)}
+        disabled={pending || disabled}
+        accessibilityLabel={t('notifications.mute.label')}
+        accessibilityHint={t('notifications.mute.hint')}
+        describedBy={descriptionId}
+        testID={testID ? `${testID}-switch` : undefined}
+      />
 
-        {/* Present in the accessibility tree, absent from the layout. Zero size rather
-            than `display: none`, which would remove it from that tree as well. */}
-        <View style={styles.srOnly} nativeID={descriptionId} accessibilityRole="text">
-          <Text variant="caption">{t('notifications.mute.hint')}</Text>
-        </View>
+      {/* Present in the accessibility tree, absent from the layout. Zero size rather
+          than `display: none`, which would remove it from that tree as well. */}
+      <View style={styles.srOnly} nativeID={descriptionId} accessibilityRole="text">
+        <Text variant="caption">{t('notifications.mute.hint')}</Text>
       </View>
 
       {errorKey !== null && (
@@ -148,15 +160,6 @@ export function MuteToggle({ eventId, muted, onChange, disabled = false, testID 
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    gap: space[2],
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: space[3],
-  },
   srOnly: {
     width: 0,
     height: 0,

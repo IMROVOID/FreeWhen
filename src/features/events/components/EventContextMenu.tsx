@@ -9,11 +9,13 @@
  * event, in a sheet behind an action grid. So the row you are looking at was the one
  * place you could not act on it.
  *
- * ★ IT OPENS BELOW THE ROW, OR ABOVE IT WHEN THERE IS NO ROOM.
+ * ★ IT OPENS WHERE THE FINGER WAS.
  *
  * The placement logic is in `services/menu-placement.ts` and is pure, because "does the
- * last event in the list have a usable menu" is a question with a wrong answer that no
- * screenshot review reliably catches.
+ * last event in a list have a usable menu" is a question with a wrong answer that no
+ * screenshot review reliably catches. The anchor is the PRESS POINT — a rect-based
+ * anchor pinned the menu to the list's edge, which the report describes as "always at
+ * the bottom right, not where I held".
  *
  * ★ THE SURFACE IS `Popover`, NOT A SHEET AND NOT A BARE `Modal`.
  *
@@ -21,8 +23,16 @@
  * belongs to. A bare platform `Modal` has no exit animation and, on web, is the layer
  * that renders invisible while its scrim swallows clicks — see `BottomSheet.web.tsx`.
  * `Popover` is the positioned overlay that keeps the dismiss behaviour of both.
+ *
+ * ★ THE ANCHOR SURVIVES THE CLOSE.
+ *
+ * `anchor` going null is what closes the menu, and the placement is computed from a
+ * remembered copy of the last non-null anchor. Otherwise the panel would jump to its
+ * fallback position for the exit animation — the reported "it moves to the top right
+ * before disappearing".
  */
 
+import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 import { Gear, MapPin, SignOut, Trash } from 'phosphor-react-native';
@@ -32,6 +42,7 @@ import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { contextMenuActions } from '@/src/features/events/services/context-menu-actions';
 import { placeMenu, type MenuAnchor } from '@/src/features/events/services/menu-placement';
+import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -40,12 +51,12 @@ import { useTheme } from '@/src/theme/useTheme';
  *
  * Derived from the token grid rather than typed as pixels: the menu is four rows at
  * `space[8]` plus the card's own padding, and a literal would drift the first time the
- * grid changes — which would silently move it to the wrong side of the row.
+ * grid changes — which would silently move it to the wrong side of the finger.
  */
 const MENU_ESTIMATED = { width: space[16] * 3 + space[10], height: space[8] * 5 + space[10] };
 
 export interface EventContextMenuProps {
-  /** The row the user held, in window coordinates. `null` closes the menu. */
+  /** The point the user pressed, in window coordinates. `null` closes the menu. */
   anchor: MenuAnchor | null;
   /** The viewport the menu has to fit in. */
   viewport: { width: number; height: number };
@@ -74,6 +85,7 @@ export function EventContextMenu({
 }: EventContextMenuProps) {
   const { t: theme } = useTheme();
   const { t } = useTranslation();
+  const rtl = useLayoutDirection();
 
   const actions = contextMenuActions(isOwner);
 
@@ -91,15 +103,27 @@ export function EventContextMenu({
     delete: (props) => <Trash {...props} weight="bold" />,
   };
 
+  /**
+   * The last anchor the menu was open at.
+   *
+   * Held across the close so the exit animation runs where the entrance did — see
+   * the note at the top of this file.
+   */
+  const lastAnchor = useRef<MenuAnchor | null>(null);
+  if (anchor !== null) lastAnchor.current = anchor;
+
+  const placed = lastAnchor.current;
+
   const placement =
-    anchor === null
+    placed === null
       ? null
       : placeMenu({
-          anchor,
+          anchor: placed,
           windowHeight: viewport.height,
           windowWidth: viewport.width,
           menuHeight: MENU_ESTIMATED.height,
           menuWidth: MENU_ESTIMATED.width,
+          rtl,
         });
 
   return (

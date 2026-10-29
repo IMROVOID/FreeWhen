@@ -24,7 +24,7 @@ import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native'
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Gear, MagnifyingGlass } from 'phosphor-react-native';
+import { Gear, MagnifyingGlass, DownloadSimple } from 'phosphor-react-native';
 
 import { Button, type ButtonVariant } from '@/src/components/ui/Button';
 import { Pressy } from '@/src/components/ui/Pressy';
@@ -32,14 +32,17 @@ import { Text } from '@/src/components/ui/Text';
 import { ScreenStateGate, type ScreenState } from '@/src/components/states/ScreenStateGate';
 import { EventRow } from '@/src/features/events/components/EventRow';
 import { EventContextMenu } from '@/src/features/events/components/EventContextMenu';
+import type { MenuAnchor } from '@/src/features/events/services/menu-placement';
 import { deleteEvent, leaveEvent } from '@/src/features/events/services/event-management';
 import { ConfirmSheet } from '@/src/components/ui/ConfirmSheet';
+import { InstallPrompt } from '@/src/features/install/components/InstallPrompt';
 import { getStoredUserId } from '@/src/lib/session';
 import type { EventSummary } from '@/src/types/event';
 import { EventSearchSheet } from '@/src/features/events/components/EventSearchSheet';
 import { JoinEventCard } from '@/src/features/events/components/JoinEventCard';
 import { useMyEvents } from '@/src/features/events/hooks/useMyEvents';
 import { useOffline } from '@/src/hooks/useOffline';
+import { isWeb } from '@/src/platform/environment';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
@@ -57,6 +60,18 @@ export default function EventListScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
 
   /**
+   * The install offer, re-openable from the header.
+   *
+   * ★ THE FIRST OFFER IS DISMISSIBLE; THIS BUTTON IS THE WAY BACK.
+   *
+   * Dismissing the sheet is permanent by design — the requirement says so — but
+   * a person who dismissed it before reading it would otherwise have no door at
+   * all. The header control is that door, labelled for a screen reader and
+   * present only on the web build, where installing is a thing that exists.
+   */
+  const [installOpen, setInstallOpen] = useState(false);
+
+  /**
    * The event whose context menu is open, and the row's rect on screen.
    *
    * ★ THE MENU IS A HOLD, BECAUSE THE ROW HAD NO ROOM FOR A THIRD CONTROL.
@@ -66,10 +81,7 @@ export default function EventListScreen() {
    * all reachable only from INSIDE the event, so the row you are looking at was the one
    * place you could not act on it.
    */
-  const [menuFor, setMenuFor] = useState<{
-    event: EventSummary;
-    bounds: { x: number; y: number; width: number; height: number };
-  } | null>(null);
+  const [menuFor, setMenuFor] = useState<{ event: EventSummary; anchor: MenuAnchor } | null>(null);
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
@@ -165,7 +177,7 @@ export default function EventListScreen() {
                     key={event.id}
                     event={event}
                     onPress={() => openEvent(event.id)}
-                    onLongPress={(bounds) => setMenuFor({ event, bounds })}
+                    onLongPress={(anchor) => setMenuFor({ event, anchor })}
                   />
                 ))}
               </>
@@ -198,17 +210,37 @@ export default function EventListScreen() {
           </Text>
         </View>
 
-        <Pressy
-          onPress={() => router.push('/settings')}
-          accessibilityRole="button"
-          accessibilityLabel={t('settings.heading')}
-          testID="home-settings"
-          style={styles.settingsControl}
-        >
-          <View style={[styles.settingsInner, { backgroundColor: theme.surface2 }]}>
-            <Gear size={22} color={theme.text} weight="bold" />
-          </View>
-        </Pressy>
+        <View style={styles.headerControls}>
+          {/* ★ THE INSTALL DOOR SITS BESIDE SETTINGS, AS ASKED.
+              It is web-only: inside the installed app there is nothing to
+              install, and the APK is not a thing a native build can download
+              onto itself. */}
+          {isWeb ? (
+            <Pressy
+              onPress={() => setInstallOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={t('install.reopen')}
+              testID="home-install"
+              style={styles.settingsControl}
+            >
+              <View style={[styles.settingsInner, { backgroundColor: theme.surface2 }]}>
+                <DownloadSimple size={22} color={theme.text} weight="bold" />
+              </View>
+            </Pressy>
+          ) : null}
+
+          <Pressy
+            onPress={() => router.push('/settings')}
+            accessibilityRole="button"
+            accessibilityLabel={t('settings.heading')}
+            testID="home-settings"
+            style={styles.settingsControl}
+          >
+            <View style={[styles.settingsInner, { backgroundColor: theme.surface2 }]}>
+              <Gear size={22} color={theme.text} weight="bold" />
+            </View>
+          </Pressy>
+        </View>
       </View>
 
       <JoinEventCard onJoin={(token) => router.push(`/e/${token}`)} />
@@ -241,12 +273,18 @@ export default function EventListScreen() {
         onOpenEvent={openEvent}
       />
 
+      {/* The re-opened install offer. Its own dismissal is already permanent, so
+          closing it here is just closing it. */}
+      {isWeb ? (
+        <InstallPrompt visible={installOpen} onDismiss={() => setInstallOpen(false)} />
+      ) : null}
+
       {/* ★ A HOLD ON AN EVENT ROW OPENS ITS ACTIONS HERE.
           Rendered at the screen's root, not inside the `ScrollView`: a menu laid out
           against scroll content is positioned against a box taller than the viewport,
           which is the trap `BottomSheet.tsx` documents. */}
       <EventContextMenu
-        anchor={menuFor?.bounds ?? null}
+        anchor={menuFor?.anchor ?? null}
         viewport={{ width: windowWidth, height: windowHeight }}
         eventTitle={menuFor?.event.title ?? ''}
         isOwner={Boolean(menuFor?.event.is_organizer)}
@@ -316,6 +354,11 @@ const styles = StyleSheet.create({
   },
   headingBlock: {
     flex: 1,
+  },
+  headerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
   },
   listHeading: {
     // The separation the list heading needs from the join card above it.

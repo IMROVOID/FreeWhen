@@ -271,7 +271,10 @@ export default function CreateEventScreen() {
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.activityScrollView}
-        contentContainerStyle={styles.activityScroll}
+        contentContainerStyle={[
+          styles.activityScroll,
+          isRtlLayout(i18n.language) ? styles.activityScrollRtl : styles.activityScrollLtr,
+        ]}
         testID="create-activity-scroll"
       >
         {ACTIVITY_TYPES.map((token) => {
@@ -414,27 +417,33 @@ const styles = StyleSheet.create({
   activityScrollView: {
     marginHorizontal: -space[5],
     /**
-     * ★ THE ROW MUST NOT INHERIT THE DOCUMENT'S RTL SCROLL ORIGIN.
+     * ★ THE ROW IS A HORIZONTAL SCROLLER, SO IT KEEPS THE PHYSICAL LEFT ORIGIN.
      *
-     * On web a horizontal scroller inside `dir="rtl"` starts at the RIGHT edge,
-     * so with the content's own `space[5]` padding the first card sat outside
-     * the viewport and the leftmost card was clipped mid-label — the row looked
-     * broken rather than scrolled.
+     * `direction: 'ltr'` here is NOT a statement about the interface — it is
+     * scoped to this scroller's scroll origin, because on web a horizontal
+     * scroller inside `dir="rtl"` starts at the RIGHT edge, and with the content's
+     * own `space[5]` padding the first card sat outside the viewport.
      *
-     * The row is laid out explicitly left-to-right and the leading card is
-     * reached by scrolling, which is the same visual order on both platforms.
-     * `direction: 'ltr'` is scoped to this scroller only; the cards' own text
-     * stays RTL because `Text` sets `dir` per node.
+     * But it also turned the CARD ORDER left-to-right, so in Persian the activity
+     * set read in the wrong direction — the reported "the Event Type list should
+     * be RTL on Persian". The cards themselves are `flexDirection: 'row-reverse'`
+     * under RTL, which restores the reading order while the scroll origin stays
+     * sane. The card's own TEXT is unaffected: `Text` sets `dir` per node.
      */
     direction: 'ltr',
   },
   /* The card row scrolls edge-to-edge across the screen's padding, with
      space[5] on each end matching the content edge. */
   activityScroll: {
-    flexDirection: 'row',
     gap: space[2],
     paddingVertical: space[2],
     paddingHorizontal: space[5],
+  },
+  activityScrollRtl: {
+    flexDirection: 'row-reverse',
+  },
+  activityScrollLtr: {
+    flexDirection: 'row',
   },
   activityCard: {
     width: ACTIVITY_CARD_WIDTH,

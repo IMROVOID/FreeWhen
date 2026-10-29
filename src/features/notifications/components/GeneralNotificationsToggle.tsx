@@ -21,7 +21,6 @@ import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { AccentSwitch } from '@/src/components/ui/AccentSwitch';
-import { Text } from '@/src/components/ui/Text';
 import {
   INITIAL_SWITCH,
   disableAll,
@@ -31,7 +30,8 @@ import {
   type NotificationSwitchState,
 } from '@/src/features/notifications/services/general-switch';
 import { space } from '@/src/theme/tokens';
-import { useTheme } from '@/src/theme/useTheme';
+
+import { NotificationRow } from './NotificationRow';
 
 export interface GeneralNotificationsToggleProps {
   /** The events muted individually right now, so the snapshot is exact. */
@@ -52,7 +52,6 @@ export function GeneralNotificationsToggle({
   onChange,
   testID = 'general-notifications',
 }: GeneralNotificationsToggleProps) {
-  const { t: theme } = useTheme();
   const { t } = useTranslation();
 
   const [state, setState] = useState<NotificationSwitchState>(INITIAL_SWITCH);
@@ -75,23 +74,26 @@ export function GeneralNotificationsToggle({
   );
 
   return (
-    <View style={styles.wrapper} testID={testID}>
-      <View style={styles.row}>
-        <View style={styles.labels}>
-          <Text variant="body">{t('notifications.general.label')}</Text>
-          <Text variant="caption" color={theme.textMuted} testID={`${testID}-hint`}>
-            {t('notifications.general.hint')}
-          </Text>
-        </View>
-
+    <View style={styles.wrapper}>
+      {/* ★ THE SAME ROW THE PER-EVENT LIST USES.
+          Both were "a row with a switch at the end" built separately, and the
+          general one has a hint line under its label, so the two sets of switches
+          landed a few pixels apart. One component means one column. */}
+      <NotificationRow
+        title={t('notifications.general.label')}
+        hint={t('notifications.general.hint')}
+        hintId={`${testID}-hint`}
+        testID={testID}
+      >
         <AccentSwitch
           value={state.enabled}
           onValueChange={toggle}
           accessibilityLabel={t('notifications.general.label')}
           accessibilityHint={t('notifications.general.hint')}
+          describedBy={`${testID}-hint`}
           testID={`${testID}-switch`}
         />
-      </View>
+      </NotificationRow>
     </View>
   );
 }
@@ -102,15 +104,5 @@ export { displayedEventMute, isEventRowInteractive };
 const styles = StyleSheet.create({
   wrapper: {
     gap: space[2],
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space[3],
-  },
-  labels: {
-    flexShrink: 1,
-    gap: space[1],
   },
 });

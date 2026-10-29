@@ -11,13 +11,18 @@
  * screen reader (PRD-11 §8).
  */
 
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { ElementRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/src/components/ui/Text';
 import { Card } from '@/src/components/ui/Card';
+import {
+  anchorFromPress,
+  anchorFromRow,
+  type MenuAnchor,
+} from '@/src/features/events/services/menu-placement';
 import { haptics } from '@/src/platform/haptics';
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -27,7 +32,7 @@ export interface EventRowProps {
   event: EventSummary;
   onPress: () => void;
   /**
-   * Opens the row's context menu, with the row's own position on screen.
+   * Opens the row's context menu, at the point that was pressed.
    *
    * ★ THE ROW IS THE ONLY PLACE THE EVENT CAN BE ACTED ON.
    *
@@ -37,10 +42,19 @@ export interface EventRowProps {
    * rather than another button: the row already carries a status chip and an
    * attention badge, and a third control would make a list of them unreadable.
    *
-   * The bounds come from `measureInWindow` at the moment of the hold, because the list
-   * scrolls and an offset captured earlier would place the menu somewhere else.
+   * ★ IT CARRIES THE PRESS POINT, NOT JUST THE ROW.
+   *
+   * `nativeEvent.locationX/locationY` are the touch's position INSIDE the row, so
+   * adding the row's window rect gives the finger's window point — which is what
+   * the menu is placed from. Passing only the rect is what pinned the menu to a
+   * corner: with a row spanning the whole list, "the row's leading edge" is the
+   * list's edge, wherever the finger actually was.
+   *
+   * The rect comes from `measureInWindow` at the moment of the hold, because the
+   * list scrolls and an offset captured earlier would place the menu somewhere
+   * else.
    */
-  onLongPress?: (bounds: { x: number; y: number; width: number; height: number }) => void;
+  onLongPress?: (anchor: MenuAnchor) => void;
 }
 
 /** How long a press must hold before the menu opens. */
@@ -76,19 +90,36 @@ export function EventRow({ event, onPress, onLongPress }: EventRowProps) {
    */
   const containerRef = useRef<ElementRef<typeof View>>(null);
 
+  /**
+   * Measures the row, then reports the press point in WINDOW coordinates.
+   *
+   * `measureInWindow` is asynchronous, so the press offset is carried through the
+   * callback rather than read after it.
+   */
+  const report = useCallback(
+    (press?: { x: number; y: number }) => {
+      if (!onLongPress) return;
+
+      containerRef.current?.measureInWindow((x, y, width, height) => {
+        const rect = { x, y, width, height };
+        onLongPress(press ? anchorFromPress(rect, press) : anchorFromRow(rect));
+      });
+    },
+    [onLongPress],
+  );
+
   return (
     <View
       ref={containerRef}
       // Screen readers get the menu as an explicit action, since a hold is not a
-      // gesture they perform.
+      // gesture they perform. There is no press point, so the anchor is the row's
+      // centre — a menu at the middle of the row it belongs to.
       accessibilityActions={
         onLongPress ? [{ name: 'longpress', label: t('events.contextMenu.open') }] : undefined
       }
       onAccessibilityAction={(event_) => {
-        if (event_.nativeEvent.actionName !== 'longpress' || !onLongPress) return;
-        containerRef.current?.measureInWindow((x, y, width, height) =>
-          onLongPress({ x, y, width, height }),
-        );
+        if (event_.nativeEvent.actionName !== 'longpress') return;
+        report();
       }}
     >
       <Card
@@ -96,11 +127,12 @@ export function EventRow({ event, onPress, onLongPress }: EventRowProps) {
         onPress={onPress}
         onLongPress={
           onLongPress
-            ? () => {
+            ? (event_) => {
                 haptics.impact('medium');
-                containerRef.current?.measureInWindow((x, y, width, height) =>
-                  onLongPress({ x, y, width, height }),
-                );
+                report({
+                  x: event_.nativeEvent.locationX,
+                  y: event_.nativeEvent.locationY,
+                });
               }
             : undefined
         }
