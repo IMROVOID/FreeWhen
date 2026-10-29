@@ -7,6 +7,39 @@
  * - Center pin marker with drop feedback.
  * - Floating GPS button for device location.
  * - Bottom confirmation card showing chosen place details.
+ *
+ * ★ THE PICTURE MUST FOLLOW THE FINGER CONTINUOUSLY.
+ *
+ * The 3x3 tile grid is re-derived from the centre every render, so the only thing
+ * that can show a sub-tile drag is the grid's translation — `tileOffsetFor`. That
+ * offset used to be the centre's fractional position inside its FLOORED tile,
+ * which is continuous everywhere except at a tile boundary, where it wraps from
+ * ~1 to ~0 and the grid snaps a full tile backwards. That snap is the "map ticks
+ * back while dragging" report. It is now measured from the NEAREST tile, whose
+ * domain is `[-0.5, 0.5)` and has no discontinuity; see `map-pan.ts`.
+ *
+ * ★ THE OFFSET IS DERIVED, NOT STORED.
+ *
+ * It used to be a piece of state written by `commitCentre`, seeded once from the
+ * initial centre and re-derived on every zoom. Three copies of one fact, and the
+ * copy that drifted was the one the picture used — a zoom followed by a drag
+ * painted one frame at the old zoom's scale before correcting itself, which is a
+ * second tick. It is now computed from `lat`/`lng`/`zoom` during render, so it
+ * cannot disagree with them.
+ *
+ * ★ THE SEARCH IS DEBOUNCED ON THE QUERY ALONE.
+ *
+ * The effect listed `lat`/`lng` as dependencies to bias results near the visible
+ * area — but those change on every frame of a drag, so the 300 ms timer was reset
+ * continuously and the request never fired. Panning the map once was enough to
+ * make search stop working entirely, which is the reported "no results, whatever
+ * I search". The bias is read from a ref at fire time instead.
+ *
+ * ★ AND A FAILED SEARCH IS A VISIBLE STATE.
+ *
+ * The old `catch` set the results to an empty array, so a 404, a 500 and "this
+ * place does not exist" were indistinguishable. The custom pin is a first-class
+ * path in this product, so an unavailable provider says so and offers it.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -35,11 +68,18 @@ import { Card } from '@/src/components/ui/Card';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import {
+  MIN_SEARCH_LENGTH,
   searchPlaces,
   type PlaceResult,
 } from '@/src/features/venues/services/place-search';
 import { haptics } from '@/src/platform/haptics';
-import { formatCoordinates, offsetWithinTile, translateCentre } from '@/src/components/ui/map-pan';
+import { useLayoutDirection } from '@/src/platform/use-layout-direction';
+import {
+  centreTileFor,
+  formatCoordinates,
+  tileOffsetFor,
+  translateCentre,
+} from '@/src/components/ui/map-pan';
 import { border, radius, size, space } from '@/src/theme/tokens';
 import { fonts } from '@/src/theme/fonts';
 import { useTheme } from '@/src/theme/useTheme';
@@ -58,15 +98,6 @@ const TILE_SIZE = 256;
 const MAP_HEIGHT = 380;
 const DEBOUNCE_MS = 300;
 
-// Conversion between (lat, lng) and slippy tile coordinates
-function latLngToTileExact(lat: number, lng: number, zoom: number): { x: number; y: number } {
-  const n = 2 ** zoom;
-  const x = ((lng + 180) / 360) * n;
-  const latRad = (lat * Math.PI) / 180;
-  const y = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
-  return { x, y };
-}
-
 export function LocationMapPicker({
   initialLat = 35.6892, // Tehran default
   initialLng = 51.389,
@@ -77,6 +108,7 @@ export function LocationMapPicker({
 }: LocationMapPickerProps) {
   const { t } = useTranslation();
   const { t: theme, name: themeName } = useTheme();
+  const rtl = useLayoutDirection();
 
   const [lat, setLat] = useState(initialLat);
   const [lng, setLng] = useState(initialLng);
@@ -88,21 +120,11 @@ export function LocationMapPicker({
   /**
    * ★ A TILE THAT CANNOT LOAD IS A VISIBLE STATE, NOT AN EMPTY FRAME.
    *
-   * The tiles come from CARTO's basemap CDN, keyed by `EXPO_PUBLIC_CARTO_API_KEY`. If
-   * that key is ever absent from a build every request fails — and there was no
+   * The tiles come from CARTO's basemap CDN, keyed by `EXPO_PUBLIC_CARTO_API_KEY`.
+   * If that key is ever absent from a build every request fails — and there was no
    * `onError`, so each `<Image>` simply painted nothing: the frame stayed a blank
    * rectangle, no error was thrown, and the runtime log was clean. The user could not
    * tell "loading" from "broken" and had no retry.
-   *
-   * ★ THIS WAS NOT THE BLANK-MAP BUG, THOUGH. See `tileLayer` below.
-   *
-   * The blank map people actually reported had a VALID key and `200` tile responses;
-   * the grid was simply anchored with a logical inset and rendered outside the frame.
-   * Both failure modes look identical — an empty rectangle — which is exactly why the
-   * symptom has to be made visible rather than inferred.
-   *
-   * One failed tile is enough to say so. Rendering a blank frame while the other
-   * eight tiles happen to succeed would be a worse lie than admitting the failure.
    */
   const [tilesFailed, setTilesFailed] = useState(false);
 
@@ -111,12 +133,10 @@ export function LocationMapPicker({
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [showResults, setShowResults] = useState(false);
+  const [searchUnavailable, setSearchUnavailable] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
   const searchRequestId = useRef(0);
-
-  // Conversion between (lat, lng) and slippy tile coordinates
-  const centerTile = useMemo(() => latLngToTileExact(lat, lng, zoom), [lat, lng, zoom]);
 
   /**
    * ★ THE PAN CANNOT CLOSE OVER `lat`/`lng`/`zoom`.
@@ -125,39 +145,24 @@ export function LocationMapPicker({
    * is frozen at the first render for the life of the mount. It therefore reads
    * the view from this ref, which `commitCentre` writes on every change, and the
    * zoom from `zoomRef`.
-   *
-   * ★ AND THE DELTA IS PER-FRAME, NOT PER-GESTURE.
-   *
-   * `PanResponderGestureState.dx`/`dy` measure from where the touch STARTED. They
-   * were applied to absolute state, so frame two re-applied frame one's travel on
-   * top of a centre that had already moved by it, frame three re-applied three
-   * frames, and so on. The tile URIs only change when the centre crosses a whole
-   * tile, and a compounding offset does not move it far enough — so the numbers in
-   * the card ran while the map sat still, which is the bug this fixes.
-   *
-   * `lastPan` holds the gesture's previous position so each frame applies the
-   * difference, and the arithmetic lives in `map-pan.ts` so it can be tested.
    */
   const centreRef = useRef({ lat: initialLat, lng: initialLng });
   const zoomRef = useRef(zoom);
   const lastPan = useRef({ x: 0, y: 0 });
 
   /**
-   * ★ THE GRID CANNOT MOVE BY SWAPPING URLS.
+   * The bias for a search, read at FIRE time.
    *
-   * `tileIndexFor` changes only when the centre crosses a whole tile, and the 3x3
-   * grid is re-centred on the frame every render — so a drag under one tile of
-   * travel produced a coordinate readout that ran while the picture sat still.
-   * The picture moves by translating the grid by the centre's residual position
-   * inside its tile, which changes on every frame of every drag.
+   * A ref, so the debounce effect does not depend on the centre: panning must not
+   * cancel a search that is already pending.
    */
-  const [tileResidual, setTileResidual] = useState(() => offsetWithinTile(initialLat, initialLng, zoom));
+  const biasRef = useRef({ lat: initialLat, lng: initialLng });
 
   const commitCentre = (next: { lat: number; lng: number }) => {
     centreRef.current = next;
+    biasRef.current = next;
     setLat(next.lat);
     setLng(next.lng);
-    setTileResidual(offsetWithinTile(next.lat, next.lng, zoomRef.current));
   };
 
   /**
@@ -171,8 +176,6 @@ export function LocationMapPicker({
     const next = Math.max(8, Math.min(18, zoomRef.current + delta));
     zoomRef.current = next;
     setZoom(next);
-    // The residual is measured against the zoom, so a zoom step re-derives it.
-    setTileResidual(offsetWithinTile(centreRef.current.lat, centreRef.current.lng, next));
   };
 
   /**
@@ -181,19 +184,15 @@ export function LocationMapPicker({
    * `true` on both of these made the map a black hole for touch: EVERY gesture
    * starting on it became a map drag, including a vertical swipe meant for the
    * page. Tapping the map, then trying to scroll the sheet it sits in, did
-   * nothing — the map had claimed the responder and held it, which is the
-   * "the prompt is still on focus and I cannot scroll" report.
+   * nothing — the map claimed the responder and held it.
    *
    * The map still takes any deliberate drag: a press that moves is a pan. What
-   * it no longer takes is the tap (a press that does not move), so a tap falls
-   * through to the page and the sheet keeps its scroll.
+   * it no longer takes is the tap, so a tap falls through to the page.
    *
-   * ★ `onPanResponderTerminationRequest` KEEPS IT FROM LOCKING THE PAGE OUT.
-   *
-   * Even mid-drag, the parent scroll view may ask for the responder back. The
-   * old responder never got asked because it declined to start on a tap; this
-   * one does drag, so it must yield rather than fight the scroll view — the
-   * gesture ends cleanly instead of leaving `isDragging` stuck true.
+   * `onPanResponderTerminationRequest` keeps it from locking the page out: even
+   * mid-drag the parent scroll view may ask for the responder back, and this one
+   * yields rather than fights it — the gesture ends cleanly instead of leaving
+   * `isDragging` stuck true.
    */
   const panResponder = useRef(
     PanResponder.create({
@@ -227,36 +226,43 @@ export function LocationMapPicker({
     }),
   ).current;
 
-  // Search places with debounce
+  // Search places, debounced on the QUERY alone — see the note at the top.
   useEffect(() => {
-    if (searchQuery.trim().length < 2) {
+    const term = searchQuery.trim();
+
+    if (term.length < MIN_SEARCH_LENGTH) {
       setSearchResults([]);
       setShowResults(false);
+      setSearchUnavailable(false);
       return;
     }
 
     const timer = setTimeout(async () => {
       const mine = ++searchRequestId.current;
       setIsSearching(true);
+      setSearchUnavailable(false);
+
       try {
-        const outcome = await searchPlaces(searchQuery.trim(), { lat, lng });
-        if (mine === searchRequestId.current) {
-          setSearchResults(outcome.results);
-          setShowResults(true);
-        }
+        const outcome = await searchPlaces(term, biasRef.current);
+        if (mine !== searchRequestId.current) return;
+
+        setSearchResults(outcome.results);
+        // A degraded provider is a STATE, not an empty list: the custom pin is
+        // the product's first-class answer to a place no database carries.
+        setSearchUnavailable(outcome.degraded);
+        setShowResults(true);
       } catch {
-        if (mine === searchRequestId.current) {
-          setSearchResults([]);
-        }
+        if (mine !== searchRequestId.current) return;
+        setSearchResults([]);
+        setSearchUnavailable(true);
+        setShowResults(true);
       } finally {
-        if (mine === searchRequestId.current) {
-          setIsSearching(false);
-        }
+        if (mine === searchRequestId.current) setIsSearching(false);
       }
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, lat, lng]);
+  }, [searchQuery]);
 
   const handleSelectSearchResult = (result: PlaceResult) => {
     commitCentre({ lat: result.lat, lng: result.lng });
@@ -296,68 +302,109 @@ export function LocationMapPicker({
     });
   };
 
-  // 3x3 Tile generation around center
-  const centerTileX = Math.floor(centerTile.x);
-  const centerTileY = Math.floor(centerTile.y);
-  const maxTile = 2 ** zoom - 1;
+  /**
+   * The grid, re-derived from the centre — and the translation with it.
+   *
+   * `centreTileFor` is the NEAREST tile and `tileOffsetFor` the continuous
+   * distance from its origin, so both change together and neither can wrap.
+   */
+  const centreTile = useMemo(() => centreTileFor(lat, lng, zoom), [lat, lng, zoom]);
+  const tileOffset = useMemo(() => tileOffsetFor(lat, lng, zoom), [lat, lng, zoom]);
 
+  const maxTile = 2 ** zoom - 1;
   const tileOffsets = [-1, 0, 1];
-  const tileBase = themeName === 'dark' ? 'dark_all' : 'voyager';
+
+  /**
+   * ★ THE BASE AND ITS LABELS ARE TWO LAYERS.
+   *
+   * `dark_all` is a label-composited basemap whose place names are drawn in a
+   * mid grey — legible on CARTO's own dark canvas, and all but invisible once the
+   * picker's own dark frame is behind it. The request is "turn the place titles
+   * white on the dark theme".
+   *
+   * CARTO publishes the two halves separately: `dark_nolabels` (canvas, no ink)
+   * and `dark_only_labels` (transparent, white ink). Compositing the second over
+   * the first gives white place names on the dark canvas by construction, rather
+   * than hoping a single style's ink happens to be light enough.
+   *
+   * The light theme keeps `voyager`, whose labels are dark on a light canvas and
+   * were never part of the report.
+   */
+  const cartoKey = process.env.EXPO_PUBLIC_CARTO_API_KEY;
+  const isDark = themeName === 'dark';
+
+  const baseStyle = isDark ? 'dark_nolabels' : 'voyager';
+  const labelsStyle = isDark ? 'dark_only_labels' : null;
+
+  const tileUri = (style: string, tx: number, ty: number): string =>
+    `https://a.basemaps.cartocdn.com/rastertiles/${style}/${zoom}/${tx}/${ty}.png${
+      cartoKey ? `?key=${cartoKey}` : ''
+    }`;
+
+  /** The 3x3 grid's columns and rows, wrapped over the antimeridian. */
+  const columns = tileOffsets.map((ox) => (centreTile.x + ox + 2 ** zoom) % 2 ** zoom);
+  const rows = tileOffsets.map((oy) => Math.max(0, Math.min(maxTile, centreTile.y + oy)));
 
   /**
    * ★ THE GRID SLIDES UNDER THE PIN; THE PIN DOES NOT MOVE.
    *
-   * The pins stays at the frame's centre and the centre coordinate is what a drag
-   * changes, so the tiles have to carry the sub-tile travel — `-residual` puts the
-   * centre tile's own origin under the centre point, which is what makes the
-   * picture follow the finger instead of jumping a whole tile at a time.
+   * The pin stays at the frame's centre and the centre coordinate is what a drag
+   * changes, so the tiles have to carry the travel — `-offset` puts the centre
+   * tile's exact origin under the centre point, which is what makes the picture
+   * follow the finger instead of jumping a tile at a time.
    */
   const tileLayerTranslate = {
-    transform: [
-      { translateX: -tileResidual.x * TILE_SIZE },
-      { translateY: -tileResidual.y * TILE_SIZE },
-    ],
+    transform: [{ translateX: -tileOffset.x }, { translateY: -tileOffset.y }],
   };
+
+  const renderGrid = (
+    style: string,
+    keyPrefix: string,
+    /** Only the base layer reports failure: a missing label tile is cosmetic. */
+    reportFailure = false,
+  ) => (
+    <View style={[styles.tileLayer, tileLayerTranslate]} key={keyPrefix}>
+      {rows.map((ty, rowIndex) => (
+        <View key={`${keyPrefix}-row-${rowIndex}`} style={styles.tileRow}>
+          {columns.map((tx) => (
+            <Image
+              key={`${keyPrefix}-${zoom}-${tx}-${ty}`}
+              source={{ uri: tileUri(style, tx, ty) }}
+              style={styles.tile}
+              resizeMode="cover"
+              onError={reportFailure ? () => setTilesFailed(true) : undefined}
+              // A successful load clears the flag, so one dropped tile does not
+              // leave the map declared unavailable for the life of the mount.
+              onLoad={reportFailure ? () => setTilesFailed(false) : undefined}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+
+  const searchTextDirection = rtl ? 'rtl' : 'ltr';
 
   return (
     <View style={styles.container} testID={testID}>
       {/* Map View Frame */}
       <View style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-        {/* Render Tile Grid */}
         <View style={styles.tileCanvas} {...panResponder.panHandlers}>
-          <View style={[styles.tileLayer, tileLayerTranslate]}>
-            {tileOffsets.map((oy) => {
-              const ty = Math.max(0, Math.min(maxTile, centerTileY + oy));
-              return (
-                <View key={`row-${ty}`} style={styles.tileRow}>
-                  {tileOffsets.map((ox) => {
-                    const tx = (centerTileX + ox + 2 ** zoom) % (2 ** zoom);
-                    const cartoKey = process.env.EXPO_PUBLIC_CARTO_API_KEY;
-                    const uri = cartoKey
-                      ? `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png?key=${cartoKey}`
-                      : `https://a.basemaps.cartocdn.com/rastertiles/${tileBase}/${zoom}/${tx}/${ty}.png`;
-                    return (
-                      <Image
-                        key={`${zoom}-${tx}-${ty}`}
-                        source={{ uri }}
-                        style={styles.tile}
-                        resizeMode="cover"
-                        onError={() => setTilesFailed(true)}
-                        onLoad={() => setTilesFailed(false)}
-                      />
-                    );
-                  })}
-                </View>
-              );
-            })}
-          </View>
+          {renderGrid(baseStyle, 'base', true)}
+
+          {/*
+            ★ THE LABELS GO ON TOP, AND THEY CANNOT SET `tilesFailed`.
+            A missing label tile is a cosmetic loss, not a broken map — reporting
+            it would show "the map is unavailable" over a map that works.
+          */}
+          {labelsStyle ? (
+            <View style={styles.labelLayer} pointerEvents="none">
+              {renderGrid(labelsStyle, 'labels')}
+            </View>
+          ) : null}
         </View>
 
-        {/* ★ A BLANK FRAME IS NOT A FAILURE STATE.
-            Until this existed, a deployment without the basemap key rendered an empty
-            rectangle with no explanation and no way to tell whether the map was still
-            loading. The copy is the one `VenueMap.web.tsx` already uses for an
-            unavailable map, so the product says the same thing in both places. */}
+        {/* ★ A BLANK FRAME IS NOT A FAILURE STATE. */}
         {tilesFailed && (
           <View
             pointerEvents="none"
@@ -383,7 +430,7 @@ export function LocationMapPicker({
 
         {/* Top Floating Search Bar (Google Maps style) */}
         <View style={styles.searchBarWrapper}>
-          <View style={[styles.searchBar, { backgroundColor: theme.surface1, borderColor: theme.line }]}>
+          <View style={[styles.searchBar, { backgroundColor: theme.surface1 }]}>
             <MagnifyingGlass size={20} color={theme.textMuted} />
             <TextInput
               value={searchQuery}
@@ -392,7 +439,7 @@ export function LocationMapPicker({
               placeholderTextColor={theme.textFaint}
               style={[
                 styles.searchInput,
-                { color: theme.text, writingDirection: 'rtl' },
+                { color: theme.text, writingDirection: searchTextDirection },
               ]}
               testID={testID ? `${testID}-search-input` : undefined}
             />
@@ -406,35 +453,51 @@ export function LocationMapPicker({
           </View>
 
           {/* Autocomplete Suggestions Dropdown */}
-          {showResults && searchResults.length > 0 && (
+          {showResults && (searchResults.length > 0 || searchUnavailable) && (
             <Card variant="raised" style={styles.dropdownCard}>
-              <ScrollView
-                nestedScrollEnabled
-                showsVerticalScrollIndicator={false}
-                style={styles.dropdownList}
-              >
-                {searchResults.map((res) => (
-                  <Pressy
-                    key={res.provider_place_id}
-                    onPress={() => handleSelectSearchResult(res)}
-                    style={styles.resultItem}
-                  >
-                    <View style={styles.resultRow}>
-                      <MapPin size={18} color={theme.brand} />
-                      <View style={styles.resultTexts}>
-                        <Text variant="body" color={theme.text} numberOfLines={1}>
-                          {res.name}
-                        </Text>
-                        {res.address && (
-                          <Text variant="caption" color={theme.textMuted} numberOfLines={1}>
-                            {res.address}
+              {searchResults.length > 0 ? (
+                <ScrollView
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                  style={styles.dropdownList}
+                >
+                  {searchResults.map((res) => (
+                    <Pressy
+                      key={res.provider_place_id}
+                      onPress={() => handleSelectSearchResult(res)}
+                      style={styles.resultItem}
+                    >
+                      <View style={styles.resultRow}>
+                        <MapPin size={18} color={theme.brand} />
+                        <View style={styles.resultTexts}>
+                          <Text variant="body" color={theme.text} numberOfLines={1}>
+                            {res.name}
                           </Text>
-                        )}
+                          {res.address && (
+                            <Text variant="caption" color={theme.textMuted} numberOfLines={1}>
+                              {res.address}
+                            </Text>
+                          )}
+                        </View>
                       </View>
-                    </View>
-                  </Pressy>
-                ))}
-              </ScrollView>
+                    </Pressy>
+                  ))}
+                </ScrollView>
+              ) : (
+                /* ★ AN UNAVAILABLE SEARCH SAYS SO, AND POINTS AT THE PIN.
+                   The custom pin is a first-class path in this product — an
+                   informal corner no POI database carries is the common case
+                   here — so a provider failure is not an error, it is a
+                   redirect to that path. */
+                <View style={styles.unavailableBody} testID={testID ? `${testID}-search-unavailable` : undefined}>
+                  <Text variant="body" color={theme.text} align="start">
+                    {t('proposals.place.degraded')}
+                  </Text>
+                  <Text variant="caption" color={theme.textMuted} align="start">
+                    {t('proposals.place.pickOnMap')}
+                  </Text>
+                </View>
+              )}
             </Card>
           )}
         </View>
@@ -525,17 +588,6 @@ const styles = StyleSheet.create({
     // The layer inside is translated, so the canvas only has to clip it.
     overflow: 'hidden',
   },
-  tileFailure: {
-    position: 'absolute',
-    top: 0,
-    left: 0, // rtl-ok: full-bleed inset, symmetric so there is nothing to mirror
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: space[5],
-    gap: space[1],
-  },
   /**
    * ★ THE GRID ANCHORS ON THE FRAME'S TOP-LEFT, NOT ON ITS MIDDLE.
    *
@@ -546,7 +598,7 @@ const styles = StyleSheet.create({
    *
    * The grid is 3x3 tiles with the centre tile in the middle, so shifting it back
    * by one tile puts the centre tile's origin on the frame's origin — then the
-   * residual translate brings the exact centre under the crosshair.
+   * offset translate brings the exact centre under the crosshair.
    */
   tileLayer: {
     position: 'absolute',
@@ -554,15 +606,23 @@ const styles = StyleSheet.create({
     // ★ A PHYSICAL `left`, NOT `start`.
     //
     // `start` compiles to `inset-inline-start`, which react-native-web resolves against
-    // the DOCUMENT direction. `app/+html.tsx` puts `dir="rtl"` on `<html>`, so in Persian
-    // this inset the 3x3 grid 256px from the RIGHT edge instead of the left — carrying
-    // the whole picture out of the frame. Every tile request still succeeded and CARTO
-    // still answered `200 image/png`, which is why a blank map looked like "the tiles
-    // did not load" rather than "the tiles are somewhere else".
+    // the DOCUMENT direction. `app/+html.tsx` puts `dir` on `<html>`, so in Persian this
+    // inset the 3x3 grid 256px from the RIGHT edge instead of the left — carrying the
+    // whole picture out of the frame. Every tile request still succeeded and CARTO still
+    // answered `200 image/png`, which is why a blank map looked like "the tiles did not
+    // load" rather than "the tiles are somewhere else".
     //
     // The shift is a statement about a 256px image grid, not about reading direction, so
     // it has to be physical.
     left: -TILE_SIZE, // rtl-ok: a tile-grid offset, not a text-direction inset
+  },
+  /** The labels ride the same geometry as the base; they must not drift from it. */
+  labelLayer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0, // rtl-ok: full-bleed inset, symmetric so there is nothing to mirror
+    right: 0,
   },
   tileRow: {
     flexDirection: 'row',
@@ -570,6 +630,17 @@ const styles = StyleSheet.create({
   tile: {
     width: TILE_SIZE,
     height: TILE_SIZE,
+  },
+  tileFailure: {
+    position: 'absolute',
+    top: 0,
+    left: 0, // rtl-ok: full-bleed inset, symmetric so there is nothing to mirror
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: space[5],
+    gap: space[1],
   },
   centerPinContainer: {
     position: 'absolute',
@@ -646,6 +717,10 @@ const styles = StyleSheet.create({
   resultTexts: {
     flex: 1,
     gap: space[1],
+  },
+  unavailableBody: {
+    gap: space[1],
+    padding: space[2],
   },
   floatingControls: {
     position: 'absolute',

@@ -3,18 +3,32 @@
  *
  * ★ PURE, SO THE PAN CAN BE PINNED WITHOUT A GESTURE.
  *
- * `PanResponder` cannot be driven from a Node test, and the defect that made the
- * map look frozen was entirely arithmetic: a per-frame delta was applied as if it
- * were an offset from the start of the drag. Moving the projection here means the
- * property that broke — *n* equal steps travel the same distance as one step *n*
- * times as large — is an assertion rather than a review note.
+ * `PanResponder` cannot be driven from a Node test, and both defects in this map
+ * were entirely arithmetic: a per-frame delta applied as an absolute offset, and
+ * a tile grid that jumped at every tile boundary. Moving the projection here means
+ * the properties that broke are assertions rather than review notes.
  *
  * ★ WHY THE CENTRE MOVES AND THE TILES DO.
  *
  * The picker renders a 3x3 grid of 256px tiles keyed on `zoom-{tx}-{ty}`. Nothing
- * scrolls them: the grid is re-derived from the centre every render. So a drag
- * only becomes visible when the centre crosses a whole tile boundary and the keys
- * change — which is what `tileIndexFor` exists to make checkable.
+ * scrolls them: the grid is re-derived from the centre every render. So a drag only
+ * becomes visible through the grid's SUB-TILE translation, which is what
+ * `tileOffsetFor` computes.
+ *
+ * ★ THE TICK WAS A WRAP AROUND THE WRONG ANCHOR.
+ *
+ * The offset used to be the centre's fractional position inside its own
+ * whole-number tile: `(exact.x % 1)`. That is continuous inside a tile and jumps
+ * from ~1 back to ~0 the instant the index advances — a full 256px snap backwards
+ * on exactly the frame the new tiles arrive. On screen that is the map "ticking
+ * back" while the finger keeps moving, which is the reported behaviour.
+ *
+ * A slippy map has no such discontinuity. The translate that puts the centre point
+ * under the crosshair is the distance from the CENTRE TILE'S ORIGIN to the centre
+ * point, and if the tile index is chosen as the NEAREST tile rather than the
+ * FLOORED one, that distance always lies in `[-0.5, 0.5)` and is continuous across
+ * every boundary. `tileOffsetFor` returns exactly that, and
+ * `tests/ui/map-pan-continuity.test.ts` walks a drag pixel-by-pixel to prove it.
  */
 
 /** One slippy tile, in CSS pixels. */
@@ -44,6 +58,23 @@ function toTileExact(lat: number, lng: number, zoom: number): { x: number; y: nu
   return { x, y };
 }
 
+/**
+ * The exact fractional tile COLUMN of a longitude, at a zoom.
+ *
+ * Exported because the continuity property is about where a tile is drawn, which
+ * is a function of the fractional coordinate rather than of a rounding choice —
+ * see `tests/ui/map-pan-continuity.test.ts`.
+ */
+export function exactTileX(lng: number, zoom: number): number {
+  return ((lng + 180) / 360) * 2 ** zoom;
+}
+
+/** The exact fractional tile ROW of a latitude, at a zoom. Mercator, so not linear. */
+export function exactTileY(lat: number, zoom: number): number {
+  const latRad = (lat * Math.PI) / 180;
+  return ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * 2 ** zoom;
+}
+
 /** The whole-number tile a centre is inside. */
 export function tileIndexFor(lat: number, lng: number, zoom: number): TileIndex {
   const exact = toTileExact(lat, lng, zoom);
@@ -51,29 +82,51 @@ export function tileIndexFor(lat: number, lng: number, zoom: number): TileIndex 
 }
 
 /**
- * How far into its own tile the centre sits, in whole tiles.
+ * The tile the grid is centred on.
  *
- * ★ THE TILE GRID ALONE CANNOT SHOW A PAN.
- *
- * The picker draws a 3x3 grid of 256px tiles centred on the frame and re-derives
- * it from the centre on every render. Keying a tile on `zoom-tx-ty` swaps which
- * URL goes in which slot, but the grid never leaves the middle of the frame, so
- * a drag that does not cross a tile boundary changes nothing a person can see —
- * which is exactly the "the coordinates update but the map doesn't move" report.
- *
- * The visible movement is the residual: the fractional part of the centre's
- * position inside its centre tile. Translating the grid by `-residual * tileSize`
- * slides the picture under the pin continuously, and because the residual is
- * always in `[0, 1)` the 3x3 grid still covers the frame at every step.
- *
- * Both axes are wrapped into `[0, 1)`: panning west makes the exact coordinate
- * decrease, and a residual of `-0.2` would translate the grid a fifth of a tile
- * the wrong way and show the frame's edge.
+ * The NEAREST whole tile, not the floored one — see the note at the top of this
+ * file: this choice is what gives the translate a discontinuity-free domain of
+ * `[-0.5, 0.5)`.
  */
-export function offsetWithinTile(lat: number, lng: number, zoom: number): TileIndex {
+export function centreTileFor(lat: number, lng: number, zoom: number): TileIndex {
   const exact = toTileExact(lat, lng, zoom);
-  const wrap = (value: number) => ((value % 1) + 1) % 1;
-  return { x: wrap(exact.x), y: wrap(exact.y) };
+  return { x: Math.round(exact.x), y: Math.round(exact.y) };
+}
+
+/**
+ * How far the tile grid must move, in CSS pixels, to put the centre point under
+ * the crosshair.
+ *
+ * ★ THE ANCHOR IS THE MIDDLE SLOT, AND THAT IS WHY THIS IS CONTINUOUS.
+ *
+ * The picker lays out a 3x3 grid inside a layer offset by `-TILE_SIZE`, so the
+ * grid's MIDDLE column and row sit at the frame's origin. The tile list is built
+ * as `centreTile + [-1, 0, 1]`, so the middle slot always holds `centreTile`.
+ *
+ * The translate therefore has to put `centreTile`'s origin under the crosshair —
+ * which is `(exact − centreTile) * TILE_SIZE`, the distance from the centre point
+ * to the tile that is actually drawn in the middle slot.
+ *
+ * ★ MEASURING FROM THE FLOORED TILE IS THE TICK.
+ *
+ * The original used `(exact % 1)`, i.e. the position inside the FLOORED tile.
+ * That is the distance from a tile that is only in the middle slot when the
+ * centre is in the first half of it; for the second half the grid holds a
+ * different tile there, so the translate was measured against the wrong anchor and
+ * the picture sat up to a tile out — snapping back by 256px every time the index
+ * advanced. That snap is the reported "the map ticks back while I drag it".
+ *
+ * With `Math.round`, the offset lies in `[-0.5, 0.5) * TILE_SIZE` and varies
+ * continuously with the centre, including across a boundary.
+ */
+export function tileOffsetFor(lat: number, lng: number, zoom: number): { x: number; y: number } {
+  const exact = toTileExact(lat, lng, zoom);
+  const centre = centreTileFor(lat, lng, zoom);
+
+  return {
+    x: (exact.x - centre.x) * MAP_TILE_SIZE,
+    y: (exact.y - centre.y) * MAP_TILE_SIZE,
+  };
 }
 
 /**
@@ -82,9 +135,6 @@ export function offsetWithinTile(lat: number, lng: number, zoom: number): TileIn
  * Longitude is linear — the whole world is 360° across `2^zoom` tiles. Latitude
  * is not, because the projection is Mercator: a pixel covers more ground the
  * further north or south the centre is, which is what `cos(lat)` corrects for.
- *
- * ★ This is the step for `1` pixel; `1 / (2^zoom)` is what makes a pan *look*
- * the same at every zoom.
  */
 function degreesPerPixel(lat: number, zoom: number): { lat: number; lng: number } {
   const span = MAP_TILE_SIZE * 2 ** zoom;
@@ -100,9 +150,9 @@ function degreesPerPixel(lat: number, zoom: number): { lat: number; lng: number 
  * ★ THE ARGUMENTS ARE PER-FRAME MOVEMENT, NOT DISTANCE SINCE THE GESTURE BEGAN.
  *
  * `PanResponderGestureState.dx`/`dy` are measured from the touch's start, and the
- * caller is responsible for subtracting the last seen value — `map-drag.ts` exists
- * because that subtraction was missing, which made every frame re-apply the whole
- * drag so far.
+ * caller is responsible for subtracting the last seen value — this module exists
+ * partly because that subtraction was missing, which made every frame re-apply the
+ * whole drag so far.
  *
  * The sign is inverted on purpose: dragging the map to the right moves the VIEW
  * west, which is a smaller longitude, and dragging down moves the view north.

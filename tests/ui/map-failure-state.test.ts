@@ -46,15 +46,18 @@ test('a failed map renders a stated state rather than an empty frame', () => {
   // Arrange
   const picker = code(PICKER);
 
-  // Act — a flag set from the tile's `onError` and read by the render.
+  // Act — a flag set from the tile's `onError` and read by the render. The base
+  // layer is the only one that reports: a missing label tile is cosmetic.
   const hasFlag = /tilesFailed/.test(picker);
   const gate = /\{tilesFailed && \(/.test(picker);
-  const clears = /onLoad=\{\(\) => setTilesFailed\(false\)\}/.test(picker);
+  const setsOnError = /onError=\{[^}]*setTilesFailed\(true\)/.test(picker);
+  const clearsOnLoad = /onLoad=\{[^}]*setTilesFailed\(false\)/.test(picker);
 
   // Assert
   assert.ok(hasFlag, 'the picker has no failure flag');
   assert.ok(gate, 'the failure flag is never read, so nothing is said to the user');
-  assert.ok(clears, 'a successful load never clears the flag, so one flake blanks the map forever');
+  assert.ok(setsOnError, 'no tile reports its failure');
+  assert.ok(clearsOnLoad, 'a successful load never clears the flag, so one flake blanks the map forever');
 });
 
 test('the failure state reuses existing copy rather than inventing a sentence', () => {
