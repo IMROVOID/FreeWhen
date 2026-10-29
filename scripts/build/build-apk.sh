@@ -332,3 +332,22 @@ fi
 
 echo "build-apk: ${OUT_APK} ($(du -h "$OUT_APK" | cut -f1), ${ARCH_LABEL})"
 echo "           deploy it with the web/ static root, then re-run the /dl/ smoke test"
+
+# ★ THE ARTIFACT'S REAL PATH IS PUBLISHED, NOT ASSUMED BY THE CALLER.
+#
+# The release workflow used to copy `web/dl/freewhen.apk` into the artifact name.
+# That file is a STAGED COPY, and `web/dl/` is a static root where a developer's
+# own build sits between runs — so the workflow picked up whatever was there,
+# which on 0.1.3 was a stale, unsigned build from the day before. The APK Gradle
+# had just produced was never published.
+#
+# Emitting the path means the release ships the bytes `validate-apk.sh` inspected.
+# It goes to `$GITHUB_OUTPUT` when there is one, so the workflow reads it as a
+# step output and nothing has to guess a filename.
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  {
+    echo "apk_path=$DIST_APK"
+    echo "apk_sha256=$( { sha256sum "$DIST_APK" 2>/dev/null || shasum -a 256 "$DIST_APK"; } | cut -d' ' -f1)"
+    echo "apk_size=$(wc -c < "$DIST_APK" | tr -d ' ')"
+  } >> "$GITHUB_OUTPUT"
+fi

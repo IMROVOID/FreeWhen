@@ -130,6 +130,111 @@ test('the APK is verified before it is published', () => {
   assert.ok(upload > verify, 'the artifact is uploaded before it is validated');
 });
 
+test('the verified bytes are the uploaded bytes', () => {
+  // Arrange — ★ THIS IS THE v0.1.3 DEFECT, AND THE TEST ABOVE MISSED IT.
+  //
+  // `Verify` compared a line number against `upload` and passed while the
+  // staging step in between copied a DIFFERENT file. The order was
+  // Build → Stage (cp web/dl/freewhen.apk) → Verify → Upload, so the validator
+  // inspected a stale copy in `web/dl/` and the unsigned Gradle output shipped.
+  // Every published 0.1.0/0.1.3 APK was uninstallable.
+  //
+  // The invariant is not "verify happens before upload". It is "the file copied
+  // to the artifact name is the file that was validated".
+  const text = workflow('release-apk.yml');
+
+  // Act
+  const verify = lineOf(text, /bash \.github\/scripts\/validate-apk\.sh/);
+  const stage = lineOf(text, /- name: Stage the verified artifact/);
+  const copy = lineOf(text, /cp "\$BUILT_PATH" "\$TARGET"/);
+
+  // Assert — verification precedes the copy, and the copy precedes the upload.
+  assert.ok(verify > 0, 'the APK is never validated');
+  assert.ok(stage > verify, 'the artifact is staged before the APK is validated');
+  assert.ok(copy > verify, 'the copy runs before the APK is validated');
+});
+
+test('the staged artifact comes from the build, not from web/dl/', () => {
+  // Arrange — `web/dl/freewhen.apk` is a staged copy in a static root where a
+  // developer's own build survives between runs. Copying it is what shipped an
+  // unsigned APK built the day before.
+  const text = workflow('release-apk.yml');
+
+  // Act
+  const copiesFromTree = /cp\s+web\/dl\/freewhen\.apk/.test(text);
+  const usesBuildOutput = /BUILT_PATH:\s*\$\{\{\s*steps\.build\.outputs\.apk_path\s*\}\}/.test(text);
+  const refusesEmpty = /did not report apk_path/.test(text);
+
+  // Assert
+  assert.ok(!copiesFromTree, 'the workflow still copies the staged web/dl/ file');
+  assert.ok(usesBuildOutput, 'the staging step does not read the build step’s output');
+  assert.ok(refusesEmpty, 'an empty build output falls back instead of failing');
+});
+
+test('build-apk publishes the artifact path and digest it produced', () => {
+  // Arrange — the workflow reads `steps.build.outputs.apk_path`, so the script
+  // has to write it. A silent absence would send the workflow back to guessing.
+  const buildScript = readFileSync(join('scripts', 'build', 'build-apk.sh'), 'utf8');
+
+  // Act / Assert
+  assert.match(buildScript, /echo "apk_path=\$DIST_APK"/, 'the build does not report its artifact path');
+  assert.match(buildScript, /echo "apk_sha256=/, 'the build does not report its artifact digest');
+  assert.match(buildScript, /GITHUB_OUTPUT/, 'the build writes no step output at all');
+});
+
+test('the release job refuses to publish an unsigned APK', () => {
+  // Arrange — a matching checksum proves the file is intact, not that a phone
+  // can install it. v0.1.3 shipped five files that satisfied every digest check
+  // and failed with INSTALL_PARSE_FAILED_NO_CERTIFICATES.
+  const text = workflow('release-apk.yml');
+
+  // Act
+  const refuses = lineOf(text, /Refuse to publish an unsigned APK/);
+  const apksigner = lineOf(text, /verify --print-certs/);
+
+  // Assert
+  assert.ok(refuses > 0, 'the publish job has no signature gate');
+  assert.ok(apksigner > refuses, 'the signature gate never invokes apksigner');
+});
+
+test('a release run can never skip the signature check', () => {
+  // Arrange — `[ cond ] && fail "…"` as the last statement of a branch leaves
+  // the branch's status at 1 when the condition is false, so a missing
+  // `apksigner` could pass the section with the signature never examined.
+  const validator = script('validate-apk.sh');
+
+  // Act
+  const toleratesRequirement =
+    /\[ "\$\{REQUIRE_RELEASE_SIGNING:-0\}" = "1" \] && fail/.test(validator);
+
+  // Assert — every escape must be an explicit `if`, not a `&&` chain.
+  assert.ok(
+    !toleratesRequirement,
+    'the signature check still uses `[ … ] && fail`, which can be swallowed',
+  );
+  assert.match(
+    validator,
+    /if \[ "\$\{REQUIRE_RELEASE_SIGNING:-0\}" = "1" \]; then/,
+    'the release path does not fail explicitly without apksigner',
+  );
+});
+
+test('the checksum manifest names the file that gets published', () => {
+  // Arrange — the validator is handed Gradle's `app-release.apk`, so deriving
+  // the manifest name from that path would list a filename the release never
+  // carries and every `sha256sum -c` would fail.
+  const validator = script('validate-apk.sh');
+  const text = workflow('release-apk.yml');
+
+  // Act
+  const usesOverride = /PUBLISHED_NAME:-\$\(basename "\$APK"\)/.test(validator);
+  const passesName = /PUBLISHED_NAME: FreeWhen-v\$\{\{ needs\.resolve\.outputs\.version \}\}/.test(text);
+
+  // Assert
+  assert.ok(usesOverride, 'the manifest name cannot be overridden');
+  assert.ok(passesName, 'the workflow does not pass the published name');
+});
+
 test('the production gate checks the health body, not just the status', () => {
   // Arrange — `/health` answers 200 whenever the process listens; `db:"up"` is
   // the assertion that distinguishes a working deployment from a booted one.

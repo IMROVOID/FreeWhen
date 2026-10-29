@@ -207,9 +207,17 @@ if [ -n "$APKSIGNER" ] && [ -f "$APKSIGNER" ]; then
   # A Windows `apksigner.bat` under a POSIX shell fails to execute, and treating
   # that as an unsigned APK would be a false negative on a good build. The two
   # are distinguished so a skipped check is reported as skipped.
+  #
+  # ★ A SKIP IS ONLY EVER ALLOWED ON A DEVELOPER'S MACHINE.
+  #
+  # When `REQUIRE_RELEASE_SIGNING=1` — which the release workflow always sets —
+  # an unusable `apksigner` is a HARD FAILURE, never a skip. A release whose
+  # signature nobody checked is exactly how unsigned APKs reached v0.1.3.
   if [ "$SIG_RC" -ne 0 ] && printf '%s\n' "$SIG" | grep -qiE 'command not found|syntax error|Exec format error|not recognized'; then
-    echo "  SKIP signature check: $APKSIGNER cannot run in this shell"
-    [ "${REQUIRE_RELEASE_SIGNING:-0}" = "1" ] && fail "cannot verify a release signature with an unusable apksigner ($APKSIGNER)"
+    if [ "${REQUIRE_RELEASE_SIGNING:-0}" = "1" ]; then
+      fail "cannot verify a release signature with an unusable apksigner ($APKSIGNER) — refusing to publish an unchecked artifact"
+    fi
+    echo "  SKIP signature check: $APKSIGNER cannot run in this shell (local run)"
   else
     printf '%s\n' "$SIG" | grep -qi '^Verifies' \
       || fail "$(basename "$APK") does not verify: $(printf '%s' "$SIG" | head -3 | tr '\n' ' ')"
@@ -237,8 +245,16 @@ if [ -n "$APKSIGNER" ] && [ -f "$APKSIGNER" ]; then
     fi
   fi
 else
-  echo "  SKIP signature check: apksigner not found under ANDROID_HOME"
-  [ "${REQUIRE_RELEASE_SIGNING:-0}" = "1" ] && fail "cannot verify a release signature without apksigner"
+  # ★ THE `&& fail` FORM WAS A TRAP HERE.
+  #
+  # `[ cond ] && fail "…"` as the LAST statement of a branch evaluates to
+  # false when the condition is false, and that non-zero becomes the branch's
+  # status — so a release run without `apksigner` could pass this section with
+  # the signature never examined. An explicit `if` cannot be read that way.
+  if [ "${REQUIRE_RELEASE_SIGNING:-0}" = "1" ]; then
+    fail "cannot verify a release signature: apksigner not found under ANDROID_HOME (${ANDROID_HOME:-unset}) — refusing to publish an unchecked artifact"
+  fi
+  echo "  SKIP signature check: apksigner not found under ANDROID_HOME (local run)"
 fi
 
 # ── 5. The server URL is actually inside the bundle ────────────────────────
@@ -288,5 +304,13 @@ echo "  OK   sha256 $SUM"
 # A leading label is not part of the format — `<sum>` then TWO spaces then the
 # filename, or `<sum> *<name>` for binary mode. Anything else is "not a checksum
 # line", so the release could never be published.
-printf '%s  %s\n' "$SUM" "$(basename "$APK")" >> "${SUMS_FILE:-SHA256SUMS.txt}"
+#
+# ★ THE NAME IS THE PUBLISHED NAME, WHICH THE VALIDATOR NO LONGER OWNS.
+#
+# It used to write `basename "$APK"`. The APK is now the Gradle output
+# (`app-release.apk`), so the manifest would have named a file the release never
+# carries — `sha256sum -c` in the publish job would fail on every entry. The
+# caller passes the name it will publish under; `basename` is the fallback for a
+# developer running this by hand.
+printf '%s  %s\n' "$SUM" "${PUBLISHED_NAME:-$(basename "$APK")}" >> "${SUMS_FILE:-SHA256SUMS.txt}"
 exit 0

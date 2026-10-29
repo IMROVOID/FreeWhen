@@ -323,7 +323,13 @@ jobs:
           keytool -list -keystore "$KEYSTORE_PATH" -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >/dev/null
           echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
+      # ★ THE STEP HAS AN `id`, SO ITS OUTPUT IS THE BUILD'S REAL RESULT.
+      #
+      # `build-apk.sh` writes `apk_path` (the Gradle output), `apk_sha256` and
+      # `apk_size` to `$GITHUB_OUTPUT`. Everything downstream reads THOSE rather
+      # than a fixed filename — see "Stage the verified artifact" below.
       - name: Build
+        id: build
         env:
           # ★ NOT `cond && '' || other`. An empty string is FALSY in GitHub
           # expressions, so `matrix.arch == 'universal' && '' || matrix.arch`
@@ -347,18 +353,24 @@ jobs:
           EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
         run: bash scripts/build/build-apk.sh
 
-      - name: Name the artifact
-        id: name
-        env:
-          ARCH: ${{ matrix.arch }}
-          VERSION: ${{ needs.resolve.outputs.version }}
-        run: |
-          set -euo pipefail
-          TARGET="FreeWhen-v${VERSION}-${ARCH}.apk"
-          cp web/dl/freewhen.apk "$TARGET"
-          echo "path=$TARGET" >> "$GITHUB_OUTPUT"
-          echo "name=$TARGET" >> "$GITHUB_OUTPUT"
-
+      # ★ THIS STEP USED TO RUN **BEFORE** THE VERIFY STEP, AND THAT IS THE BUG.
+      #
+      # It copied `web/dl/freewhen.apk` — a STAGED copy in a static root where a
+      # developer's own build survives between runs — while `Validate` then
+      # checked the same stale file and reported it as signed and correct. On
+      # 0.1.3 that file was an unsigned build from the previous day, so every
+      # published APK was unsigned while the log showed a clean verification.
+      #
+      # Three things changed:
+      #
+      #   1. `Stage` runs AFTER `Verify`, so the bytes inspected are the bytes
+      #      uploaded. The order is the safety property, exactly as it is in
+      #      `deploy.sh` (gates → export → gate:web → rsync).
+      #   2. The source is `steps.build.outputs.apk_path` — the artifact Gradle
+      #      just wrote — not a path in the tree.
+      #   3. The staged file's digest is compared with the one the build
+      #      reported, so a copy that silently picked up a different file fails
+      #      here instead of shipping.
       - name: Locate the Android SDK
         id: sdk
         run: |
@@ -419,12 +431,76 @@ jobs:
           # manifest carried a single line. A manifest that names one of five
           # APKs is worse than none: it looks like a verification aid.
           SUMS_FILE: SHA256SUMS-${{ matrix.arch }}.txt
+          # ★ THE MANIFEST NAMES THE FILE THAT WILL BE PUBLISHED.
+          #
+          # `validate-apk.sh` used to derive the name from the path it was given.
+          # That path is now Gradle's `app-release.apk`, so the manifest would
+          # have listed a filename the release never carries and the publish
+          # job's `sha256sum -c` would fail on every entry.
+          PUBLISHED_NAME: FreeWhen-v${{ needs.resolve.outputs.version }}-${{ matrix.arch }}.apk
         run: |
           set -euo pipefail
+
+          # ★ VALIDATE THE ARTIFACT THE BUILD PRODUCED, NOT A COPY IN THE TREE.
+          #
+          # This read `steps.name.outputs.path` — the file staged out of
+          # `web/dl/` — so it verified a stale copy and never touched the APK
+          # Gradle had just written. On 0.1.3 that copy was unsigned and the
+          # check passed anyway, because the two files were different.
+          APK="${{ steps.build.outputs.apk_path }}"
+          if [ -z "$APK" ] || [ ! -f "$APK" ]; then
+            echo "::error title=Nothing to verify::build-apk.sh reported no apk_path."
+            exit 1
+          fi
+
+          # Write the manifest under the matrix arch's own name, so the release
+          # job can merge five of them into one.
+          : > "$SUMS_FILE"
+
           bash .github/scripts/validate-apk.sh \
-            "${{ steps.name.outputs.path }}" \
+            "$APK" \
             "${{ matrix.arch }}" \
             "${EXPECTED_HOST%/}"
+
+      - name: Stage the verified artifact
+        id: name
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          BUILT_PATH: ${{ steps.build.outputs.apk_path }}
+          BUILT_SHA: ${{ steps.build.outputs.apk_sha256 }}
+        run: |
+          set -euo pipefail
+
+          # ★ AN EMPTY OUTPUT IS A FAILURE, NOT A FALLBACK.
+          #
+          # Falling back to `web/dl/freewhen.apk` here would reintroduce the exact
+          # defect this step exists to remove. If the build did not report its
+          # artifact, nothing is safe to publish.
+          if [ -z "${BUILT_PATH:-}" ]; then
+            echo "::error title=No build output::build-apk.sh did not report apk_path; refusing to guess a filename."
+            echo "Publishing a copy from web/dl/ is how unsigned APKs reached the 0.1.3 release."
+            exit 1
+          fi
+          if [ ! -f "$BUILT_PATH" ]; then
+            echo "::error title=Missing artifact::build reported '$BUILT_PATH' but it does not exist."
+            exit 1
+          fi
+
+          TARGET="FreeWhen-v${VERSION}-${ARCH}.apk"
+          cp "$BUILT_PATH" "$TARGET"
+
+          ACTUAL="$( { sha256sum "$TARGET" 2>/dev/null || shasum -a 256 "$TARGET"; } | cut -d' ' -f1)"
+          if [ -n "${BUILT_SHA:-}" ] && [ "$ACTUAL" != "$BUILT_SHA" ]; then
+            echo "::error title=Artifact changed::copied digest $ACTUAL != built digest $BUILT_SHA"
+            exit 1
+          fi
+
+          echo "  staged $TARGET from $BUILT_PATH"
+          echo "  sha256 $ACTUAL"
+          echo "path=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "name=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "sha256=$ACTUAL" >> "$GITHUB_OUTPUT"
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -506,6 +582,48 @@ jobs:
           cat SHA256SUMS.txt
           sha256sum -c SHA256SUMS.txt
           echo "verified $(ls -1 ./*.apk 2>/dev/null | wc -l | tr -d ' ') APK(s)"
+
+      # ★ A DIGEST MATCH PROVES NOTHING ABOUT WHETHER THE APK IS INSTALLABLE.
+      #
+      # v0.1.3 published five unsigned APKs whose checksums all matched a
+      # well-formed manifest — every file was intact, and every file was
+      # uninstallable (`INSTALL_PARSE_FAILED_NO_CERTIFICATES`, then Play
+      # Protect's "Installation blocked by profile policy"). `sha256sum -c`
+      # answers "is this the file the build made?", not "can a phone install it".
+      #
+      # This is the last gate before bytes go public, so it asks the second
+      # question directly, with no skip path.
+      - name: Refuse to publish an unsigned APK
+        run: |
+          set -euo pipefail
+          cd release
+
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ]; then
+            for candidate in "$HOME/Android/Sdk" /usr/local/lib/android/sdk; do
+              [ -d "$candidate" ] && SDK="$candidate" && break
+            done
+          fi
+          APKSIGNER="$(ls -d "$SDK"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error title=No apksigner::cannot prove the uploaded APKs are signed; refusing to publish."
+            exit 1
+          fi
+
+          shopt -s nullglob
+          status=0
+          for apk in ./*.apk; do
+            if OUT="$("$APKSIGNER" verify --print-certs "$apk" 2>&1)"; then
+              echo "  SIGNED   $apk"
+            else
+              echo "::error title=Unsigned APK::$apk is not signed — a phone cannot install it."
+              printf '%s\n' "$OUT" | head -3 | sed 's/^/           /'
+              status=1
+            fi
+          done
+
+          [ "$status" -eq 0 ] || exit 1
+          echo "all APKs carry a valid signature"
 
       - name: Create or update the release
         env:
