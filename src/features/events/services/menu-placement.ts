@@ -184,3 +184,49 @@ export function anchorFromRow(row: {
 }): MenuAnchor {
   return anchorFromPress(row, { x: row.width / 2, y: row.height / 2 });
 }
+
+/**
+ * The point a press landed on, from whatever shape the platform delivered.
+ *
+ * ★ `locationX` DOES NOT EXIST ON WEB, AND THE MENU WENT TO A FIXED PLACE.
+ *
+ * React Native's `GestureResponderEvent` carries `locationX/locationY`, relative
+ * to the view that received the press. On the web build the same prop is fed a
+ * DOM pointer event, which has no such fields: `locationX` is `undefined`,
+ * `row.x + undefined` is `NaN`, and the arithmetic in `placeMenu` propagates it
+ * through `Math.min`/`Math.max` into the panel's `top`/`left`. An invalid offset
+ * is simply not applied by the browser, so the menu landed wherever the styles
+ * left it — the reported "it opens in a fixed place, not where I held my finger".
+ *
+ * So the conversion lives here, where it can be tested without a browser:
+ * a native-shaped event is read directly, and a DOM-shaped one is derived from
+ * its own client coordinates (the browser's equivalent of window coordinates).
+ *
+ * Returns `null` when the event carries no usable point at all, which is what a
+ * keyboard activation and a screen-reader action look like. The caller then
+ * anchors on the row's centre instead of on a coordinate that does not exist.
+ */
+export function pressPointOf(event: unknown): { x: number; y: number } | null {
+  const native = (event as { nativeEvent?: Record<string, unknown> } | null)?.nativeEvent;
+  if (!native) return null;
+
+  const asNumber = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+  const localX = asNumber(native.locationX);
+  const localY = asNumber(native.locationY);
+  if (localX !== null && localY !== null) return { x: localX, y: localY };
+
+  // The DOM shape: a pointer event whose `clientX`/`clientY` are already in the
+  // browser's viewport space, the same space `measureInWindow` reports.
+  const pageX = asNumber(native.pageX) ?? asNumber(native.clientX);
+  const pageY = asNumber(native.pageY) ?? asNumber(native.clientY);
+  const element = native.target as { getBoundingClientRect?: () => { left: number; top: number } } | null;
+
+  if (pageX !== null && pageY !== null && typeof element?.getBoundingClientRect === 'function') {
+    const rect = element.getBoundingClientRect();
+    return { x: pageX - rect.left, y: pageY - rect.top };
+  }
+
+  return null;
+}

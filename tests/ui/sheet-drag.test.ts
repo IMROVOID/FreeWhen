@@ -229,10 +229,15 @@ test('every geometry consumer subscribes instead of reading once', () => {
   // Arrange — a component that reads the direction during render keeps stale
   // geometry after a switch, which is how the pill ended up over the wrong
   // option and the knob outside its track.
+  //
+  // ★ THE MENU'S BODY MOVED INTO `ContextMenu`.
+  // The event menu is now a thin action list over the shared surface, so the
+  // direction that mirrors its horizontal placement is read there — and the
+  // messages menu subscribes through the same file rather than a second copy.
   for (const path of [
     'src/components/ui/Chip.tsx',
     'src/components/ui/AccentSwitch.tsx',
-    'src/features/events/components/EventContextMenu.tsx',
+    'src/components/ui/ContextMenu.tsx',
   ]) {
     // Act
     const source = code(path);

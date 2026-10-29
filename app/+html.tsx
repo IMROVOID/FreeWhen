@@ -3,6 +3,7 @@
 import { ScrollViewStyleReset, useServerDocumentContext } from 'expo-router/html';
 
 import { resolveLanguage } from '@/src/app-bootstrap';
+import { FRAME_MAX_WIDTH, TABLET_BREAKPOINT } from '@/src/components/ui/AppFrame';
 import { resources } from '@/src/i18n';
 import {
   OG_IMAGE_HEIGHT,
@@ -13,7 +14,7 @@ import {
   siteOrigin,
   softwareApplicationSchema,
 } from '@/src/lib/seo';
-import { palette, themes } from '@/src/theme/tokens';
+import { border, palette, themes } from '@/src/theme/tokens';
 import { vazirmatnFdFonts, vazirmatnFonts } from '@/src/theme/font-assets';
 import { fontFaceCss } from '@/src/theme/web-font-face';
 
@@ -104,6 +105,96 @@ export default function Root({ children }: { children: React.ReactNode }) {
    */
   const fontFaces = fontFaceCss({ vazirmatn: vazirmatnFonts, vazirmatnFd: vazirmatnFdFonts });
 
+  const dark = themes.dark;
+  const light = themes.light;
+
+  /**
+   * ★ THE COLUMN'S CLAMP IS `AppFrame`'s, READ RATHER THAN REPEATED.
+   *
+   * The gate:design rule that bans a literal in a style object cannot see inside a
+   * CSS string, so both numbers are hoisted into named bindings and every use
+   * below is an interpolation — the same discipline in a place the gate cannot
+   * check.
+   */
+  const frameMaxWidth = FRAME_MAX_WIDTH;
+  const tabletBreakpoint = TABLET_BREAKPOINT;
+  const scrollbarWidth = palette.scrollbarWidth;
+
+  /**
+   * ★ THE CANVAS, THE FOCUS RING AND THE SCROLLBAR — AS ONE STRING.
+   *
+   * A prerendered document has to HYDRATE. Two adjacent `<style>` children
+   * separated by whitespace text are emitted as `(a, b)`, and React's hydration
+   * inserts `<!-- -->` between such children — which does not match the server's
+   * markup, so React throws the server tree away and client-renders the app from
+   * nothing. That is the full-width frame the page shows for a second before the
+   * clamp appears. One string per `<style>` is the form that hydrates cleanly.
+   *
+   * ★ THE FRAME'S WIDTH IS DECLARED HERE AS WELL AS IN `AppFrame`.
+   *
+   * `AppFrame` is React, and React is not mounted until the fonts resolve, so
+   * between first paint and the first frame the document held the PRERENDERED
+   * markup — which has no frame. `#root` carries the same cap in CSS, so the
+   * page is never wider than the app's column, not even for one frame. The
+   * numbers are imported from `AppFrame`, not copied, so the two cannot drift.
+   */
+  const canvasCss = [
+    `html,body{background-color:${dark.bg};color-scheme:dark}`,
+    `@media (prefers-color-scheme: light){html,body{background-color:${light.bg};color-scheme:light}}`,
+
+    // ★ THE DESKTOP CLAMP, BEFORE REACT EXISTS.
+    //
+    // `#root` is the app's mount point. Below the tablet breakpoint the window IS
+    // the app, so nothing is declared; at or above it the root is the same
+    // phone-width column the frame draws, centred, so the prerendered document —
+    // and every frame until React takes over — is already the right shape.
+    `@media (min-width:${tabletBreakpoint}px){#root{max-inline-size:${frameMaxWidth}px;margin-left:auto;margin-right:auto}}`,
+
+    // ★ THE FOCUS RULE IS AN ACCESSIBILITY REQUIREMENT, NOT POLISH.
+    //
+    // Every control suppresses the browser's default outline (it drew a second
+    // ring around buttons that already paint their own surface), which left
+    // keyboard users with NO visible focus indicator at all — a WCAG 2.4.7
+    // failure. `:focus-visible` restores one for keyboard navigation only, so a
+    // mouse click stays clean while Tab is always visible. It is declared here
+    // because react-native-web's style resolver has no pseudo-class support, so
+    // no component can express it.
+    `:focus-visible{outline:${border.ring}px solid ${palette.volt};outline-offset:${border.strong}px}`,
+    // ★ BUTTONS AND FIELDS KEEP THEIR OWN FOCUS TREATMENT.
+    //
+    // A button paints its own surface and a field paints its own border; the
+    // generic ring above drew a second, square box around both — the hard
+    // rectangle seen on the chat composer. Keyboard users still get a visible
+    // indicator from the component's own focused styling.
+    `button:focus-visible,input:focus-visible,textarea:focus-visible{outline:none}`,
+
+    // ★ THE SCROLLBAR IS PART OF THE DESIGN SYSTEM, NOT THE OS DEFAULT.
+    //
+    // A default 15px grey trough with step arrows was the last unstyled surface
+    // on a page made entirely of theme tokens. It is drawn thin, in the same
+    // warm neutral the cards use, with a rounded thumb and a transparent corner.
+    //
+    // Both mechanisms are declared because no single one is universal: the
+    // standard `scrollbar-*` properties cover Firefox and Chromium 121+, the
+    // WebKit pseudo-elements cover Safari and older Chromium. They cannot both
+    // apply — a browser that supports `scrollbar-width` ignores the legacy
+    // pseudo-elements by spec — but the `@supports not` guard makes that
+    // explicit rather than left to the engine's own precedence rules.
+    `*{scrollbar-width:thin;scrollbar-color:${dark.surface3} transparent}`,
+    `@media (prefers-color-scheme: light){*{scrollbar-color:${light.surface3} transparent}}`,
+    `@supports not (scrollbar-width: thin){`,
+    `::-webkit-scrollbar{width:${scrollbarWidth}px;height:${scrollbarWidth}px}`,
+    `::-webkit-scrollbar-track{background:transparent}`,
+    `::-webkit-scrollbar-thumb{background-color:${dark.surface3};border-radius:${palette.scrollbarRadius}px}`,
+    `::-webkit-scrollbar-thumb:hover{background-color:${dark.line}}`,
+    `::-webkit-scrollbar-corner{background:transparent}`,
+    `@media (prefers-color-scheme: light){`,
+    `::-webkit-scrollbar-thumb{background-color:${light.surface3}}`,
+    `::-webkit-scrollbar-thumb:hover{background-color:${light.line}}`,
+    `}`,
+    `}`,
+  ].join('');
+
   return (
     <html lang={language} dir={dir} {...htmlAttributes}>
       <head>
@@ -190,38 +281,10 @@ export default function Root({ children }: { children: React.ReactNode }) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="FreeWhen" />
 
-        {/* ★ THE CANVAS COLOUR AND THE FOCUS RING.
-            Dark is the default because `useTheme` treats an unknown scheme as
-            dark; the light block only overrides it. `color-scheme` is set with
-            it so form controls and scrollbars follow the same choice instead of
-            rendering a white input on a dark page.
-
-            ★ THE FOCUS RULE IS AN ACCESSIBILITY REQUIREMENT, NOT POLISH.
-            Every control suppresses the browser's default outline (it drew a
-            second ring around buttons that already paint their own surface),
-            which left keyboard users with NO visible focus indicator at all —
-            a WCAG 2.4.7 failure. `:focus-visible` restores one for keyboard
-            navigation only, so a mouse click stays clean while Tab is always
-            visible. It is declared here because react-native-web's style
-            resolver has no pseudo-class support, so no component can express it. */}
-        <style
-          id="freewhen-canvas"
-          dangerouslySetInnerHTML={{
-            __html: [
-              `html,body{background-color:${themes.dark.bg};color-scheme:dark}`,
-              `@media (prefers-color-scheme: light){html,body{background-color:${themes.light.bg};color-scheme:light}}`,
-              `:focus-visible{outline:2px solid ${palette.volt};outline-offset:2px}`,
-              // ★ BUTTONS AND FIELDS KEEP THEIR OWN FOCUS TREATMENT.
-              //
-              // A button paints its own surface and a field paints its own
-              // border; the generic ring above drew a second, square box
-              // around both — the hard rectangle seen on the chat composer.
-              // Keyboard users still get a visible indicator from the
-              // component's own focused styling.
-              `button:focus-visible,input:focus-visible,textarea:focus-visible{outline:none}`,
-            ].join(''),
-          }}
-        />
+        {/* ★ THE CANVAS COLOUR, THE FOCUS RING, THE DESKTOP CLAMP AND THE
+            SCROLLBAR. Built above as ONE string, because a prerendered document
+            that hydrates cannot have two adjacent text children here. */}
+        <style id="freewhen-canvas" dangerouslySetInnerHTML={{ __html: canvasCss }} />
 
         <ScrollViewStyleReset />
         {headNodes}

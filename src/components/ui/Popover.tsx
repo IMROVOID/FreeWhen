@@ -33,14 +33,16 @@
  * has one, and the teardown is armed ONCE per close so a re-render cannot restart it.
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { REDUCED_MOTION_DURATION, dur, ease } from '@/src/theme/motion';
 import { radius, space } from '@/src/theme/tokens';
 import { useMotion } from '@/src/theme/useMotion';
 import { useTheme } from '@/src/theme/useTheme';
+
+import { OverlaySurface } from './OverlaySurface';
 
 export interface PopoverProps {
   /** Whether the popover is wanted. */
@@ -64,6 +66,7 @@ export function Popover({
 }: PopoverProps) {
   const { t } = useTheme();
   const motion = useMotion();
+  const { width: viewportWidth } = useWindowDimensions();
 
   const [rendered, setRendered] = useState(visible);
 
@@ -81,8 +84,53 @@ export function Popover({
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
+  /**
+   * The teardown timer, held outside React.
+   *
+   * ★ A TIMER INSIDE AN EFFECT'S CLEANUP IS CLEARED BY THE EFFECT RE-RUNNING.
+   *
+   * The exit branch below sets `ready`, which is one of this effect's own
+   * dependencies — so the effect runs a second time and the first pass's cleanup
+   * cancels the timer that was the only thing that would ever set `rendered` back
+   * to false. The popover then stayed mounted with its full-bleed scrim over the
+   * page: dimmed, and swallowing every click. That is the reported "I close the
+   * event menu by clicking outside and the menu still has focus — nothing is
+   * clickable and everything is dark". `BottomSheet.web` lost the same timer the
+   * same way and was fixed the same way: a ref cannot be cleared by a dependency
+   * change, and the effect owns only the animation.
+   */
+  const unmountTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const ensureUnmountScheduled = useCallback(() => {
+    if (unmountTimer.current !== null) return;
+
+    const lift = motion.reduce ? REDUCED_MOTION_DURATION : dur.base;
+    unmountTimer.current = setTimeout(() => {
+      unmountTimer.current = null;
+      setRendered(false);
+    }, lift);
+  }, [motion.reduce]);
+
+  // Cleared on unmount only, never by a re-render.
+  useEffect(
+    () => () => {
+      if (unmountTimer.current !== null) {
+        clearTimeout(unmountTimer.current);
+        unmountTimer.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (visible) {
+      // A reopen before the teardown fired must cancel it, or the popover would
+      // unmount under its own entrance.
+      if (unmountTimer.current !== null) {
+        clearTimeout(unmountTimer.current);
+        unmountTimer.current = null;
+      }
+
       setRendered(true);
       setReady(true);
       progress.value = motion.reduce ? 1 : withTiming(1, { duration: dur.fast, easing: ease.out });
@@ -90,31 +138,22 @@ export function Popover({
     }
 
     /**
-     * ★ THE EXIT RUNS ONCE.
+     * ★ THE EXIT RUNS ONCE, BUT THE UNMOUNT MUST ALWAYS HAPPEN.
      *
-     * `rendered` is set by the open branch above, which re-runs this effect. On
-     * that second pass `visible` is false and the first pass's cleanup has
-     * already cancelled the teardown timer, so the branch would animate out
-     * AGAIN and arm a fresh timer — the panel never settled. `ready` is the
-     * one-shot.
+     * `ready` is the one-shot that stops the exit re-arming: the open branch sets
+     * it, which re-runs this effect, and without the guard the branch would
+     * animate out again and re-arm a fresh timer on every pass. It therefore
+     * guards the ANIMATION only — the `ensureUnmountScheduled` call below is
+     * outside that guard, so a re-run can never leave the popover with nothing
+     * scheduled.
      */
-    if (!ready) return;
+    if (ready) {
+      progress.value = motion.reduce ? 0 : withTiming(0, { duration: dur.base, easing: ease.out });
+      setReady(false);
+    }
 
-    progress.value = motion.reduce ? 0 : withTiming(0, { duration: dur.base, easing: ease.out });
-    setReady(false);
-
-    /**
-     * ★ THE TEARDOWN WAITS FOR THE EXIT, AND IT MUST BE THE `Modal`'S TEARDOWN.
-     *
-     * Waiting out `dur.base` is what lets the fade finish instead of being cut
-     * one frame in, and — the part that matters on Android — it keeps the
-     * `Modal` presented until the animation is over, so removing it cannot
-     * strand its window over the app.
-     */
-    const lift = motion.reduce ? REDUCED_MOTION_DURATION : dur.base;
-    const timer = setTimeout(() => setRendered(false), lift);
-    return () => clearTimeout(timer);
-  }, [visible, ready, motion.reduce, progress]);
+    ensureUnmountScheduled();
+  }, [visible, ready, motion.reduce, progress, ensureUnmountScheduled]);
 
   // Escape is the dismissal a keyboard user expects, and react-native-web gives no
   // key handler of its own.
@@ -144,34 +183,40 @@ export function Popover({
 
   return (
     <Modal transparent visible animationType="none" onRequestClose={onDismiss}>
-      <View style={styles.root} testID={testID}>
-        {/* A full-bleed dismiss surface. `Pressable` rather than `Pressy`: a scrim is
-            not a control, so it takes no press-scale and no haptic. */}
-        <Pressable
-          accessibilityRole="button"
-          onPress={onDismiss}
-          style={[styles.scrim, { backgroundColor: t.scrim }]}
-          testID={testID ? `${testID}-scrim` : undefined}
-        />
+      {/* ★ THE OVERLAY LIVES IN THE APP'S COLUMN, NOT THE WINDOW.
+          A `Modal` mounts into react-native-web's portal wrapper, outside the
+          desktop frame's column, so without this the menu opened desktop-wide
+          over a phone-sized app. See `OverlaySurface.tsx`. */}
+      <OverlaySurface viewportWidth={viewportWidth}>
+        <View style={styles.root} testID={testID}>
+          {/* A full-bleed dismiss surface. `Pressable` rather than `Pressy`: a scrim is
+              not a control, so it takes no press-scale and no haptic. */}
+          <Pressable
+            accessibilityRole="button"
+            onPress={onDismiss}
+            style={[styles.scrim, { backgroundColor: t.scrim }]}
+            testID={testID ? `${testID}-scrim` : undefined}
+          />
 
-        <Animated.View
-          accessibilityRole="menu"
-          accessibilityLabel={accessibilityLabel}
-          style={[
-            styles.panel,
-            { backgroundColor: t.surface2 },
-            // rtl-ok: window coordinates from measureInWindow are PHYSICAL, so a
-            // physical offset is the only correct one — a logical start would
-            // mirror a rect that already did not.
-            position === null
-              ? styles.unplaced
-              : { top: position.top, left: position.left }, // rtl-ok: physical window coords
-            panelStyle,
-          ]}
-        >
-          {children}
-        </Animated.View>
-      </View>
+          <Animated.View
+            accessibilityRole="menu"
+            accessibilityLabel={accessibilityLabel}
+            style={[
+              styles.panel,
+              { backgroundColor: t.surface2 },
+              // rtl-ok: window coordinates from measureInWindow are PHYSICAL, so a
+              // physical offset is the only correct one — a logical start would
+              // mirror a rect that already did not.
+              position === null
+                ? styles.unplaced
+                : { top: position.top, left: position.left }, // rtl-ok: physical window coords
+              panelStyle,
+            ]}
+          >
+            {children}
+          </Animated.View>
+        </View>
+      </OverlaySurface>
     </Modal>
   );
 }

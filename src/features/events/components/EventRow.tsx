@@ -21,6 +21,7 @@ import { Card } from '@/src/components/ui/Card';
 import {
   anchorFromPress,
   anchorFromRow,
+  pressPointOf,
   type MenuAnchor,
 } from '@/src/features/events/services/menu-placement';
 import { haptics } from '@/src/platform/haptics';
@@ -97,8 +98,10 @@ export function EventRow({ event, onPress, onLongPress }: EventRowProps) {
    * callback rather than read after it.
    */
   const report = useCallback(
-    (press?: { x: number; y: number }) => {
+    (event?: unknown) => {
       if (!onLongPress) return;
+
+      const press = event === undefined ? null : pressPointOf(event);
 
       containerRef.current?.measureInWindow((x, y, width, height) => {
         const rect = { x, y, width, height };
@@ -129,10 +132,9 @@ export function EventRow({ event, onPress, onLongPress }: EventRowProps) {
           onLongPress
             ? (event_) => {
                 haptics.impact('medium');
-                report({
-                  x: event_.nativeEvent.locationX,
-                  y: event_.nativeEvent.locationY,
-                });
+                // The point conversion is platform-aware: a DOM event has no
+                // `locationX`, so `pressPointOf` derives it — see menu-placement.
+                report(event_);
               }
             : undefined
         }

@@ -20,10 +20,11 @@
 import { StyleSheet, View } from 'react-native';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ArrowSquareOut } from 'phosphor-react-native';
 
 import { Card } from '@/src/components/ui/Card';
+import { ProposalMapPreview } from './ProposalMapPreview';
 import { VoteShareBar } from './VoteShareBar';
-import { Button } from '@/src/components/ui/Button';
 import { Chip } from '@/src/components/ui/Chip';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
@@ -37,7 +38,7 @@ import {
   openingHoursAdvisory,
 } from '@/src/features/proposals/services/opening-hours';
 import { endsNextDay, formatLocalTime } from '@/src/features/proposals/services/slot-time';
-import { border, radius, space } from '@/src/theme/tokens';
+import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Proposal } from '@/src/types/proposal';
 import type { Language } from '@/src/i18n/types';
@@ -73,8 +74,17 @@ export interface ProposalCardProps {
  * It lets the slot's own bottom radii land BELOW the visible bar, so the card's
  * corner curve is finished without the bar's fill or top edge crossing it — see
  * `shareSlot`.
+ *
+ * ★ IT IS GONE, AND SO IS THE DEAD BAND UNDER THE BAR.
+ *
+ * It was `space[3]` of transparent padding below a `space[1]` bar, inside a card
+ * whose foot reserved `space[5] + space[3]` to clear it: four pixels of gauge
+ * floating eleven pixels above a strip of nothing. That is the reported "there
+ * is padding under the votes bar on the proposal box". The card's `overflow:
+ * 'hidden'` already clips the bar to the card's own radius, so neither the tail
+ * nor the tail's reservation is needed — see `shareSlot` and `cardWithShare`.
  */
-const shareBarTail = space[3];
+const shareBarTail = 0;
 
 /** The digits rule: Persian numerals in `fa`, Latin in `en` (AC-3.1.1). */
 function localiseDigits(value: string, language: string): string {
@@ -196,16 +206,57 @@ export function ProposalCard({
 
       {proposal.venue && (
         <View
-          style={[
-            styles.venueBlock,
-            { backgroundColor: theme.surface2, borderColor: theme.line },
-          ]}
+          style={[styles.venueBlock, { backgroundColor: theme.surface2 }]}
           testID={testID ? `${testID}-venue` : undefined}
         >
+          {/* ★ THE VENUE IS DRAWN, NOT DESCRIBED.
+              This block had no picture at all — only a button whose label is
+              «بازکردن در برنامه دیگر», which the reader reported as the map being
+              missing. The preview puts the venue's own coordinates on screen; see
+              `ProposalMapPreview.tsx`. It is absent for a withdrawn proposal,
+              because a place nobody is going does not need a map. */}
+          {!isWithdrawn && (
+            <ProposalMapPreview
+              lat={proposal.venue.lat}
+              lng={proposal.venue.lng}
+              label={proposal.venue.name}
+              testID={testID ? `${testID}-map` : undefined}
+            />
+          )}
+
           <View style={styles.venueText}>
-            <Text variant="body" color={isWithdrawn ? theme.textFaint : theme.text} style={struck}>
-              {proposal.venue.name}
-            </Text>
+            <View style={styles.venueNameRow}>
+              <Text
+                variant="body"
+                color={isWithdrawn ? theme.textFaint : theme.text}
+                style={[styles.venueName, struck]}
+              >
+                {proposal.venue.name}
+              </Text>
+
+              {/* ★ THE ACTION IS THE MAP AFFORDANCE, NOT A SENTENCE ABOUT ONE.
+                  It was a labelled button reading "open in another app" where a map
+                  belonged. A pin glyph beside the place's name says the same thing
+                  without pretending to be the picture, and it keeps its accessible
+                  name for a screen reader. */}
+              {!isWithdrawn && (
+                <Pressy
+                  onPress={() => void openInMaps({
+                    name: proposal.venue!.name,
+                    lat: proposal.venue!.lat,
+                    lng: proposal.venue!.lng,
+                  })}
+                  haptic="light"
+                  accessibilityRole="button"
+                  accessibilityLabel={t('proposals.card.openInMaps')}
+                  testID={testID ? `${testID}-open-maps` : undefined}
+                  style={styles.openMaps}
+                >
+                  <ArrowSquareOut size={18} color={theme.textMuted} weight="bold" />
+                </Pressy>
+              )}
+            </View>
+
             {proposal.venue.address && (
               <Text variant="caption" color={theme.textMuted} numberOfLines={2}>
                 {proposal.venue.address}
@@ -224,26 +275,6 @@ export function ProposalCard({
               </Text>
             )}
           </View>
-
-          {/* ★ A PLACE INSIDE A CARD SHOULD BE REACHABLE.
-              The coordinates are already in the payload, so the one thing a
-              reader does with an address — open it in the map application they
-              actually use — is one tap rather than a copy and a search. Hidden on
-              a withdrawn proposal, which is not somewhere anyone is going. */}
-          {!isWithdrawn && (
-            <Button
-              label={t('proposals.card.openInMaps')}
-              variant="ghost"
-              size="small"
-              fullWidth={false}
-              onPress={() => void openInMaps({
-                name: proposal.venue!.name,
-                lat: proposal.venue!.lat,
-                lng: proposal.venue!.lng,
-              })}
-              testID={testID ? `${testID}-open-maps` : undefined}
-            />
-          )}
         </View>
       )}
 
@@ -327,25 +358,25 @@ const styles = StyleSheet.create({
   /**
    * Room for the gauge at the foot of the card.
    *
-   * Without it the absolutely-placed bar overlaps the last row (the proposer
-   * line) — the bar does not take part in the flow.
+   * ★ THE RESERVATION IS THE BAR, NOT THE BAR PLUS A TAIL.
+   *
+   * `cardWithShare` used to reserve `space[5] + shareBarTail` — the card's own
+   * bottom padding, plus sixteen pixels of clearance for a transparent strip that
+   * existed only to finish the corner curve. Between them they left a visible dead
+   * band under a four-pixel gauge. `overflow: 'hidden'` on the card already clips
+   * the bar to the card's radius, so the foot is now the card's padding plus the
+   * bar itself.
    */
   cardWithShare: {
-    // The gauge's own height PLUS the tail below it, so the last text row clears
-    // both the bar and the strip that reaches down into the card's corners.
-    paddingBottom: space[5] + shareBarTail,
+    paddingBottom: space[4] + space[1],
   },
   /**
-   * ★ THE STRIP TAKES THE CARD'S OWN BOTTOM CURVE.
+   * ★ THE STRIP TAKES THE CARD'S OWN CURVE.
    *
-   * The slot is full-bleed, so its bottom corners sat OUTSIDE the card's
-   * `radius.lg` curve and the bar's fill crossed the corner on both sides.
-   * The radii here are the card's, and the `shareBarTail` of padding pushes them
-   * BELOW the visible band: the curve is finished in transparent space, so
-   * neither the fill nor the bar's top edge draws on it. The tail is also why
-   * the bar's top edge stays one straight full-width line — rounding the bar
-   * itself would pull its top corners inside the card's and open a gap at each
-   * end of the gauge.
+   * The slot is full-bleed along the card's bottom edge. The card clips it (see
+   * `card`), so the bar's fill cannot cross the corner — which is what the old
+   * `shareBarTail` was compensating for by pushing the radii into transparent
+   * space BELOW the bar, i.e. by adding the padding the report asks to remove.
    */
   shareSlot: {
     position: 'absolute',
@@ -353,9 +384,6 @@ const styles = StyleSheet.create({
     left: 0, // rtl-ok: full-bleed strip on the card's own edge, spans both sides
     right: 0,
     paddingBottom: shareBarTail,
-    borderBottomLeftRadius: radius.lg,
-    borderBottomRightRadius: radius.lg,
-    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
@@ -374,9 +402,28 @@ const styles = StyleSheet.create({
     // would loosen every pair of lines in it.
     marginTop: space[3],
     borderRadius: radius.md,
-    borderWidth: border.hairline,
+    // ★ NO BORDER.
+    //
+    // A hairline around this box drew a second rectangle inside a card that no
+    // longer has one of its own, so the proposal read as a box inside a box. The
+    // `surface2` fill is the separation.
     padding: space[3],
     gap: space[2],
+  },
+  venueNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[2],
+  },
+  venueName: {
+    // The name takes what the map affordance does not, so a long place name wraps
+    // instead of pushing the pin off the row.
+    flexShrink: 1,
+  },
+  openMaps: {
+    padding: space[1],
+    // The affordance is never the part that gives way.
+    flexShrink: 0,
   },
   venueText: {
     gap: space[1],

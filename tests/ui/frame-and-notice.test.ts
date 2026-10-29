@@ -81,10 +81,11 @@ test('inline bold is rendered in paragraphs and bullets, not only in table cells
   const viewer = code('src/features/privacy/components/NoticeViewer.tsx');
 
   // Act — `Bold` is the only component that interprets `**…**`, so every block
-  // that can contain it has to go through it.
+  // that can contain it has to go through it. `text={… ?? ''}` is how a ragged
+  // table row's missing cell is rendered, so the cell pattern allows it.
   const paragraphBold = /case 'paragraph':[\s\S]{0,200}?<Bold /.test(viewer);
   const bulletBold = /<Bold text=\{item\}/.test(viewer);
-  const cellBold = /<Bold text=\{cell\}/.test(viewer);
+  const cellBold = /<Bold[\s\S]{0,120}?text=\{(cell|row\[cellIndex\]|block\.header\[index\])/.test(viewer);
 
   // Assert
   assert.ok(paragraphBold, 'a paragraph renders its asterisks literally');
@@ -146,20 +147,26 @@ test('the notice has a table, so the table rendering is load-bearing', () => {
   assert.ok(tables.length > 0, 'the English notice has no table, so the overflow path is untested');
 });
 
-test('the table scrolls instead of crushing its columns', () => {
+test('the table lays its rows out on one shared column track', () => {
   // Arrange
   const viewer = code('src/features/privacy/components/NoticeViewer.tsx');
 
-  // Act
-  const scrolls = /horizontal/.test(viewer) && /notice-table-scroll/.test(viewer);
-  const minColumn = /minWidth: TABLE_MIN_COLUMN/.test(viewer);
-  const noShare = !/tableCell: \{[^}]*flex: 1,/.test(viewer);
+  // Act / Assert — "align the table content with their headers, not manual spacing
+  // between elements of each row". A per-row `flex: 1` divides the slack per row,
+  // so a header never shares an edge with the cells under it; the weights come from
+  // `columnWeights` instead.
+  assert.ok(/columnWeights/.test(viewer), 'the table has no shared column track');
+  assert.ok(/columnWidthFor/.test(viewer), 'the weights are not resolved to column widths');
+  assert.ok(
+    !/tableCell:\s*\{[^}]*flex:\s*1,/.test(viewer),
+    'the cells still share their row instead of their column',
+  );
 
-  // Assert — `flex: 1` alone divided whatever width was available, which is how
-  // four columns became 76pt wide and wrapped to one word per line.
-  assert.ok(scrolls, 'the table has no horizontal scroll');
-  assert.ok(minColumn, 'the columns have no minimum width, so they still squeeze');
-  assert.ok(noShare, 'the cells still share the width instead of overflowing');
+  // The column spacing is the cell's own padding, so it follows the computed width
+  // rather than being a fixed step between tracks.
+  const row = /tableRow:\s*\{([^}]*)\}/.exec(viewer)?.[1] ?? '';
+  assert.ok(!/\bgap:/.test(row), 'the columns are still spaced by a fixed gap');
+  assert.ok(/paddingVertical/.test(row), 'the rows have no padding of their own');
 });
 
 test('the headings have a per-level rhythm, and the first block has none', () => {

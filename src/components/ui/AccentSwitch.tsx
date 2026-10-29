@@ -29,6 +29,13 @@
  * off, `primary` when on) is enough separation on its own, so the border is gone
  * and the arithmetic is simply `(width − knob) / 2` at each rest.
  *
+ * ★ AND THE INSET IS APPLIED PHYSICALLY, OR IT IS NOT APPLIED AT ALL.
+ *
+ * See `startInset` at the call site: `marginInlineStart` is dropped by `Pressy`'s
+ * layout whitelist, so the OFF knob lost its air entirely. That was the reported
+ * defect, and it is why the evidence for it is an assertion about the STYLE KEY
+ * rather than about a rendered pixel.
+ *
  * ★ THE DIRECTION IS SUBSCRIBED TO, NOT READ ONCE.
  *
  * The knob is anchored at the leading margin and moved by a PHYSICAL
@@ -36,7 +43,7 @@
  * direction during render left the knob on stale geometry after a live language
  * switch: it started at the RIGHT margin and translated NEGATIVE, i.e. straight
  * out of the track — "the circle overflows the switch, almost out of it". The
- * shared value below is rebuild whenever the direction changes, so the two
+ * shared value below is rebuilt whenever the direction changes, so the two
  * cannot disagree.
  */
 
@@ -106,6 +113,32 @@ export function AccentSwitch({
   // "on" is the other end, so the sign flips.
   const travel = rtl ? -KNOB_TRAVEL : KNOB_TRAVEL;
 
+  /**
+   * ★ THE OFF REST IS A PHYSICAL MARGIN, BECAUSE A LOGICAL ONE IS DROPPED.
+   *
+   * `marginInlineStart` is the correct spelling for this inset — the OFF rest is
+   * the leading edge in both directions. But `Pressy` sorts a style into a layout
+   * object and a visual one with a whitelist of layout keys, and that whitelist is
+   * physical: `marginLeft`/`marginRight` are on it and `marginInlineStart` is not.
+   * The inset therefore travelled to the INNER pressable, whose width is the whole
+   * track, so it did nothing — and the knob sat hard against the track's edge with
+   * its declared air missing: "the circle is too much to the right with no spacing
+   * between it and the switch edge".
+   *
+   * It looked like a web-only, OFF-only bug: the ON rest is reached by the travel,
+   * which lands the knob inside the track regardless, and the asymmetry read as
+   * "the OFF state is wrong". Native lost the inset the same way — the whitelist is
+   * platform-independent — it is simply less obvious there.
+   *
+   * One physical margin, chosen from the resolved direction, so nothing is lost
+   * between the two nodes.
+   */
+  // The side is chosen EXPLICITLY from the resolved direction, so there is nothing
+  // for a logical property to mirror — and `marginInlineStart` was the key `Pressy`
+  // dropped, which is the defect this fixes.
+  // rtl-ok: physical on purpose; the direction is resolved above
+  const startInset = rtl ? { marginRight: KNOB_INSET } : { marginLeft: KNOB_INSET };
+
   // 0 = off, 1 = on. One value drives the knob and the track's colour progress,
   // so the two cannot disagree mid-flight.
   const progress = useSharedValue(value ? 1 : 0);
@@ -158,6 +191,7 @@ export function AccentSwitch({
         <Animated.View
           style={[
             styles.knob,
+            startInset,
             { backgroundColor: value ? theme.onPrimary : theme.surface1 },
             restingKnob,
             motion.reduce ? undefined : knobStyle,
@@ -185,9 +219,9 @@ const styles = StyleSheet.create({
     width: KNOB_SIZE,
     height: KNOB_SIZE,
     borderRadius: radius.pill,
-    // Logical: the OFF rest is the leading edge in both directions, and the
-    // travel above carries it to the trailing one.
-    marginInlineStart: KNOB_INSET,
+    // The leading-edge inset is applied PHYSICALLY at the call site (see
+    // `startInset`) — a logical key here was discarded by `Pressy`'s layout
+    // whitelist, which is what put the OFF knob against the track's edge.
   },
 });
 

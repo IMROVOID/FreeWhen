@@ -639,7 +639,15 @@ const styles = StyleSheet.create({
     marginTop: space[3],
   },
   proposalBlock: {
-    gap: space[2],
+    // ★ A PROPOSAL AND ITS VOTE ARE ONE UNIT; TWO PROPOSALS ARE TWO.
+    //
+    // `space[2]` was chosen when the card/vote pair had to be tight, but the card
+    // now ends with a gauge flush on its own bottom edge, so eight pixels between
+    // the box and the answer buttons read as the controls belonging to the NEXT
+    // proposal — "increase the spacing between the proposal boxes and the vote
+    // buttons". `space[4]` separates them clearly and the list's own `space[6]`
+    // still keeps two proposals apart, so the grouping reads right.
+    gap: space[4],
   },
   action: {
     marginTop: space[6],

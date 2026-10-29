@@ -58,6 +58,22 @@ export const palette = {
   success: '#2EE6A6',
   warning: '#FFC933',
   danger: '#FF4D5E',
+  /**
+   * The web scrollbar's thickness, in px.
+   *
+   * A browser surface has no view to give a style to, so its two numbers live
+   * beside `scrollbarRadius`: this is a fixed element size, like `size` below, not
+   * a spacing step. 8px is Chromium's `thin` at 100% zoom and the narrowest width
+   * that still leaves a grabbable thumb.
+   */
+  scrollbarWidth: 8,
+  /**
+   * The scrollbar thumb's rounding, in px.
+   *
+   * The only place in the product that is rounded by the BROWSER rather than by
+   * React Native, so it cannot read a `radius` key either.
+   */
+  scrollbarRadius: 4,
 } as const;
 
 export const themes = {

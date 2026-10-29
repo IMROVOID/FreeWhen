@@ -16,7 +16,8 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import type { ElementRef } from 'react';
+import { ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,13 +33,18 @@ import {
   X,
 } from 'phosphor-react-native';
 
-import { BottomSheet } from '@/src/components/ui/BottomSheet';
-import { Button } from '@/src/components/ui/Button';
+import { ContextMenu, type ContextMenuAction } from '@/src/components/ui/ContextMenu';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import { ErrorState } from '@/src/components/states/ErrorState';
 import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { ReportSheet } from '@/src/features/events/components/ReportSheet';
+import {
+  anchorFromPress,
+  anchorFromRow,
+  pressPointOf,
+  type MenuAnchor,
+} from '@/src/features/events/services/menu-placement';
 import {
   appendMessage,
   canSend,
@@ -60,7 +66,7 @@ import { toPersianDigits } from '@/src/lib/jalali';
 import { getStoredUserId } from '@/src/lib/session';
 import { fonts } from '@/src/theme/fonts';
 import { spring } from '@/src/theme/motion';
-import { radius, size, space, border } from '@/src/theme/tokens';
+import { radius, size, space } from '@/src/theme/tokens';
 import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Language } from '@/src/i18n/types';
@@ -169,6 +175,29 @@ export default function ChatScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [selectedMessage, setSelectedMessage] = useState<ChatMessage | null>(null);
+
+  /**
+   * The bubbles, so a hold can be measured.
+   *
+   * Keyed by message id. A hold reports its point relative to the bubble, and the
+   * menu is placed in WINDOW coordinates, so the bubble's own rect has to be read
+   * at the moment of the hold — the list scrolls, so a rect captured during layout
+   * would put the menu where the message used to be.
+   */
+  const bubbles = useRef<Record<string, ElementRef<typeof View> | null>>({});
+
+  /**
+   * Where the hold landed, in window coordinates.
+   *
+   * ★ THE MENU OPENS WHERE THE FINGER WAS, LIKE THE EVENT ROW'S.
+   *
+   * A sheet slides up from the foot of the screen, which severs the actions from
+   * the message they belong to. `ContextMenu` is the menu the event list already
+   * uses, so a hold opens the same surface with this row's own actions — and the
+   * anchor is the PRESS POINT rather than a corner of the row.
+   */
+  const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [reporting, setReporting] = useState<ChatMessage | null>(null);
 
@@ -278,6 +307,7 @@ export default function ChatScreen() {
    */
   const handleDelete = useCallback(async (message: ChatMessage) => {
     setSelectedMessage(null);
+    setMenuAnchor(null);
     setActionError(null);
 
     try {
@@ -295,9 +325,88 @@ export default function ChatScreen() {
 
   const startEdit = useCallback((message: ChatMessage) => {
     setSelectedMessage(null);
+    setMenuAnchor(null);
     setEditingMessage(message);
     setDraft(message.body);
   }, []);
+
+  /**
+   * Opens the message menu at the point that was held.
+   *
+   * A hold carries a window point on native and a DOM pointer on web, so the
+   * conversion is `pressPointOf`'s job — the same one the event row uses — and a
+   * hold with no usable point (a screen reader's action) anchors on the bubble's
+   * own centre instead of on a coordinate that does not exist.
+   */
+  const openMessageMenu = useCallback(
+    (message: ChatMessage, event?: unknown) => {
+      const bubble = bubbles.current[message.id];
+      const press = event === undefined ? null : pressPointOf(event);
+
+      const place = (rect: { x: number; y: number; width: number; height: number }): void => {
+        setSelectedMessage(message);
+        setMenuAnchor(press ? anchorFromPress(rect, press) : anchorFromRow(rect));
+      };
+
+      if (bubble?.measureInWindow) {
+        bubble.measureInWindow((x, y, width, height) => place({ x, y, width, height }));
+        return;
+      }
+
+      place({ x: 0, y: 0, width: 0, height: 0 });
+    },
+    [],
+  );
+
+  const closeMessageMenu = useCallback(() => {
+    setSelectedMessage(null);
+    setMenuAnchor(null);
+  }, []);
+
+  /**
+   * The actions for the held message.
+   *
+   * Own messages are editable and deletable; somebody else's is reportable. The
+   * list is built rather than branched inline in three places, so the menu cannot
+   * offer an action the caller is not allowed to take — the same rule the event
+   * menu follows.
+   */
+  const messageActions: ContextMenuAction[] = useMemo(() => {
+    if (!selectedMessage) return [];
+
+    const mine = selectedMessage.participant_id === myParticipantId;
+
+    if (mine) {
+      return [
+        {
+          key: 'edit',
+          label: t('common.edit'),
+          icon: (props) => <PencilSimple {...props} />,
+          onPress: () => startEdit(selectedMessage),
+        },
+        {
+          key: 'delete',
+          label: t('common.delete'),
+          icon: (props) => <Trash {...props} />,
+          onPress: () => void handleDelete(selectedMessage),
+          destructive: true,
+        },
+      ];
+    }
+
+    return [
+      {
+        key: 'report',
+        label: t('chat.report'),
+        icon: (props) => <Warning {...props} />,
+        onPress: () => {
+          setSelectedMessage(null);
+          setMenuAnchor(null);
+          setReporting(selectedMessage);
+        },
+      },
+    ];
+  }, [selectedMessage, myParticipantId, t, startEdit, handleDelete]);
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -411,7 +520,7 @@ export default function ChatScreen() {
                   )}
 
                   <Pressy
-                    onLongPress={() => setSelectedMessage(message)}
+                    onLongPress={(event_) => openMessageMenu(message, event_)}
                     accessibilityRole="button"
                     accessibilityLabel={`${message.sender_name}: ${message.body}`}
                     testID={`chat-${message.id}`}
@@ -421,6 +530,9 @@ export default function ChatScreen() {
                     ]}
                   >
                     <View
+                      ref={(node) => {
+                        bubbles.current[message.id] = node;
+                      }}
                       style={[
                         styles.bubble,
                         isMe ? styles.bubbleRight : styles.bubbleLeft,
@@ -559,75 +671,27 @@ export default function ChatScreen() {
       </View>
 
       {/*
-        Message long-press menu.
+        ★ A HOLD OPENS A MENU, NOT A SHEET.
 
-        ★ A SHEET, NOT A RAW `Modal`.
+        It was a `BottomSheet`: a panel that slides up from the foot of the screen,
+        a scroll away from the message it acts on, with the message quoted at the
+        top to re-establish which one it was. The home screen already answers this
+        question properly — a small menu at the point that was held — and the
+        request is for the same thing here. `ContextMenu` is that menu, so the two
+        screens cannot drift apart again.
 
-        The platform `Modal` presents and dismisses with the OS's own transition,
-        which has no exit on either platform — so the menu appeared and vanished
-        as hard cuts while every other overlay slid. It also drew its own
-        `theme.bg` scrim, which painted a rectangle the same colour as the page.
-
-        The shared sheet gives it the same scrim, the same slide, and the same
-        dismissal contract as the rest of the product: click outside, Escape, and
-        a real `onDismiss` that closes the `Button` path too.
+        It is rendered at the screen's root, not inside the list: a menu laid out
+        against scroll content is positioned against a box taller than the viewport,
+        which is the trap `BottomSheet.tsx` documents.
       */}
-      <BottomSheet
-        visible={selectedMessage !== null}
-        onDismiss={() => setSelectedMessage(null)}
+      <ContextMenu
+        anchor={menuAnchor}
+        viewport={{ width: windowWidth, height: windowHeight }}
+        title={selectedMessage?.body ?? ''}
+        actions={messageActions}
+        onDismiss={closeMessageMenu}
         testID="chat-message-menu"
-      >
-        <View style={styles.menuSheet}>
-          <Text
-            variant="caption"
-            color={theme.textMuted}
-            numberOfLines={1}
-            style={[styles.menuPreview, { borderBottomColor: theme.line }]}
-          >
-            {selectedMessage?.body}
-          </Text>
-
-          {selectedMessage && selectedMessage.participant_id === myParticipantId ? (
-            <>
-              <Pressy style={styles.menuOption} onPress={() => startEdit(selectedMessage)}>
-                <PencilSimple size={20} color={theme.text} />
-                <Text variant="body" color={theme.text}>
-                  {t('common.edit')}
-                </Text>
-              </Pressy>
-              <Pressy style={styles.menuOption} onPress={() => void handleDelete(selectedMessage)}>
-                <Trash size={20} color={theme.danger} />
-                <Text variant="body" color={theme.danger}>
-                  {t('common.delete')}
-                </Text>
-              </Pressy>
-            </>
-          ) : (
-            selectedMessage && (
-              <Pressy
-                style={styles.menuOption}
-                onPress={() => {
-                  const msg = selectedMessage;
-                  setSelectedMessage(null);
-                  setReporting(msg);
-                }}
-              >
-                <Warning size={20} color={theme.warning} />
-                <Text variant="body" color={theme.warning}>
-                  {t('chat.report')}
-                </Text>
-              </Pressy>
-            )
-          )}
-
-          <Button
-            label={t('common.cancel')}
-            variant="ghost"
-            size="medium"
-            onPress={() => setSelectedMessage(null)}
-          />
-        </View>
-      </BottomSheet>
+      />
 
       <ReportSheet
         messageId={reporting?.id ?? null}
@@ -773,19 +837,5 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  menuSheet: {
-    padding: space[1],
-    gap: space[3],
-  },
-  menuPreview: {
-    paddingBottom: space[2],
-    borderBottomWidth: border.hairline,
-  },
-  menuOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    paddingVertical: space[2],
   },
 });

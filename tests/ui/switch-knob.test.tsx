@@ -83,11 +83,48 @@ test('the component derives its travel and margin from the metrics', () => {
 
   // Act
   const derived = /KNOB_TRAVEL\s*=\s*TRACK_WIDTH\s*-\s*KNOB_SIZE\s*-\s*KNOB_INSET\s*\*\s*2/.test(source);
-  const margin = /marginInlineStart:\s*KNOB_INSET/.test(source);
+  const margin = /margin(Left|Right):\s*KNOB_INSET/.test(source);
 
   // Assert
   assert.ok(derived, 'the travel does not account for the inset at both ends');
   assert.ok(margin, 'the knob does not rest at the declared inset');
+});
+
+test('the knob inset is a PHYSICAL margin, because a logical one is dropped', () => {
+  // Arrange — the reported defect. `Pressy` splits a style into a layout object
+  // and a visual one with a whitelist of layout keys, and that whitelist is
+  // physical: `marginLeft`/`marginRight` are on it, `marginInlineStart` is not. The
+  // inset therefore travelled to the inner pressable, whose width is the whole
+  // track, and did nothing — so the OFF knob sat hard against the track's edge.
+  const source = code('src/components/ui/AccentSwitch.tsx');
+
+  // Act
+  const knob = /knob:\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
+  const applied = /startInset/.test(source);
+  const branches = /rtl\s*\?\s*\{\s*marginRight:\s*KNOB_INSET\s*\}\s*:\s*\{\s*marginLeft:\s*KNOB_INSET\s*\}/.test(
+    source,
+  );
+
+  // Assert
+  assert.ok(
+    !/marginInlineStart/.test(knob),
+    'the knob inset is declared with a logical key, which `Pressy` discards',
+  );
+  assert.ok(applied, 'the knob does not apply the computed inset');
+  assert.ok(branches, 'the inset does not resolve to a physical side for the resolved direction');
+});
+
+test('`Pressy` still hoists the physical keys and only the physical ones', () => {
+  // Arrange — this is the fact the fix depends on, asserted where it can be seen:
+  // if the whitelist ever grew logical keys the branch above would stop mattering,
+  // and if it lost the physical ones the knob would break again silently.
+  const pressy = code('src/components/ui/Pressy.tsx');
+  const whitelist = /LAYOUT_PROPS = new Set\(\[([\s\S]*?)\]\)/.exec(pressy)?.[1] ?? '';
+
+  // Assert
+  assert.ok(/'marginLeft'/.test(whitelist), 'Pressy no longer hoists marginLeft');
+  assert.ok(/'marginRight'/.test(whitelist), 'Pressy no longer hoists marginRight');
+  assert.ok(!/marginInline/.test(whitelist), 'Pressy hoists logical keys, so the branch is redundant');
 });
 
 test('the travel flips with the layout direction', () => {

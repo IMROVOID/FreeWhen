@@ -33,14 +33,22 @@
  *    was the only separator, so a paragraph and the heading after it were
  *    equally spaced.
  *
- * ★ AND THE TABLE SCROLLS SIDEWAYS INSTEAD OF CRUSHING ITS COLUMNS.
+ * ★ THE DIRECTION IS THE DOCUMENT'S, NOT EACH STRING'S.
  *
- * It was a `flexDirection: 'row'` of `flex: 1` cells. A table wider than the
- * panel therefore did not overflow — it SHRANK every column to fit, so a
- * third-party provider table with four columns at a 360pt width wrapped each
- * cell to one word per line and was effectively illegible. The columns now have
- * a minimum width and the table scrolls horizontally, which is what a table does
- * everywhere else.
+ * `Text` derives its direction from the content's script, which is right for a
+ * label and wrong for a document: a Persian section heading that carries no
+ * Persian character — a number, a Latin provider's name — rendered `ltr`, so its
+ * `align: 'start'` meant LEFT. On a right-to-left page that is a block of text
+ * running the wrong way, and it is what the report describes as "titles and some
+ * texts are RTL (correct) but some are LTR" — the ones that happened to contain
+ * Persian were right. Every block here sets `inheritDirection`, so the whole
+ * document follows the language it is being shown in.
+ *
+ * ★ AND THE TABLE IS A GRID, NOT A ROW OF SHARES.
+ *
+ * See `content/table-columns.ts`: the column widths are computed once from the
+ * widest cell in each column, so a header and the cells beneath it share one
+ * track and the column spacing is the content's, not a hand-picked `gap`.
  */
 
 import { useMemo, useState } from 'react';
@@ -48,7 +56,6 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/src/components/ui/Button';
-import { Card } from '@/src/components/ui/Card';
 import { Text } from '@/src/components/ui/Text';
 import { border, radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -57,20 +64,15 @@ import type { Language } from '@/src/i18n/types';
 import { NOTICE_EN } from '../content/notice-en';
 import { NOTICE_FA } from '../content/notice-fa';
 import { inlineSpans, parseNotice, type NoticeBlock } from '../content/parse-notice';
+import { columnWeights, columnWidthFor, longestWordIn } from '../content/table-columns';
 
 const NOTICE_BY_LANGUAGE: Record<Language, string> = {
   fa: NOTICE_FA,
   en: NOTICE_EN,
 };
 
-/**
- * The narrowest a table column may be before the table scrolls instead.
- *
- * A four-column provider table at 360pt has ~76pt per column, which wraps a
- * provider name onto three lines. 132pt fits the longest cell in the shipped
- * notices on one or two lines.
- */
-const TABLE_MIN_COLUMN = 132;
+/** Inside the table's card. Replaces the `TABLE_MIN_COLUMN` floor of the old row. */
+const TABLE_CELL_PADDING = space[2];
 
 export interface NoticeViewerProps {
   /** The language the app is currently in. */
@@ -108,7 +110,13 @@ export function NoticeViewer({ language, testID }: NoticeViewerProps) {
         />
       </View>
 
-      <ScrollView contentContainerStyle={styles.body} testID="notice-body">
+      <ScrollView
+        contentContainerStyle={styles.body}
+        testID="notice-body"
+        // The reading direction of the DOCUMENT. Native honours this on the scroll
+        // content; the web build reads `dir` from the prop below.
+        {...({ dir: shown === 'fa' ? 'rtl' : 'ltr' } as object)}
+      >
         {blocks.map((block, index) => (
           <NoticeBlockView
             key={index}
@@ -137,6 +145,7 @@ function NoticeBlockView({
         <Text
           variant={block.level === 1 ? 'h2' : 'h3'}
           align="start"
+          inheritDirection
           style={[block.level === 1 ? styles.heading1 : styles.heading2, first && styles.first]}
         >
           {block.text}
@@ -169,66 +178,143 @@ function NoticeBlockView({
       );
 
     case 'table':
-      return (
-        <Card variant="raised" style={[styles.tableCard, first && styles.first]}>
-          {/* ★ THE TABLE SCROLLS; IT DOES NOT SQUEEZE.
-              `flex: 1` on every cell meant the table shrank to fit the panel, so
-              the busiest content on the page became a column of single words. The
-              columns name a minimum width and the scroll view carries the
-              overflow. */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator
-            testID="notice-table-scroll"
-            contentContainerStyle={styles.tableScrollBody}
-          >
-            <View style={styles.table}>
-              <View style={[styles.tableRow, styles.tableHeaderRow, { borderColor: lineColor }]}>
-                {block.header.map((cell, index) => (
-                  <Bold text={cell} key={index} variant="caption" style={styles.tableCell} />
-                ))}
-              </View>
-              {block.rows.map((row, rowIndex) => (
-                <View key={rowIndex} style={[styles.tableRow, { borderColor: lineColor }]}>
-                  {row.map((cell, cellIndex) => (
-                    <Bold text={cell} key={cellIndex} variant="caption" style={styles.tableCell} />
-                  ))}
-                </View>
-              ))}
-            </View>
-          </ScrollView>
-        </Card>
-      );
+      return <NoticeTable block={block} lineColor={lineColor} first={first} />;
 
     case 'rule':
       return <View style={[styles.rule, { backgroundColor: lineColor }]} />;
   }
 }
 
+/**
+ * One table, as a grid.
+ *
+ * ★ EVERY ROW IS LAID OUT ON THE SAME COLUMN TRACK.
+ *
+ * `columnWeights` gives each column the length of its widest cell, and every cell
+ * in that column declares that weight as its `flexGrow` — so a header cell and the
+ * body cells under it occupy one track by construction, in both directions and on
+ * both platforms. The column's width is therefore a function of its widest cell,
+ * which is what was asked for, rather than a spacing step chosen by hand.
+ *
+ * ★ THE TABLE SIZES TO ITS CONTENT, NOT TO THE PANEL AND NOT TO ITSELF.
+ *
+ * Two attempts failed here, both worth recording:
+ *  - `minWidth: '100%'` on the inner table made the SCROLL CONTENT at least the
+ *    scroller's width, which handed the flex container 520pt of free space to
+ *    distribute — and distributing it by weight multiplied every column's
+ *    intrinsic width by several times over. A four-column provider table came out
+ *    1688pt wide inside a 520pt panel, with one column 992pt of it.
+ *  - `minWidth: 'auto'` (the default) asks the children for their max-content
+ *    widths instead, so a column sized as "16% of the free space" is sized as
+ *    "16% of a space that no longer exists".
+ *
+ * So the table is a content-sized grid: `flexBasis: 0` and `flexGrow: weight` with
+ * NO min/fixed basis anywhere, and the horizontal `ScrollView` carries whatever
+ * does not fit. The columns are then proportional to their widest cells and the
+ * overflow scrolls — which is what a table does everywhere else.
+ */
+function NoticeTable({
+  block,
+  lineColor,
+  first,
+}: {
+  block: Extract<NoticeBlock, { kind: 'table' }>;
+  lineColor: string;
+  first: boolean;
+}) {
+  const weights = useMemo(() => columnWeights(block), [block]);
+
+  const columns = Math.max(weights.length, block.header.length);
+
+  /**
+   * The column widths, in points.
+   *
+   * Derived from the weights rather than from a percentage, so the sum is a real
+   * width the scroller can compare against the panel: a unit is roughly a
+   * character, and `MIN_COLUMN_WIDTH` keeps the narrowest column readable.
+   */
+  const widths = useMemo(
+    () =>
+      Array.from({ length: columns }, (_, index) =>
+        columnWidthFor(weights[index] ?? 1, longestWordIn(block, index)),
+      ),
+    [weights, columns, block],
+  );
+
+
+  return (
+    <View style={[styles.tableCard, first && styles.first]}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator
+        testID="notice-table-scroll"
+      >
+        <View style={styles.table} testID="notice-table">
+          <View
+            style={[styles.tableRow, styles.tableHeaderRow, { borderColor: lineColor }]}
+            testID="notice-table-header"
+          >
+            {Array.from({ length: columns }, (_, index) => (
+              <Bold
+                key={index}
+                text={block.header[index] ?? ''}
+                variant="caption"
+                weight={700}
+                style={{ width: widths[index] }}
+              />
+            ))}
+          </View>
+
+          {block.rows.map((row, rowIndex) => (
+            <View key={rowIndex} style={[styles.tableRow, { borderColor: lineColor }]}>
+              {Array.from({ length: columns }, (_, cellIndex) => (
+                <Bold
+                  key={cellIndex}
+                  text={row[cellIndex] ?? ''}
+                  variant="caption"
+                  style={{ width: widths[cellIndex] }}
+                />
+              ))}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
 /** Renders a run of text with its `**bold**` spans weighted. */
 function Bold({
   text,
   variant,
+  weight,
   style,
 }: {
   text: string;
   variant: 'caption' | 'body';
+  weight?: 700;
   style?: object;
 }) {
   const spans = inlineSpans(text);
 
   if (spans.length === 1) {
     return (
-      <Text variant={variant} weight={spans[0]!.bold ? 700 : 500} align="start" style={style}>
+      <Text
+        variant={variant}
+        weight={spans[0]!.bold ? 700 : (weight ?? 500)}
+        align="start"
+        inheritDirection
+        style={style}
+      >
         {spans[0]!.text}
       </Text>
     );
   }
 
   return (
-    <Text variant={variant} align="start" style={style}>
+    <Text variant={variant} weight={weight} align="start" inheritDirection style={style}>
       {spans.map((span, index) => (
-        <Text key={index} variant={variant} weight={span.bold ? 700 : 500}>
+        <Text key={index} variant={variant} weight={span.bold ? 700 : (weight ?? 500)} inheritDirection>
           {span.text}
         </Text>
       ))}
@@ -268,25 +354,36 @@ const styles = StyleSheet.create({
   bulletMarker: { width: space[4] },
   bulletText: { flex: 1 },
 
-  tableCard: { padding: space[3], marginTop: space[3] },
-  tableScrollBody: { minWidth: '100%' },
-  table: { minWidth: '100%' },
+  tableCard: {
+    marginTop: space[3],
+    borderRadius: radius.md,
+    // Full-bleed inside the card's rounding, so a sideways scroll has no square
+    // corner poking through.
+    overflow: 'hidden',
+  },
+  /**
+   * ★ NO `minWidth: '100%'` ANYWHERE IN THIS TABLE.
+   *
+   * It was the whole defect. The scroller's content and the table both asked to
+   * be at least the panel's width, which handed the flex container 520pt of free
+   * space; the per-cell grow factors then multiplied every column's intrinsic
+   * width by it and the table rendered 1688pt wide — one column 992pt of that.
+   * The rows size to the sum of their real column widths now, and the scroller
+   * carries whatever does not fit.
+   */
+  table: {},
   tableRow: {
     flexDirection: 'row',
-    gap: space[2],
-    paddingVertical: space[2],
+    // ★ THE COLUMN SPACING IS THE CELL'S OWN WIDTH, NOT A GAP.
+    //
+    // A `gap` here is a fixed step between columns, so the space between two of
+    // them has nothing to do with how wide their content is. Each cell carries
+    // its column's computed width (which includes the gutter), so a header and
+    // its body cells line up on one track instead of a header's edge landing a
+    // gap short of its column.
+    paddingVertical: TABLE_CELL_PADDING,
     borderBottomWidth: border.hairline,
   },
   tableHeaderRow: { borderBottomWidth: border.strong },
-  tableCell: {
-    // ★ A MINIMUM, NOT A SHARE.
-    //
-    // `flex: 1` alone divided whatever width was available, which is how four
-    // columns ended up 76pt wide. `minWidth` is what makes the scroll view the
-    // thing that resolves the overflow.
-    minWidth: TABLE_MIN_COLUMN,
-    flexGrow: 1,
-    flexShrink: 0,
-  },
   rule: { height: border.hairline, marginVertical: space[4], borderRadius: radius.xs },
 });

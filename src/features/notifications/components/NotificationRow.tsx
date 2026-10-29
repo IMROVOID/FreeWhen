@@ -22,6 +22,17 @@
  * the switch is pushed to the opposite one, as far from the title as the row
  * allows.
  *
+ * ★ AND `space-between` IS DECLARED, BECAUSE `flex: 1` ALONE LETS THEM MEET.
+ *
+ * The label block's `flex: 1` asks for the leftover width, but the leftover is
+ * only resolved when the row has slack to hand out. On the web build the label
+ * block is a flex item whose child is a block-level `<div>`, so a short title
+ * collapses the block to the text and the trailing switch then sits directly
+ * against it — which in Persian reads as the title having LEFT its own margin.
+ * `justifyContent: 'space-between'` places the two edges explicitly, in both
+ * directions, whatever the content does. `flexShrink: 1` keeps a long title from
+ * pushing the switch out of the row.
+ *
  * ★ THE CONTROL IS PASSED IN, NOT BUILT HERE.
  *
  * The general switch is a plain `AccentSwitch`; the per-event one is `MuteToggle`,
@@ -78,17 +89,21 @@ export function NotificationRow({ title, hint, hintId, children, testID }: Notif
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
+    // Both children are placed on explicit edges, so the title keeps the reading
+    // edge and the switch the opposite one at any content width.
+    justifyContent: 'space-between',
     // Both children are vertically centred on the same axis, which is what puts
     // the switch on the row's middle regardless of whether there is a hint.
     alignItems: 'center',
     gap: space[3],
   },
   labels: {
-    // ★ THE TITLE TAKES EVERYTHING THE SWITCH DOES NOT.
+    // ★ THE TITLE TAKES WHAT IS LEFT, AND GIVES WAY FIRST.
     //
-    // `flex: 1` is what separates the words from the switch; without it the two
-    // hug each other in the middle of the row.
-    flex: 1,
+    // `flexShrink` rather than a bare `flex: 1`: a long event name must wrap or
+    // ellipsise instead of pushing the switch past the row's trailing edge, and a
+    // short one must stay on its own edge rather than drifting towards the switch.
+    flexShrink: 1,
     gap: space[1],
   },
   control: {

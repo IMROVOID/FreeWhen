@@ -54,6 +54,9 @@ const ALIASES: Record<string, string> = {
   '@react-native-async-storage/async-storage': JOIN_SUPPORT('async-storage-stub.ts'),
   // `expo-modules-core` reads `globalThis.expo.EventEmitter` at import time.
   'expo-constants': JOIN_SUPPORT('expo-constants-stub.ts'),
+  // Same reach, through the image view's module registry. The UI suite asserts on
+  // WHICH picture was asked for, not on a decode.
+  'expo-image': JOIN_SUPPORT('expo-image-stub.ts'),
 };
 
 /** An absolute path to a file in this directory, for the resolver. */

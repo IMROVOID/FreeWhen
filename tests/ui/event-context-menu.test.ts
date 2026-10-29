@@ -282,9 +282,65 @@ test('the row reports WHERE it was pressed, not only which row', () => {
   const row = code('src/features/events/components/EventRow.tsx');
 
   // Assert
-  assert.ok(/locationX/.test(row), 'the row discards the horizontal press position');
-  assert.ok(/locationY/.test(row), 'the row discards the vertical press position');
+  assert.ok(/pressPointOf/.test(row), 'the row does not convert the press to a point');
   assert.ok(/anchorFromPress/.test(row), 'the row does not convert the press to a window point');
+});
+
+test('the press point survives a web event, which has no locationX', async () => {
+  // Arrange — a DOM pointer event, as react-native-web feeds `onLongPress`.
+  const { pressPointOf } = await import('@/src/features/events/services/menu-placement');
+
+  const domEvent = {
+    nativeEvent: {
+      pageX: 130,
+      pageY: 250,
+      target: { getBoundingClientRect: () => ({ left: 10, top: 200 }) },
+    },
+  };
+
+  // Act
+  const point = pressPointOf(domEvent);
+
+  // Assert — the menu was placed with `NaN` before this, so it opened in a fixed
+  // place rather than at the finger.
+  assert.deepEqual(point, { x: 120, y: 50 });
+});
+
+test('a native event is read from its location pair', async () => {
+  // Arrange
+  const { pressPointOf } = await import('@/src/features/events/services/menu-placement');
+  const nativeEvent = { nativeEvent: { locationX: 24, locationY: 18, pageX: 999, pageY: 999 } };
+
+  // Act / Assert — the LOCAL pair wins, because it is relative to the row that
+  // reported it.
+  assert.deepEqual(pressPointOf(nativeEvent), { x: 24, y: 18 });
+});
+
+test('an event with no point at all is reported as no point, never as NaN', async () => {
+  // Arrange — a keyboard activation and a screen-reader action carry no coordinate.
+  const { pressPointOf } = await import('@/src/features/events/services/menu-placement');
+
+  // Act / Assert
+  assert.equal(pressPointOf(undefined), null);
+  assert.equal(pressPointOf({}), null);
+  assert.equal(pressPointOf({ nativeEvent: {} }), null);
+});
+
+test('the anchor conversion never produces NaN for a real press', async () => {
+  // Arrange — the reported failure: the menu landed in a fixed place.
+  const { anchorFromPress, placeMenu } = await import('@/src/features/events/services/menu-placement');
+
+  const anchor = anchorFromPress(
+    { x: 16, y: 200, width: 358, height: 96 },
+    { x: 120, y: 48 },
+  );
+
+  // Act
+  const placement = placeMenu({ anchor, ...WINDOW, ...MENU });
+
+  // Assert
+  assert.ok(Number.isFinite(placement.top), 'the menu top is not a number');
+  assert.ok(Number.isFinite(placement.left), 'the menu left is not a number');
 });
 
 test('the row exposes the menu to a screen reader as an action', () => {

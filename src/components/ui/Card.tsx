@@ -1,7 +1,7 @@
 import { StyleSheet, View, type GestureResponderEvent, type StyleProp, type ViewStyle } from 'react-native';
 
 import { Pressy } from './Pressy';
-import { border, radius, space } from '@/src/theme/tokens';
+import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
 export type CardVariant = 'surface' | 'raised' | 'block' | 'glass';
@@ -35,17 +35,18 @@ export interface CardProps {
  * A container. Variants: `surface`, `raised`, `block` (a saturated fill) and
  * `glass` (see `GlassSurface`) (Style Guide §11.3).
  *
- * ★ A SURFACE CARD NEEDS AN EDGE, AND ON WEB IT HAD NONE.
+ * ★ NO EDGE. THE FILL IS THE SEPARATION.
  *
- * `surface` fills with `surface1`. On native that is enough: `Pressy` scales the
- * card under the finger and the platform's own elevation separates it. The WEB
- * build has neither, so a card filled with white on a 97%-lightness page was
- * invisible — "the Event boxes on Home page are missing BG on Light Theme on
- * Web". `cardEdge` is a hairline dedicated to this: not `line`, which is the much
- * stronger border of an outlined CONTROL.
+ * There was a hairline here — `cardEdge`, added when the light page was 97%
+ * lightness and a white card on it had no boundary at all. That page has since
+ * been stepped down into the warm hue the palette is built on, so `surface1` on
+ * `bg` is a real difference and a second boundary reads as a drawn box: "remove
+ * the Event boxes' borders on the Home page", and the same for a proposal. The
+ * card's own radius and its fill are the whole figure now, which is what the
+ * rest of the product (a sheet, a popover, a tile) already does.
  *
- * `raised` and `block` already differ from the page by their fill (surface2, or a
- * saturated brand colour), so they carry no edge.
+ * `raised` and `block` differ from the page by their fill (surface2, or a
+ * saturated brand colour) and never carried an edge.
  */
 export function Card({
   children,
@@ -71,7 +72,6 @@ export function Card({
       style={[
         styles.base,
         { backgroundColor: background },
-        variant === 'surface' && { borderWidth: border.hairline, borderColor: t.cardEdge },
         variant === 'block' && { borderRadius: radius.xl },
       ]}
     >

@@ -59,6 +59,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  useWindowDimensions,
   View,
   type StyleProp,
   type ViewStyle,
@@ -72,6 +73,7 @@ import Animated, {
 import { radius, size, space } from '@/src/theme/tokens';
 import { REDUCED_MOTION_DURATION, dur, ease } from '@/src/theme/motion';
 import { useMotion } from '@/src/theme/useMotion';
+import { OverlaySurface } from './OverlaySurface';
 import { usePageScrollLock } from './page-scroll-lock';
 import { ceilingPercentOf, expandedFor, releaseTravelFor } from './sheet-gestures';
 import { useTheme } from '@/src/theme/useTheme';
@@ -120,6 +122,7 @@ export function BottomSheet({
 }: BottomSheetProps) {
   const { t } = useTheme();
   const motion = useMotion();
+  const { width: viewportWidth } = useWindowDimensions();
 
   /**
    * `rendered` outlives `visible` by one animation.
@@ -385,7 +388,13 @@ export function BottomSheet({
 
   return (
     <Modal transparent visible animationType="none" onRequestClose={dismissible ? onDismiss : undefined}>
-      <View style={styles.root} testID={testID}>
+      {/* ★ THE SHEET COVERS THE APP'S COLUMN, NOT THE DESKTOP WINDOW.
+          A `Modal` mounts into react-native-web's portal wrapper, outside the
+          frame's column, so `AppFrame` had no authority over any overlay and a
+          sheet on a laptop opened desktop-wide over a phone-sized app. See
+          `OverlaySurface.tsx`. */}
+      <OverlaySurface viewportWidth={viewportWidth}>
+        <View style={styles.root} testID={testID}>
         {/* The scrim is a real control, so a click outside dismisses and a
             screen reader is never trapped in an unlabelled layer. */}
         <AnimatedPressable
@@ -438,7 +447,8 @@ export function BottomSheet({
             {children}
           </ScrollView>
         </Animated.View>
-      </View>
+        </View>
+      </OverlaySurface>
     </Modal>
   );
 }
@@ -483,7 +493,20 @@ const styles = StyleSheet.create({
     // Without this a vertical drag on the grabber scrolls the page (or starts a
     // text selection) instead of moving the panel, and the pointerup never
     // arrives where the sheet can see it.
-    ...({ touchAction: 'none', cursor: 'grab' } as object),
+    //
+    // ★ AND THE DRAG MUST NOT SELECT THE PANEL'S TEXT EITHER.
+    //
+    // `touch-action` only stops the browser's SCROLL gesture. A slow downward
+    // drag is still a selection gesture everywhere else on a page, so the press
+    // dragged across the sheet's title selected the text as it went — "when I
+    // pull the overlay down by its header, the texts inside get selected". This
+    // is limited to the handle: the panel's content keeps normal selection.
+    ...({
+      touchAction: 'none',
+      cursor: 'grab',
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+    } as object),
   },
   grabberRowActive: {
     ...({ cursor: 'grabbing' } as object),

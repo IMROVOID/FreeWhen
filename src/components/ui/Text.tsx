@@ -23,6 +23,24 @@ export interface TextProps extends Omit<RNTextProps, 'style'> {
   align?: 'start' | 'center' | 'end';
   /** Render the content's digits in the active locale's digit set. */
   numeric?: boolean;
+  /**
+   * Take `dir` from the INTERFACE rather than from the string's own script.
+   *
+   * ★ THE DEFAULT IS RIGHT FOR A LABEL AND WRONG FOR A DOCUMENT.
+   *
+   * Deriving the direction from the content's script is correct for a label: a
+   * Latin word inside a Persian button is still a left-to-right run, and guessing
+   * `rtl` for it is the mistake the `dir` attribute exists to avoid.
+   *
+   * A long document is the opposite case. In the Persian privacy notice a
+   * heading with no Persian character in it — a numbered section, a Latin
+   * provider name — has no strong RTL character, so it resolved to `ltr`, and
+   * `align: 'start'` then meant LEFT: half the document was laid out the wrong
+   * way round on a right-to-left page, while the headings that happened to
+   * contain Persian ran correctly. Prose takes its direction from the DOCUMENT,
+   * so a view that renders prose opts in here and every block agrees.
+   */
+  inheritDirection?: boolean;
   style?: RNTextProps['style'];
 }
 
@@ -36,6 +54,7 @@ export function Text({
   color,
   align = 'start',
   numeric = false,
+  inheritDirection = false,
   children,
   style,
   ...rest
@@ -65,6 +84,12 @@ export function Text({
   const fontIsPersian = i18n.language === 'fa' || isPersian(content);
   const isFa = isPersian(content) || (i18n.language === 'fa' && numeric);
 
+  /**
+   * The run's direction: the CONTENT decides by default, the INTERFACE decides
+   * when the caller says it is rendering a document — see `inheritDirection`.
+   */
+  const isRtlRun = inheritDirection ? i18n.language === 'fa' : isPersian(content);
+
   const type = resolveType(content, variant, isFa);
   const resolvedWeight = resolveWeight(variant, weight);
   const family = fontIsPersian
@@ -88,7 +113,7 @@ export function Text({
    * react-native-web extension), so the component type is widened once here
    * rather than at every call site. Native ignores the prop.
    */
-  const dir = type.isPersian ? 'rtl' : 'ltr';
+  const dir = isRtlRun ? 'rtl' : 'ltr';
   const WebText = RNText as unknown as React.ComponentType<
     RNTextProps & { dir?: 'rtl' | 'ltr' }
   >;
@@ -106,7 +131,7 @@ export function Text({
           letterSpacing: type.letterSpacing,
           textAlign: align,
           // Kept for native, where the style is what the layout manager reads.
-          writingDirection: type.isPersian ? 'rtl' : 'ltr',
+          writingDirection: isRtlRun ? 'rtl' : 'ltr',
           color: resolveColor(color, theme as unknown as Record<string, string>, theme.text),
         },
         style,
