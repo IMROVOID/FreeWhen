@@ -66,8 +66,12 @@ describe('back-chevron direction', () => {
     assert.equal(isRtlLayout('en'), false);
   });
 
-  test('the document wins when it declares a direction', () => {
-    // Arrange — the web build sets `dir` before first paint.
+  test('the LANGUAGE wins over the document, which the static export stamped', () => {
+    // Arrange — `app/+html.tsx` runs in Node during `expo export`, with no
+    // `localStorage`, so the served document carries the BUILD-time language's
+    // `dir`. Letting it out-vote the live catalogue is exactly the bug: the page
+    // stayed `dir="rtl"` after switching to English, and every back chevron,
+    // segmented pill and switch knob kept RTL geometry on an LTR interface.
     const previous = (globalThis as { document?: unknown }).document;
     const attrs: Record<string, string> = { dir: 'rtl' };
     (globalThis as { document?: unknown }).document = {
@@ -77,8 +81,9 @@ describe('back-chevron direction', () => {
     // Act
     const rtl = isRtlLayout('en');
 
-    // Assert — an explicit document direction beats a stale locale guess.
-    assert.equal(rtl, true);
+    // Assert — the live language decides; the document is an OUTPUT of it, which
+    // `applyDirection` writes on every switch.
+    assert.equal(rtl, false, 'a build-time document stamp overruled the live language');
 
     (globalThis as { document?: unknown }).document = previous;
   });

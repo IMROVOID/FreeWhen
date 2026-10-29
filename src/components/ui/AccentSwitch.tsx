@@ -18,13 +18,26 @@
  * `accessibilityState.selected` to `aria-checked` for a switch role, which is
  * the only path that survives react-native-web's prop filtering.
  *
- * ★ THE KNOB MOVES FROM THE LEADING EDGE, NOT FROM `left`.
+ * ★ NO TRACK BORDER, AND THAT IS WHAT MAKES THE TWO RESTS SYMMETRIC.
  *
- * A physical `left`/`translateX` pair would slide the knob the same way in both
- * directions, so in a Persian layout the "on" position would sit on the wrong
- * side of the track. The knob is anchored with `insetInlineStart` and travels on
- * the X axis of the row, which react-native-web resolves from the document
- * direction.
+ * The track carried a hairline so an OFF switch had an edge. It made the
+ * geometry direction-dependent in a way that was invisible while reviewing and
+ * obvious in the hand: the border is inside the box, so the knob's usable travel
+ * was `width − knob − 2·border`, and subtracting it in one place and not the
+ * other left three pixels of air at one end and four at the other — "the circle
+ * has no spacing with the switch edge when it is off". The fill (`surface3` when
+ * off, `primary` when on) is enough separation on its own, so the border is gone
+ * and the arithmetic is simply `(width − knob) / 2` at each rest.
+ *
+ * ★ THE DIRECTION IS SUBSCRIBED TO, NOT READ ONCE.
+ *
+ * The knob is anchored at the leading margin and moved by a PHYSICAL
+ * `translateX`, so the sign has to flip in a right-to-left layout. Reading the
+ * direction during render left the knob on stale geometry after a live language
+ * switch: it started at the RIGHT margin and translated NEGATIVE, i.e. straight
+ * out of the track — "the circle overflows the switch, almost out of it". The
+ * shared value below is rebuild whenever the direction changes, so the two
+ * cannot disagree.
  */
 
 import { useEffect } from 'react';
@@ -35,10 +48,8 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
-import { useTranslation } from 'react-i18next';
-
 import { Pressy } from './Pressy';
-import { isRtlLayout } from '@/src/platform/layout-direction';
+import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import { radius, size, space } from '@/src/theme/tokens';
 import { spring } from '@/src/theme/motion';
 import { useMotion } from '@/src/theme/useMotion';
@@ -48,45 +59,17 @@ import { useTheme } from '@/src/theme/useTheme';
 const TRACK_WIDTH = 52;
 const TRACK_HEIGHT = 32;
 
-/**
- * The track's hairline. Named, because the knob's geometry depends on it.
- *
- * ★ THE BORDER IS INSIDE THE WIDTH.
- *
- * Both `react-native` and `react-native-web` put a border inside the box, so the
- * track's usable width is `TRACK_WIDTH - 2 * TRACK_BORDER`. Leaving it out of the
- * knob arithmetic is what made the knob sit flush at one end and inset at the
- * other — the 2px difference showed only when the switch was OFF, which read as
- * "the circle has no padding when it's off".
- */
-const TRACK_BORDER = 1;
-
-/** The knob, and the gap it keeps from the track's OUTER edge. */
+/** The knob, and the air it keeps at EVERY rest — above, below and at both ends. */
 const KNOB_SIZE = 24;
 const KNOB_INSET = (TRACK_HEIGHT - KNOB_SIZE) / 2;
 
 /**
- * How far the knob travels between its two positions.
+ * How far the knob travels between its two rests.
  *
- * From the leading rest to the trailing rest: the track less both borders, the
- * knob, and the same air gap at each end.
+ * The track has no border, so the whole width is usable: from `KNOB_INSET` off
+ * the leading edge to `KNOB_INSET` off the trailing one.
  */
-const KNOB_TRAVEL = TRACK_WIDTH - KNOB_SIZE - TRACK_BORDER * 2 - KNOB_INSET * 2;
-
-/**
- * The knob's margin, measured on the track's INNER edge.
- *
- * ★ OFF/ON MUST BE MIRROR IMAGES, PADDING INCLUDED.
- *
- * The knob rests `KNOB_INSET` from the OUTER edge and the track's border takes 1
- * of it, so the margin inside the border is `KNOB_INSET - TRACK_BORDER`. Writing
- * the full inset here — which is what it did — pushed the lead face 1px off the
- * pill and, combined with the border-blind travel, left 3px of air on one side
- * against 4px on the other. Off looked like it had none.
- *
- * The result: 4px of air at both sides, matching the 4px above and below.
- */
-const KNOB_MARGIN = KNOB_INSET - TRACK_BORDER;
+const KNOB_TRAVEL = TRACK_WIDTH - KNOB_SIZE - KNOB_INSET * 2;
 
 export interface AccentSwitchProps {
   value: boolean;
@@ -116,22 +99,12 @@ export function AccentSwitch({
   testID,
 }: AccentSwitchProps) {
   const { t: theme } = useTheme();
-  const { i18n } = useTranslation();
   const motion = useMotion();
+  const rtl = useLayoutDirection();
 
-  /**
-   * ★ `translateX` IS PHYSICAL; THE KNOB'S STARTING EDGE IS LOGICAL.
-   *
-   * The knob rests at `marginInlineStart`, which is the RIGHT edge in Persian. A
-   * positive `translateX` then pushed it further right — past the track's edge and
-   * out of the pill, because `overflow: hidden` clips the track but the knob is
-   * inside it and simply runs to the wall. That is the reported "the circle moved
-   * too much to the sides and is overflowing".
-   *
-   * Flipping the sign under RTL makes the travel land on the opposite edge, which
-   * is where "off" actually is in a right-to-left interface.
-   */
-  const travel = isRtlLayout(i18n.language) ? -KNOB_TRAVEL : KNOB_TRAVEL;
+  // Positive travel is towards the physical right; in a right-to-left layout
+  // "on" is the other end, so the sign flips.
+  const travel = rtl ? -KNOB_TRAVEL : KNOB_TRAVEL;
 
   // 0 = off, 1 = on. One value drives the knob and the track's colour progress,
   // so the two cannot disagree mid-flight.
@@ -178,7 +151,6 @@ export function AccentSwitch({
           styles.track,
           {
             backgroundColor: value ? theme.primary : theme.surface3,
-            borderColor: value ? theme.primary : theme.line,
             opacity: disabled ? 0.5 : 1,
           },
         ]}
@@ -186,9 +158,7 @@ export function AccentSwitch({
         <Animated.View
           style={[
             styles.knob,
-            {
-              backgroundColor: value ? theme.onPrimary : theme.surface1,
-            },
+            { backgroundColor: value ? theme.onPrimary : theme.surface1 },
             restingKnob,
             motion.reduce ? undefined : knobStyle,
           ]}
@@ -208,7 +178,6 @@ const styles = StyleSheet.create({
     width: TRACK_WIDTH,
     height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    borderWidth: TRACK_BORDER,
     justifyContent: 'center',
     overflow: 'hidden',
   },
@@ -216,11 +185,9 @@ const styles = StyleSheet.create({
     width: KNOB_SIZE,
     height: KNOB_SIZE,
     borderRadius: radius.pill,
-    // Logical, so the knob starts at the leading edge in both directions. It is
-    // measured from the border's inner edge, which is why `KNOB_INSET` also
-    // subtracts the border from the travel: both rest positions sit one inset
-    // from the track's OUTER edge.
-    marginInlineStart: KNOB_MARGIN,
+    // Logical: the OFF rest is the leading edge in both directions, and the
+    // travel above carries it to the trailing one.
+    marginInlineStart: KNOB_INSET,
   },
 });
 
@@ -228,8 +195,8 @@ const styles = StyleSheet.create({
 export const ACCENT_SWITCH_METRICS = {
   width: TRACK_WIDTH,
   height: TRACK_HEIGHT,
-  border: TRACK_BORDER,
   knob: KNOB_SIZE,
+  inset: KNOB_INSET,
   travel: KNOB_TRAVEL,
   touchHeight: TRACK_HEIGHT + space[2] * 2,
 } as const;

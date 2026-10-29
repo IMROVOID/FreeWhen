@@ -51,19 +51,23 @@ test('the language control is the shared segmented control, not two buttons', ()
   );
 });
 
-test('the language control keeps its restart prompt and its test IDs', () => {
-  // Arrange — the restart contract is a signed-off behaviour; only the picker
-  // changed.
+test('the language control switches LIVE, and keeps its test IDs', () => {
+  // Arrange — the restart prompt is GONE. It was the defect's most visible
+  // symptom: nobody restarts from a settings screen, so the app kept rendering
+  // the old catalogue and re-selecting the original language did nothing.
   const toggle = code('src/features/settings/components/LanguageToggle.tsx');
 
   // Act / Assert
-  assert.ok(/language-restart-prompt/.test(toggle), 'the restart prompt is gone');
-  assert.ok(/language-restart-instruction/.test(toggle), 'the restart instruction is gone');
+  assert.ok(!/language-restart-prompt/.test(toggle), 'the restart prompt is back');
+  assert.ok(!/language-restart-instruction/.test(toggle), 'the restart instruction is back');
   assert.ok(/language-flush-error/.test(toggle), 'the failed-flush path is gone');
   // The screen passes `testID="settings-language"`, and the option IDs must stay
   // `${testID}-option-${lang}` so existing keying keeps working.
   assert.ok(/testID=\{testID \?\? 'language-toggle'\}/.test(toggle), 'the toggle lost its testID');
   assert.ok(/testIDPrefix=\{`/.test(toggle), 'the option IDs lost their prefix');
+  // A two-value control must be able to move in BOTH directions — the old code
+  // only ever toggled, and its "already stored" guard made the way back a no-op.
+  assert.ok(/chooseLanguage/.test(toggle), 'the control does not name the language it wants');
 });
 
 test('the theme control offers Light, Auto and Dark with Auto in the middle', async () => {

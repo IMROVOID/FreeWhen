@@ -773,6 +773,20 @@
     "revoke": "Withdraw permission",
     "expired": "This permission expired when the event ended."
   },
+  "install": {
+    "mobileTitle": "Get the app",
+    "mobileBody": "FreeWhen as an Android app: it opens faster, keeps working without a connection, and can remind you before a vote closes.",
+    "mobileAction": "Download the Android app",
+    "mobileNote": "Android 8 and up. Your phone may warn that the app is from an unknown source — that warning is expected for anything installed outside a store.",
+    "desktopTitle": "Install FreeWhen",
+    "desktopBody": "Add FreeWhen to your desktop so it opens in its own window, straight from your taskbar — no browser tab, no address bar.",
+    "desktopAction": "Install the app",
+    "desktopNote": "Your browser will ask you to confirm. In Chrome, look for the install icon in the address bar if this window has closed.",
+    "desktopUnavailable": "This browser cannot install web apps. FreeWhen works fine in the tab you already have.",
+    "dismiss": "Not now",
+    "reopen": "Get the app",
+    "failed": "The install did not start. You can still use FreeWhen in this tab."
+  },
   "settings": {
     "heading": "Settings",
     "language": "Language",
@@ -897,11 +911,7 @@
     "providerDegraded": "Full routing is unavailable; the times are estimates.",
     "slotsEmpty": "No time has been proposed",
     "peopleEmpty": "Nobody has opened this event yet",
-    "deniedTitle": "Access not granted",
-    "languageRestartReasonEn": "The app has to restart to switch to English — the layout changes from right-to-left to left-to-right.",
-    "languageRestartReasonFa": "The app has to restart to switch to Persian — the layout changes to right-to-left.",
-    "languageRestartAction": "Close and reopen",
-    "languageRestartLater": "Not now"
+    "deniedTitle": "Access not granted"
   },
   "a11y": {
     "visitorLabel": "{{role}}: {{name}}",
@@ -915,8 +925,7 @@
     "voteSelected": "Selected",
     "pendingWrite": "Waiting to send",
     "openActivity": "Event history",
-    "languageSwitch": "Choose language",
-    "languageRestartHint": "The app has to restart before a new language takes effect"
+    "languageSwitch": "Choose language"
   },
   "offline": {
     "banner": "Offline — what has loaded stays readable",

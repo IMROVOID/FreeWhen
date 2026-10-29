@@ -6,3 +6,6 @@ import type { RuntimePlatform } from './environment';
 export function runtimePlatform(): RuntimePlatform {
   return Platform.OS === 'web' ? 'web' : 'native';
 }
+
+/** See `environment.ts`: a per-build constant, not a runtime check. */
+export const isWeb: boolean = false;

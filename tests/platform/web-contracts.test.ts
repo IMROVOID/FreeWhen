@@ -104,6 +104,11 @@ function withDocument(): { dir: string; lang: string } {
     setAttribute(name: string, value: string) {
       attrs[name] = value;
     },
+    // `applyDirection` reads before it writes, so a redundant attribute write
+    // (which on a live page re-parses the document) is skipped.
+    getAttribute(name: string) {
+      return attrs[name] ?? null;
+    },
   };
   (globalThis as { document?: unknown }).document = { documentElement: fake };
   return attrs as { dir: string; lang: string };
@@ -134,6 +139,27 @@ test('applyDirection sets ltr and en on the document for English', async () => {
 
   // Assert
   assert.equal(attrs.dir, 'ltr');
+  assert.equal(attrs.lang, 'en');
+
+  delete (globalThis as { document?: unknown }).document;
+});
+
+test('applyDirection corrects a document stamped by the static export', async () => {
+  // Arrange — `app/+html.tsx` runs in Node during `expo export`, where there is no
+  // `localStorage`, so every page leaves the build with the BUILD-time language's
+  // `dir`. A visitor who has chosen English reloaded and got `dir="rtl"` again —
+  // "the web doesn't turn English".
+  const attrs = withDocument();
+  const { applyDirection } = await import('@/src/platform/direction.web');
+
+  applyDirection('fa');
+  assert.equal(attrs.dir, 'rtl', 'the build-time stamp was not reproduced');
+
+  // Act — the visitor's stored choice is English.
+  applyDirection('en');
+
+  // Assert
+  assert.equal(attrs.dir, 'ltr', 'the exported rtl stamp was not corrected');
   assert.equal(attrs.lang, 'en');
 
   delete (globalThis as { document?: unknown }).document;

@@ -1,32 +1,34 @@
 /**
  * The web language switch (PRD-18 §6 row 3, AC-18.8.1).
  *
- * ★ THE ASSERTION IS THE ORDER, NOT THE OUTCOME.
+ * ★ THE RELOAD WAS THE BUG, SO THE ASSERTION IS NOW THAT THERE IS NONE.
  *
- * A reload discards whatever is in flight. If `switchLanguage` reloaded before
- * draining its pending writes, a vote the network had not yet accepted would
- * be lost silently — the one failure a language change must never cause. So
- * these tests record the sequence of effects and assert that the flush
- * completed BEFORE the navigation, not merely that both happened.
+ * This file used to assert that `switchLanguage` drained its queue and then
+ * called `window.location.reload()` exactly once. That looked safe — "web can set
+ * `dir` on a live document" — but the document it reloaded was the STATICALLY
+ * EXPORTED one, stamped `dir="rtl" lang="fa"` at build time by `app/+html.tsx`
+ * (which runs in Node, where there is no `localStorage`). The reload therefore
+ * faithfully restored the OLD language: "when I click English it restarts but
+ * stays on Persian".
+ *
+ * The switch is live now: it persists, drains the queue, then calls `setLanguage`,
+ * which swaps the i18next catalogue and applies the direction to the document. The
+ * ordering assertion survives because it is still load-bearing — a write lost to a
+ * language change is a data bug attributed to the wrong feature.
  *
  * ★ WHAT THIS SUITE CANNOT REACH, AND WHY.
  *
  * Node (`tsx`) resolves `./store` to `src/i18n/store.ts` — the NATIVE
  * implementation, backed by `expo-file-system`. Metro's `.web.ts` substitution
- * only happens in a web bundle. So under this runner, `switchLanguage` still
- * runs its real logic, but the persistence half writes through the native
- * store rather than `localStorage`.
- *
- * Rather than stub a module the runtime never loads, the storage-dependent
- * behaviour is asserted against the SOURCE (the `readStoredLanguage` guard and
- * the ordering of `persistLanguage` → flush → reload). The navigation and queue
- * behaviour, which IS reachable, is tested for real.
+ * only happens in a web bundle. So the storage-dependent behaviour is asserted
+ * against the SOURCE; the queue behaviour, which IS reachable, is tested for real.
  */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import i18next, { initI18n } from '@/src/i18n';
 import {
   clearPendingWrites,
   flushPendingWrites,
@@ -51,10 +53,17 @@ function removeWindow(): void {
   delete (globalThis as Reloadable).window;
 }
 
+function strippedSource(): string {
+  return readFileSync('src/features/settings/services/switch-language.web.ts', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+}
+
 const load = () => import('@/src/features/settings/services/switch-language.web');
 
-test('AC-18.8.1: pending writes drain before the reload', async () => {
-  // Arrange — no stored language, so the switch is not a no-op.
+test('AC-18.8.1: pending writes drain before the catalogue changes', async () => {
+  // Arrange
+  initI18n('fa');
   clearPendingWrites();
   const order: string[] = [];
   installWindow(order);
@@ -69,19 +78,23 @@ test('AC-18.8.1: pending writes drain before the reload', async () => {
 
   try {
     // Act
-    const changed = await switchLanguage('en');
+    const result = await switchLanguage({ current: 'fa' });
 
-    // Assert — the write must be recorded BEFORE the navigation.
-    assert.equal(changed, true);
-    assert.deepEqual(order, ['write', 'reload']);
+    // Assert — the write is recorded, and the catalogue moved.
+    assert.equal(result.changed, true);
+    assert.deepEqual(order, ['write'], 'the queue did not drain before the switch');
+    assert.equal(i18next.language, 'en', 'the catalogue did not change');
   } finally {
     removeWindow();
     clearPendingWrites();
+    initI18n('fa');
   }
 });
 
-test('the switch runs exactly one reload', async () => {
-  // Arrange
+test('the switch never reloads the page', async () => {
+  // Arrange — a reload restores the STATICALLY EXPORTED document, whose `dir` was
+  // stamped at build time, so it can only ever undo the switch.
+  initI18n('fa');
   clearPendingWrites();
   const order: string[] = [];
   installWindow(order);
@@ -90,62 +103,52 @@ test('the switch runs exactly one reload', async () => {
 
   try {
     // Act
-    await switchLanguage('en');
+    await switchLanguage({ current: 'fa' });
 
-    // Assert — a second reload would race the first.
-    assert.equal(order.filter((event) => event === 'reload').length, 1);
+    // Assert
+    assert.equal(order.filter((event) => event === 'reload').length, 0, 'the switch reloaded the page');
   } finally {
     removeWindow();
     clearPendingWrites();
+    initI18n('fa');
   }
 });
 
-test('the source persists, THEN flushes, THEN reloads', async () => {
+test('the source persists, THEN flushes, THEN swaps the language', () => {
   // Arrange
-  const source = readFileSync(
-    'src/features/settings/services/switch-language.web.ts',
-    'utf8',
-  )
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
+  const source = strippedSource();
 
-  // Act
-  const persist = source.indexOf('persistLanguage(');
-  const flush = source.indexOf('flushPendingWrites(');
-  const reload = source.indexOf('reload(');
+  // Act — `persist(target)` is the call; `flush` and `setLanguage` follow it
+  // inside the shared implementation.
+  const persist = source.indexOf('persist(target)');
+  const flush = source.indexOf('await flush()');
+  const swap = source.indexOf('setLanguage(target)');
 
   // Assert — the order in the file is the order at runtime.
-  assert.ok(persist > 0, 'persistLanguage is not called');
+  assert.ok(persist > 0, 'the choice is not persisted');
   assert.ok(flush > persist, 'the flush must come AFTER persisting the choice');
-  assert.ok(reload > flush, 'the reload must come AFTER the flush — or the write is lost');
+  assert.ok(swap > flush, 'the language must change AFTER the flush — or a write is lost');
+  assert.ok(!/location\.reload/.test(source), 'the page is reloaded, which undoes the switch');
 });
 
-test('the source skips the flush and the reload when nothing changes', async () => {
+test('the source returns before any side effect when nothing changes', () => {
   // Arrange
-  const source = readFileSync(
-    'src/features/settings/services/switch-language.web.ts',
-    'utf8',
-  )
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
+  const source = strippedSource();
 
-  // Act — the no-op guard must exist and return before any side effect.
-  const guard = source.indexOf('readStoredLanguage() === next');
+  // Act — the no-op guard must return before `persist` is reached.
+  const guard = source.indexOf('if (target === current)');
+  const persist = source.indexOf('persist(target)');
 
   // Assert
-  assert.ok(guard > 0, 'there is no no-op guard — a same-language switch would reload');
+  assert.ok(guard > 0, 'there is no no-op guard — a same-language switch would churn');
+  assert.ok(persist > guard, 'the guard does not precede the first side effect');
 });
 
-test('there is no restart prompt on web', async () => {
+test('there is no restart prompt on web', () => {
   // Arrange — a dialog explaining a page refresh is worse than the refresh.
-  const source = readFileSync(
-    'src/features/settings/services/switch-language.web.ts',
-    'utf8',
-  )
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
+  const source = strippedSource();
 
-  // Act / Assert
+  // Assert
   assert.ok(!/Alert\.|confirm\(|prompt\(/.test(source), 'the web switch must not prompt');
 });
 

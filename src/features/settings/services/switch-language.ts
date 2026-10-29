@@ -1,34 +1,41 @@
 /**
- * Switching language (PRD-11 S15, Plan 11 Task 6a).
+ * Switching language.
  *
- * ★ IT CANNOT BE A LIVE SWITCH, AND PRETENDING OTHERWISE IS WORSE THAN SAYING SO.
+ * ★ IT IS A LIVE SWITCH, AND MAKING IT A RESTART PROMPT WAS THE BUG.
  *
- * `fa ↔ en` changes the app's layout DIRECTION, and `I18nManager.forceRTL` does
- * not apply to a live view tree — the native views were already measured for the
- * old direction (PRD-10 D11A, §15.9). A segmented control that appears instant
- * and then renders English text in a Persian layout is worse than an honest
- * restart prompt, so the order here is fixed: persist, flush, confirm with the
- * REASON stated, then rely on the documented restart.
+ * The old contract was: persist, flush, then tell the user to close and reopen
+ * the app, because `I18nManager.forceRTL` cannot reflow a mounted native tree.
+ * Three things made that contract wrong in practice:
  *
- * ★ FLUSH BEFORE THE RELOAD, NEVER AFTER.
+ *  - The restart prompt was ADVISORY. Nobody restarts from inside a settings
+ *    screen, so the app kept rendering the old catalogue while the store held
+ *    the new one. Picking the original language then compared equal and returned
+ *    `changed: false` — "clicking the button does nothing".
+ *  - Every layout decision in this app already resolves from the i18n language
+ *    (`src/platform/layout-direction.ts`), not from `I18nManager`, so nothing
+ *    actually needed a cold start.
+ *  - The root layout keys its navigator on the language, so the native tree is
+ *    reconstructed under the new direction instead of being asked to reflow.
  *
- * An in-flight optimistic vote lost to a language change is a data bug that
- * gets attributed to the wrong feature (PRD-02 §6). The flush is awaited and its
- * failure is surfaced BEFORE the user is invited to restart, because a restart
- * over an unflushed write is exactly that bug.
+ * ★ FLUSH BEFORE THE SWAP.
+ *
+ * An in-flight optimistic vote lost to a language change is a data bug that gets
+ * attributed to the wrong feature (PRD-02 §6). The flush is awaited, and its
+ * failure is surfaced as data rather than swallowed — but the language still
+ * changes, because the user asked for it and the catalogue is not the queue.
  *
  * ★ THE MODULE IS PLATFORM-AGNOSTIC.
  *
  * It takes the flush as a callback rather than importing the mutation layer, so
- * the same service serves Settings and the join screen, and the web sibling
- * (owned by Phase 18) can reuse it without a native import.
+ * the same service serves Settings and the join screen.
  */
 
 import { persistLanguage, readStoredLanguage } from '@/src/i18n/store';
+import { setLanguage } from '@/src/i18n';
 import type { Language } from '@/src/i18n/types';
 
 export interface SwitchLanguageOptions {
-  /** Sends any queued writes. Awaited BEFORE the restart is offered. */
+  /** Sends any queued writes. Awaited BEFORE the catalogue changes. */
   flush?: () => Promise<void>;
   /** Persists the choice; the default writes the language store. */
   persist?: (language: Language) => void;
@@ -39,38 +46,43 @@ export interface SwitchLanguageOptions {
 export interface SwitchLanguageResult {
   /** False when the choice matched what is already shown. */
   changed: boolean;
-  /** The language now persisted. */
+  /** The language now active AND persisted. */
   language: Language;
   /**
-   * Whether the user must restart for the change to take effect.
+   * Always `false`.
    *
-   * Always `true` for a real change on native: direction cannot be applied to a
-   * live tree. It is surfaced as data rather than assumed so the screen's copy
-   * and the service can never disagree.
+   * Kept in the result so a caller reading the shape does not have to know that
+   * the restart went away — and so the field's absence is not mistaken for a
+   * missed branch.
    */
   restartRequired: boolean;
-  /** Why the restart is required — the reason the prompt must state. */
+  /** Always empty: there is no prompt to explain. */
   reasonKey: string;
-  /** A catalogue key when the flush failed; the restart must not be offered. */
+  /** A catalogue key when the flush failed; the language still changed. */
   flushErrorKey: string | null;
 }
 
+/** The other language, for a two-value control. */
+export function otherLanguage(current: Language): Language {
+  return current === 'fa' ? 'en' : 'fa';
+}
+
 /**
- * Persists the choice and flushes queued writes.
+ * Persists the choice, flushes queued writes, then switches the live language.
  *
  * Order is the contract: persist first (so a crash between the steps still lands
- * in the chosen language), then flush. A flush failure keeps the persisted
- * choice — the user asked for it — but reports the error so the caller can hold
- * the restart and let them retry the send.
+ * in the chosen language), then flush, then swap. A flush failure keeps both the
+ * persisted choice and the swap — the user asked for the language — and reports
+ * the error so the caller can let them retry the send.
  */
 export async function switchLanguage({
   current,
   flush,
   persist = persistLanguage,
 }: SwitchLanguageOptions): Promise<SwitchLanguageResult> {
-  if (current === readStoredLanguage()) {
-    // Nothing to do: re-selecting the active language must not prompt for a
-    // restart, because a pointless restart reads as a crash.
+  const next = otherLanguage(current);
+
+  if (next === current && readStoredLanguage() === current) {
     return {
       changed: false,
       language: current,
@@ -80,41 +92,58 @@ export async function switchLanguage({
     };
   }
 
-  const next: Language = current === 'fa' ? 'en' : 'fa';
-
   persist(next);
 
+  let flushErrorKey: string | null = null;
   try {
     await flush?.();
   } catch {
-    return {
-      changed: true,
-      language: next,
-      restartRequired: false,
-      reasonKey: '',
-      flushErrorKey: 'errors.unknown',
-    };
+    flushErrorKey = 'errors.unknown';
   }
+
+  setLanguage(next);
 
   return {
     changed: true,
     language: next,
-    restartRequired: true,
-    reasonKey: next === 'en' ? 'states.languageRestartReasonEn' : 'states.languageRestartReasonFa',
-    flushErrorKey: null,
+    restartRequired: false,
+    reasonKey: '',
+    flushErrorKey,
   };
 }
 
-/**
- * The restart prompt's body (PRD-11 S15).
- *
- * ★ THE PROMPT MUST STATE THE REASON.
- *
- * "Restart required" with no explanation reads as a crash or a bug. The reason is
- * the direction change, said in the language the user is switching TO's terms —
- * so it is a catalogue key, resolved by the caller in whichever language is on
- * screen when the prompt appears.
- */
-export function restartPromptKey(language: Language): string {
-  return language === 'en' ? 'states.languageRestartReasonEn' : 'states.languageRestartReasonFa';
+/** Picks a language directly, for a control that names one rather than toggling. */
+export async function chooseLanguage(
+  target: Language,
+  options: Omit<SwitchLanguageOptions, 'current'> & { current: Language },
+): Promise<SwitchLanguageResult> {
+  if (target === options.current) {
+    return {
+      changed: false,
+      language: options.current,
+      restartRequired: false,
+      reasonKey: '',
+      flushErrorKey: null,
+    };
+  }
+
+  const persist = options.persist ?? persistLanguage;
+  persist(target);
+
+  let flushErrorKey: string | null = null;
+  try {
+    await options.flush?.();
+  } catch {
+    flushErrorKey = 'errors.unknown';
+  }
+
+  setLanguage(target);
+
+  return {
+    changed: true,
+    language: target,
+    restartRequired: false,
+    reasonKey: '',
+    flushErrorKey,
+  };
 }

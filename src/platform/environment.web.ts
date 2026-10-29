@@ -10,3 +10,6 @@ import type { RuntimePlatform } from './environment';
 export function runtimePlatform(): RuntimePlatform {
   return 'web';
 }
+
+/** See `environment.ts`: a per-build constant, not a runtime check. */
+export const isWeb: boolean = true;

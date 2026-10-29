@@ -21,7 +21,7 @@ import './support/register';
 import assert from 'node:assert/strict';
 import { before, describe, test } from 'node:test';
 
-import { initI18n } from '@/src/i18n';
+import { currentLanguage, initI18n, setLanguage } from '@/src/i18n';
 import { switchLanguage } from '@/src/features/settings/services/switch-language';
 import type { RenderedScreen } from './support/render';
 
@@ -251,8 +251,8 @@ describe('permission denied offers a working alternative, never a block', () => 
 
 // ── The language switch ───────────────────────────────────────────────────
 
-describe('the language switch flushes before it asks for a restart', () => {
-  test('a real change flushes queued writes, then requires a restart with a reason', async () => {
+describe('the language switch flushes, then switches live', () => {
+  test('a real change flushes queued writes, then swaps the catalogue', async () => {
     // Arrange
     let flushed = false;
     const persisted: string[] = [];
@@ -266,15 +266,22 @@ describe('the language switch flushes before it asks for a restart', () => {
       persist: (language) => persisted.push(language),
     });
 
-    // Assert — flush happened, the choice is persisted, and the reason is a key.
-    assert.equal(flushed, true, 'queued writes were sent before the restart');
+    // Assert — the flush happens BEFORE the swap, the choice is persisted, and
+    // nothing asks the user to restart: the catalogue and the direction are both
+    // live, and the root layout rebuilds the navigator for the new direction.
+    assert.equal(flushed, true, 'queued writes were not sent before the swap');
     assert.deepEqual(persisted, ['en'], 'the choice is persisted first');
-    assert.equal(result.restartRequired, true, 'a direction change needs a restart');
-    assert.equal(result.reasonKey, 'states.languageRestartReasonEn', 'the reason is stated');
+    assert.equal(result.restartRequired, false, 'the switch still demands a restart');
+    assert.equal(result.reasonKey, '', 'there is no prompt to explain');
+    assert.equal(currentLanguage(), 'en', 'the catalogue did not change');
+
+    // Restore for the rest of the suite.
+    setLanguage('fa');
   });
 
-  test('a failed flush holds the restart instead of losing the write', async () => {
-    // Arrange / Act
+  test('a failed flush still switches, and reports the failure', async () => {
+    // Arrange / Act — the language is the user's choice; the queue is a separate
+    // problem with its own retry, so it does not gate the switch.
     const result = await switchLanguage({
       current: 'fa',
       flush: async () => {
@@ -284,8 +291,10 @@ describe('the language switch flushes before it asks for a restart', () => {
     });
 
     // Assert
-    assert.equal(result.restartRequired, false, 'no restart over an unsent write');
     assert.equal(result.flushErrorKey !== null, true, 'the failure is surfaced');
+    assert.equal(result.changed, true, 'the language did not change');
+
+    setLanguage('fa');
   });
 });
 

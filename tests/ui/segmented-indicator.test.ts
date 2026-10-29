@@ -176,20 +176,30 @@ test('an unmeasured rail produces no travel', async () => {
   );
 });
 
-test('the control reads direction from the layout helper, not I18nManager', () => {
-  // Arrange — `I18nManager.isRTL` is a hardcoded `false` stub on react-native-web,
-  // documented in `src/platform/layout-direction.ts:4-11`. Reading it here would
-  // reintroduce the bug on the web build only.
+test('the control subscribes to the direction, and asks no platform manager', () => {
+  // Arrange — two separate mistakes are possible here and both shipped:
+  //
+  //  - `I18nManager.isRTL` is a hardcoded `false` stub on react-native-web, and on
+  //    native it only changes after an OS restart — so reading it reintroduces the
+  //    bug on one platform or the other.
+  //  - `isRtlLayout(i18n.language)` returns the right ANSWER but does not
+  //    re-render the component when the direction changes under it, so the pill
+  //    keeps RTL geometry on an LTR rail and sits over the wrong option —
+  //    "clicking the right button activates the left one".
   const chip = code('src/components/ui/Chip.tsx');
 
   // Assert
   assert.ok(
-    /isRtlLayout/.test(chip),
-    'the segmented control does not consult the layout direction helper',
+    /useLayoutDirection\(\)/.test(chip),
+    'the segmented control does not subscribe to the direction',
   );
   assert.ok(
     !/I18nManager/.test(chip),
     'the segmented control reads I18nManager, which is always LTR on web',
+  );
+  assert.ok(
+    !/isRtlLayout\(i18n\.language\)/.test(chip),
+    'the segmented control snapshots the direction from the render-time locale',
   );
 });
 

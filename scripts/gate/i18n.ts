@@ -84,7 +84,10 @@ const PHASE_NAMESPACES: Record<string, string[]> = {
   // therefore live in new P14 namespaces, which is also what keeps this branch
   // mergeable with the parallel one editing the same two files.
   '14': ['parser', 'reopen', 'comments', 'openingHours', 'dealbreaker', 'autoLock'],
-  '18': ['server', 'web'],
+  // P18 owns the web presentation, and `install` is part of it: the offer to
+  // install the app is a WEB surface (the APK on a phone browser, the browser's
+  // own prompt on a desktop), and it is the only vocabulary that surface needs.
+  '18': ['server', 'web', 'install'],
   // P41 is the CI phase: it adds a workflow set, an APK release pipeline and a
   // deploy fan-out, and no screen. The empty list is the honest entry — it says
   // "this phase exists and owns no catalogue keys", which is what lets the drift

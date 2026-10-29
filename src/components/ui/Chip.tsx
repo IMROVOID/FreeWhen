@@ -1,13 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { useTranslation } from 'react-i18next';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { IconWeight } from 'phosphor-react-native';
 
 import { Text } from './Text';
 import { Pressy } from './Pressy';
 import { indicatorLeftFor, segmentWidthFor } from './segmented-geometry';
-import { isRtlLayout } from '@/src/platform/layout-direction';
+import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import { dur, ease } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useMotion } from '@/src/theme/useMotion';
@@ -104,11 +103,22 @@ export interface SegmentedControlProps {
  *
  * ★ THE SLIDE'S SIGN IS THE LAYOUT DIRECTION, AND IT IS NOT COSMETIC.
  *
- * The pill is anchored at a PHYSICAL `left` and moved by `indicatorOffsetFor`,
+ * The pill is anchored at a PHYSICAL `left` and moved by `indicatorLeftFor`,
  * which negates the travel in a right-to-left layout. Anchoring with a logical
  * inline inset instead made the anchor direction-dependent while the translate
  * stayed positive, so in Persian the pill walked off the rail entirely — the
  * defect `tests/ui/segmented-indicator.test.ts` pins.
+ *
+ * ★ AND THE DIRECTION IS SUBSCRIBED TO, NOT READ ONCE.
+ *
+ * `isRtlLayout(i18n.language)` returned the right answer but the component never
+ * re-ran when the direction changed under it, because `useTranslation` re-renders
+ * on a CATALOGUE change and every string here is already the right word. The pill
+ * therefore kept RTL geometry on an LTR rail after switching to English, which
+ * put it visually over the left option while the layout had the right one where
+ * the user pressed — "clicking the right button activates the left one".
+ * `useLayoutDirection` subscribes, so the offset is recomputed in the same commit
+ * the layout re-flows in.
  */
 export function SegmentedControl({
   options,
@@ -120,12 +130,9 @@ export function SegmentedControl({
   style,
 }: SegmentedControlProps) {
   const { t } = useTheme();
-  const { i18n } = useTranslation();
   const motion = useMotion();
 
-  // `I18nManager.isRTL` is a hardcoded `false` on react-native-web, so the
-  // resolved direction is asked instead — see `src/platform/layout-direction.ts`.
-  const rtl = isRtlLayout(i18n.language);
+  const rtl = useLayoutDirection();
 
   /**
    * ★ BOTH LABELS ARE FULL-STRENGTH TEXT.

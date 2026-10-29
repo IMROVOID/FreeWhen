@@ -23,3 +23,15 @@ export type RuntimePlatform = 'web' | 'native' | 'node';
 export function runtimePlatform(): RuntimePlatform {
   return 'node';
 }
+
+/**
+ * Whether this build is the browser one.
+ *
+ * ★ A SINGLE BOOLEAN, NOT A SCATTERED \Platform.OS === 'web'\.
+ *
+ * Four call sites already asked this question with \Platform.OS\ from
+ * eact-native\, which pulls the whole module into a bundle that only needed
+ * the answer. Metro substitutes this file's platform siblings, so the value is a
+ * constant per build and treeshakes to nothing on native.
+ */
+export const isWeb: boolean = runtimePlatform() === 'web';

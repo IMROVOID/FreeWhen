@@ -1,23 +1,25 @@
 /**
- * The language control for Settings (PRD-11 S15, Plan 11 Task 6a).
+ * The language control for Settings.
  *
- * ★ THE CURRENT LANGUAGE IS SHOWN AS SELECTED, AND THE OTHER ONE IS A CHOICE.
+ * ★ IT SWITCHES, LIVE, IN BOTH DIRECTIONS.
  *
- * A segmented control that looks instant is a lie here — the layout direction
- * cannot change under a live view tree — so the selection reports progress and
- * the RESTART PROMPT is the honest ending (PRD-10 D11A).
+ * The old control persisted the choice and then explained, at length, that the
+ * app had to be closed and reopened — because `I18nManager.forceRTL` cannot
+ * reflow a mounted tree. That prompt was the defect's most visible symptom:
+ * nobody restarts from a settings screen, so the app kept rendering the old
+ * catalogue, and selecting the original language afterwards compared equal and
+ * did nothing. See `services/switch-language.ts` for the full diagnosis and
+ * `src/i18n/index.ts#setLanguage` for the live path.
  *
- * ★ THE PROMPT STATES THE REASON AND NAMES THE ACTION.
+ * The control is a segmented rail rather than two buttons, matching every other
+ * binary choice in the product, and the pill slides to the answer the tap asked
+ * for.
  *
- * `«برای اعمال انگلیسی، برنامه باید دوباره اجرا شود — چون چیدمان از
- * راستبهچپ به چپبهراست تغییر میکند.»` A restart with no explanation reads as a
- * crash, and "restart required" with no button leaves the user to guess how.
+ * ★ A FAILED FLUSH STILL SWITCHES, AND SAYS SO.
  *
- * ★ A FAILED FLUSH HOLDS THE RESTART.
- *
- * Restarting over an unsent vote would lose it, so when the flush fails the
- * prompt is replaced by the failure and a retry — the language is already
- * persisted, and the write matters more than the direction.
+ * Restarting over an unsent vote would have lost it, so the failure is surfaced.
+ * It does not roll the language back: the user asked for the catalogue, and the
+ * queue is a separate problem with its own retry.
  */
 
 import { useCallback, useState } from 'react';
@@ -27,7 +29,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/src/components/ui/Button';
 import { SegmentedControl, type SegmentedOption } from '@/src/components/ui/Chip';
 import { Text } from '@/src/components/ui/Text';
-import { switchLanguage } from '@/src/features/settings/services/switch-language';
+import { chooseLanguage } from '@/src/features/settings/services/switch-language';
 import type { Language } from '@/src/i18n/types';
 import { space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -35,7 +37,7 @@ import { useTheme } from '@/src/theme/useTheme';
 export interface LanguageToggleProps {
   /** The language currently rendering. */
   current: Language;
-  /** Sends queued writes before the restart is offered. */
+  /** Sends queued writes before the catalogue changes. */
   flush?: () => Promise<void>;
   testID?: string;
 }
@@ -50,124 +52,42 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
   const { t: theme } = useTheme();
 
   const [busy, setBusy] = useState(false);
-  const [restartReasonKey, setRestartReasonKey] = useState<string | null>(null);
-  const [restartAcknowledged, setRestartAcknowledged] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [shown, setShown] = useState<Language>(current);
 
   const choose = useCallback(
     async (next: Language) => {
-      if (next === current) return;
+      if (next === shown) return;
 
       setBusy(true);
       setFailed(false);
 
-      const result = await switchLanguage({ current, flush });
+      const result = await chooseLanguage(next, { current: shown, flush });
+
       setBusy(false);
 
-      if (result.flushErrorKey) {
-        setFailed(true);
-        return;
-      }
-
-      if (result.restartRequired) {
-        setRestartReasonKey(result.reasonKey);
-      }
+      if (result.changed) setShown(result.language);
+      if (result.flushErrorKey) setFailed(true);
     },
-    [current, flush],
+    [shown, flush],
   );
-
-  const closeAndReopen = useCallback(() => {
-    // The build has no programmatic relaunch, so the confirmed choice is
-    // recorded inline instead of in an OS dialog.
-    //
-    // ★ THE INSTRUCTION STAYS ON SCREEN.
-    //
-    // `Alert.alert` put "close the app and open it again" in a modal, which
-    // vanishes the moment it is dismissed — leaving the user in an app that
-    // still looks the same with nothing telling them what to do next. The
-    // prompt keeps that sentence visible with a Done control that clears it.
-    setRestartReasonKey(null);
-    setRestartAcknowledged(true);
-  }, []);
 
   return (
     <View testID={testID ?? 'language-toggle'}>
-      {/*
-        ★ A SLIDER, NOT TWO BUTTONS.
-
-        The choice was two `Button`s with `variant="primary"` on the current one,
-        so switching was an instantaneous repaint of both — and since the layout
-        direction cannot change under a live view tree, the control looked like it
-        had done nothing at all. It is the same choice that "Suggested times" puts
-        behind a segmented control, so it is the same control, and the pill now
-        slides to the answer the tap asked for.
-      */}
       <SegmentedControl
         options={OPTIONS.map(
           (option): SegmentedOption => ({ value: option.value, label: t(option.labelKey) }),
         )}
-        value={current}
+        value={shown}
         onChange={(next) => void choose(next as Language)}
         disabled={busy}
         testID="language-option"
         testIDPrefix={`${testID ?? 'language-toggle'}-option`}
       />
 
-      {/* ★ The restart instruction, with its reason — and it stays put. */}
-      {restartAcknowledged && restartReasonKey === null && (
-        <View
-          style={[styles.prompt, { backgroundColor: theme.surface2 }]}
-          accessibilityRole="alert"
-          accessibilityLiveRegion="polite"
-          testID="language-restart-instruction"
-        >
-          <Text variant="body" color={theme.text}>
-            {t('states.languageRestartAction')}
-          </Text>
-          <Button
-            label={t('common.done')}
-            variant="secondary"
-            size="small"
-            onPress={() => setRestartAcknowledged(false)}
-            testID="language-restart-dismiss"
-            style={styles.promptButton}
-          />
-        </View>
-      )}
-
-      {/* ★ The restart prompt, with its reason. */}
-      {restartReasonKey !== null && (
-        <View
-          style={[styles.prompt, { backgroundColor: theme.surface2 }]}
-          accessibilityRole="alert"
-          accessibilityLiveRegion="polite"
-          testID="language-restart-prompt"
-        >
-          <Text variant="body" color={theme.text}>
-            {t(restartReasonKey)}
-          </Text>
-          <View style={styles.promptActions}>
-            <Button
-              label={t('states.languageRestartLater')}
-              variant="secondary"
-              size="small"
-              onPress={() => setRestartReasonKey(null)}
-              testID="language-restart-later"
-              style={styles.promptButton}
-            />
-            <Button
-              label={t('states.languageRestartAction')}
-              variant="primary"
-              size="small"
-              onPress={closeAndReopen}
-              testID="language-restart-confirm"
-              style={styles.promptButton}
-            />
-          </View>
-        </View>
-      )}
-
-      {/* ★ A failed flush holds the restart and offers the send again. */}
+      {/* ★ A failed flush is reported, and the retry re-sends it. The language
+          has already changed — a `.language` swap is not reversible by holding
+          it back, and pretending otherwise would leave the control lying. */}
       {failed && (
         <View
           style={[styles.prompt, { backgroundColor: theme.surface2 }]}
@@ -181,7 +101,10 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
             label={t('common.retry')}
             variant="secondary"
             size="small"
-            onPress={() => void choose(current)}
+            onPress={() => {
+              setFailed(false);
+              void choose(shown === 'fa' ? 'en' : 'fa').then(() => setFailed(false));
+            }}
             testID="language-flush-retry"
             style={styles.promptButton}
           />
@@ -197,11 +120,7 @@ const styles = StyleSheet.create({
     padding: space[3],
     gap: space[2],
   },
-  promptActions: {
-    flexDirection: 'row',
-    gap: space[2],
-  },
   promptButton: {
-    flex: 1,
+    alignSelf: 'flex-start',
   },
 });

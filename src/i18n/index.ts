@@ -1,6 +1,7 @@
 import i18next, { type TFunction } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
+import { applyDirection } from '@/src/platform/direction';
 import { DEFAULT_LANGUAGE, type Language } from './types';
 import fa from './fa.json';
 import en from './en.json';
@@ -40,6 +41,44 @@ export function initI18n(language: Language = DEFAULT_LANGUAGE): void {
     initAsync: false,
     react: { useSuspense: false },
   });
+}
+
+/**
+ * Switches the live language, catalogues and direction together.
+ *
+ * ★ THIS IS THE ONLY WRITER, AND THAT IS THE FIX.
+ *
+ * Switching used to persist the choice and then ask the user to restart, because
+ * `I18nManager.forceRTL` cannot reflow a mounted native tree. Three things were
+ * wrong with that:
+ *
+ *  1. On native the directory the catalogue was read from never changed, so the
+ *     choice had no visible effect until the app was killed — and picking the
+ *     original language again was then a no-op, which read as a dead button.
+ *  2. On web the page reloaded and re-downloaded the same statically-exported
+ *     document, whose `dir` was stamped at build time. The reload therefore
+ *     restored the OLD direction: "the web does not turn English".
+ *  3. Every layout decision in this app already goes through the i18n language
+ *     (`isRtlLayout`, `Text`'s per-node `dir`, `useLayoutDirection`), so the
+ *     restart was defensive rather than required.
+ *
+ * Changing i18next re-renders every translated consumer, and `applyDirection`
+ * sets the document attribute and the native manager for the primitives that
+ * read them. The root layout keys its navigator on the language so the native
+ * view tree is rebuilt for the new direction instead of being reflowed in place.
+ *
+ * Returns the language now active, so a caller cannot report a different one.
+ */
+export function setLanguage(language: Language): Language {
+  if (!i18next.isInitialized) {
+    initI18n(language);
+  } else if (i18next.language !== language) {
+    void i18next.changeLanguage(language);
+  }
+
+  applyDirection(language);
+
+  return language;
 }
 
 /** The active language, for code that must not depend on React. */

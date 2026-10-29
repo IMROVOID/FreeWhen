@@ -1,46 +1,86 @@
 /**
  * The direction the interface is currently laid out in.
  *
- * ★ `I18nManager.isRTL` IS ALWAYS FALSE ON WEB.
+ * ★ ONE SOURCE OF TRUTH, AND IT IS THE LANGUAGE.
  *
- * `react-native-web`'s `I18nManager` is a stub whose `isRTL` is the literal
- * `false` — there is no native layout manager to ask. Five screens chose their
- * back-chevron with `I18nManager.isRTL ? CaretRight : CaretLeft`, so every one
- * of them drew the LTR arrow on the web build even though the document was
- * `dir="rtl"` and the text ran right-to-left. That is why the Back icons point
- * the wrong way on web only.
+ * Three implementations of this question existed and they disagreed:
  *
- * The document direction is the truth on web, and the i18n locale is the truth
- * everywhere else, so this asks the resolved direction rather than a platform
- * manager.
+ *  - `I18nManager.isRTL` on native, which only changes after an OS restart, so a
+ *    live switch to English left it `true` and every back chevron kept pointing
+ *    the RTL way (`CaretRight` on an LTR screen).
+ *  - the document's `dir` attribute on web, which the static export stamps once
+ *    from the build-time language — so a runtime switch to English left the page
+ *    `dir="rtl"` and this module reported RTL for an LTR interface.
+ *  - the i18n locale, which is the only one that is ever actually up to date.
+ *
+ * The rule is now simply "Persian reads right-to-left, everything else does
+ * not", read from the live i18n language. `I18nManager` and the DOM attribute
+ * are OUTPUTS of a language change, never inputs to this decision.
+ *
+ * `useLayoutDirection()` in `./use-layout-direction` is the component-facing
+ * subscription; this module stays React-free so pure modules can use it.
  */
 
-import { I18nManager, Platform } from 'react-native';
+import i18next from 'i18next';
 
 import type { Language } from '@/src/i18n/types';
 
-/**
- * Whether the interface reads right-to-left.
- *
- * `language` is the live i18n language. On web the document element is
- * consulted first, because `app/+html.tsx` puts `dir` in the markup before
- * first paint and the app sets it again on a language switch.
- */
-export function isRtlLayout(language: string): boolean {
-  if (Platform.OS === 'web') {
-    if (typeof document !== 'undefined') {
-      const attr = document.documentElement?.getAttribute('dir');
-      if (attr === 'rtl') return true;
-      if (attr === 'ltr') return false;
-    }
-    // No document (static render), or no attribute: fall back to the locale.
-    return language !== 'en';
-  }
+/** The live direction, as a boolean. Persian is the only right-to-left locale. */
+export function isRtlLanguage(language: string | undefined): boolean {
+  return language !== 'en';
+}
 
-  return I18nManager.isRTL || language !== 'en';
+/**
+ * Whether the interface reads right-to-left right now.
+ *
+ * `language` defaults to the live i18n language so a caller cannot accidentally
+ * pin a stale value by passing one it captured earlier.
+ */
+export function isRtlLayout(language?: string): boolean {
+  return isRtlLanguage(language ?? i18next.language);
 }
 
 /** The back-chevron direction for a language: RTL points the other way. */
-export function backIconIsRtl(language: Language | string): boolean {
-  return isRtlLayout(String(language));
+export function backIconIsRtl(language?: Language | string): boolean {
+  return isRtlLayout(language === undefined ? undefined : String(language));
+}
+
+/**
+ * Subscribes to direction changes, returning an unsubscribe function.
+ *
+ * i18next emits `languageChanged` after it has switched its own state, which is
+ * the moment every `useTranslation` consumer re-renders. Subscribing here as
+ * well means a component that does NOT translate — the switch knob, the
+ * segmented pill — still recomputes its geometry in the same commit.
+ */
+export function subscribeDirection(listener: () => void): () => void {
+  i18next.on('languageChanged', listener);
+  return () => {
+    i18next.off('languageChanged', listener);
+  };
+}
+
+/** The current direction snapshot, for `useSyncExternalStore`. */
+export function directionSnapshot(): boolean {
+  return isRtlLayout();
+}
+
+/**
+ * The server-rendering snapshot.
+ *
+ * During a static export there is no live language change, and `i18next` is
+ * initialised from the build-time language before any component renders, so the
+ * live value is also the correct one to render. Reading it directly (rather than
+ * hardcoding `true`) is what keeps the exported markup honest for an English
+ * build.
+ */
+export function directionServerSnapshot(): boolean {
+  return isRtlLayout();
+}
+
+export type LayoutDirection = 'rtl' | 'ltr';
+
+/** The direction as a code, for `dir` attributes and docs. */
+export function directionCode(language?: string): LayoutDirection {
+  return isRtlLayout(language) ? 'rtl' : 'ltr';
 }
