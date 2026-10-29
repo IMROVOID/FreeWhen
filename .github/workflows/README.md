@@ -10,7 +10,7 @@ Three workflows and a shared resolver:
 
 | File | Trigger | What it does |
 |---|---|---|
-| [`ci.yml`](ci.yml) | push to `main`, every PR | typecheck, lint, tests, the seven gates against a real `dist/`, and migrations applied **twice** to a throwaway Postgres |
+| [`ci.yml`](ci.yml) | push to `main`, every PR | typecheck, lint, tests, the eight gates against a real `dist/`, and migrations applied **twice** to a throwaway Postgres |
 | [`release-apk.yml`](release-apk.yml) | dispatch, or a push whose message says `[fw:apk]` | builds every requested ABI **plus** a universal APK, validates each one, publishes a GitHub Release (draft by default) |
 | [`deploy.yml`](deploy.yml) | **dispatch only** | one target per run: migrate → serve → health check |
 | [`_resolve-config.yml`](_resolve-config.yml) | called | resolves every knob through one precedence chain, with validation |

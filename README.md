@@ -14,8 +14,8 @@
 [![Locale](https://img.shields.io/badge/Locale-Persian%20RTL%20%7C%20Jalali-emerald)](https://github.com/jalaali/jalaali-js)
 [![Routing](https://img.shields.io/badge/Routing-Neshan%20%7C%20ORS-orange)](https://neshan.org/)
 [![Backend](https://img.shields.io/badge/Database-PostgreSQL%20%7C%20Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
-[![Tests](https://img.shields.io/badge/tests-1272%20(node%3Atest)-success.svg)](./package.json)
-[![Release gates](https://img.shields.io/badge/gates-7%20enforced-orange.svg)](./scripts/gate)
+[![Tests](https://img.shields.io/badge/tests-1567%20(node%3Atest)-success.svg)](./package.json)
+[![Release gates](https://img.shields.io/badge/gates-8%20enforced-orange.svg)](./scripts/gate)
 
 <p align="center">
   FreeWhen turns a group's scattered time and place suggestions into <b>one clear, visible, confirmed decision</b> — and shows, with evidence, why that choice is <b>fair for everyone</b>.
@@ -60,7 +60,7 @@
 - [Reviewer Quick-Start — One URL, Two Minutes](#reviewer-quick-start--one-url-two-minutes)
   - [What is real, what is estimated, what is missing](#what-is-real-what-is-estimated-what-is-missing)
 - [Runbook — Building and Deploying](#runbook--building-and-deploying)
-  - [The seven release gates](#the-seven-release-gates)
+  - [The eight release gates](#the-eight-release-gates)
   - [Build the web artifact](#build-the-web-artifact)
   - [Build the APK](#build-the-apk)
   - [Deploy](#deploy)
@@ -95,7 +95,7 @@ When a group of friends plans an outing, suggestions get lost in chat history, n
 - **Tri-State Accessibility**: Tracks accessibility attributes (`confirmed_yes`, `confirmed_no`, `unknown`). Absent data is treated as unknown, never assumed accessible.
 - **Bilingual & RTL-First**: Seamless Persian (fa) and English (en) support with Persian numeral conversion, localized reasoning templates, and automatic text directionality.
 - **Dual Backend Architecture**: Full parity between cloud-ready Supabase and an independent local stack (PostgreSQL 15 + PostgREST 12 + Node.js Auth & WebSocket Bridge).
-- **Enforced Security Gates**: Seven pre-commit and pre-deploy automated validation gates (`npm run gate:all`) that block secret leaks, PII logging, unscaled design tokens, and unreviewed permissions.
+- **Enforced Security Gates**: Eight pre-commit and pre-deploy automated validation gates (`npm run gate:all`) that block secret leaks, PII logging, unscaled design tokens, and unreviewed permissions.
 - **Zero-Install Review Path**: Static web bundle export (`npm run export:web`) served instantly to any mobile or desktop browser without requiring an app store download.
 
 Around the ranking itself, the product is a full event lifecycle — every item below is shipped and covered by the test suite:
@@ -222,7 +222,7 @@ npm run typecheck && npm run lint
 npm test                      # unit + component suites
 npm run test:engine           # the engine fairness assertions by name
 npm run test:db               # against a live PostgreSQL
-npm run gate:all              # the seven release gates
+npm run gate:all              # the eight release gates
 npm run qa:all                # or: the whole checklist in one command
 ```
 
@@ -632,7 +632,7 @@ The QR code on `/start` and the share card is **encoded locally** (`src/features
 | **ESLint** | 9.36 | Linting |
 | **TypeScript compiler** | 6.0 | Type checking in CI-less gates |
 | **Maestro** | external CLI | The `tests/e2e/` device flow (`npm run test:e2e`) |
-| **Seven release gates** | in-repo | Secrets, location, engine purity, logs, design tokens, i18n parity, web bundle |
+| **Eight release gates** | in-repo | Secrets, location, engine purity, build env, logs, design tokens, i18n parity, web bundle |
 
 ### Transports & Runtimes
 
@@ -676,19 +676,23 @@ FreeWhen/
 │   │   ├── states/               # Offline banner, skeletons, error/permission states, state gate
 │   │   └── ui/                   # 20+ accessible design-system primitives
 │   │       ├── AccentSwitch.tsx      # Switch with an accent track
+│   │       ├── AppFrame.tsx           # Desktop presentation frame (+ `.web.tsx`)
 │   │       ├── Avatar.tsx            # Participant avatar
 │   │       ├── BottomSheet.tsx       # Gesture-driven sheet (+ `.web.tsx` counterpart)
 │   │       ├── Button.tsx            # Accessible pressable button
 │   │       ├── Card.tsx              # Elevated surface card
 │   │       ├── Chip.tsx              # Tag and filter pill
 │   │       ├── ConfirmSheet.tsx      # Destructive-action confirmation
+│   │       ├── ContextMenu.tsx       # Positioned action menu shared by the event row and a message
 │   │       ├── DateSelectionComponent.tsx # Jalali calendar + time wheel
 │   │       ├── EmptyState.tsx        # Empty state graphic & message
 │   │       ├── GlassSurface.tsx      # Liquid glass backdrop blur surface
 │   │       ├── Input.tsx             # Text field with RTL/LTR auto-direction
 │   │       ├── LocationMapPicker.tsx # Map-first location selection
+│   │       ├── OverlaySurface.tsx    # Clamps a web overlay to the app's column (+ `.ts` geometry)
 │   │       ├── OverlayToast.tsx      # Toast that does not reflow the page
 │   │       ├── Pressy.tsx            # Spring animated touch wrapper
+│   │       ├── Popover.tsx           # Anchored overlay for menus, with an owned exit animation
 │   │       ├── PullToSync.tsx        # Pull-to-refresh with rounding corners
 │   │       ├── ScreenHeader.tsx      # Back affordance + centred title
 │   │       ├── Stepper.tsx           # Multi-step progress indicator
@@ -722,8 +726,8 @@ FreeWhen/
 │   │   └── voting/               # Votes, live tally, confirmation
 │   ├── hooks/                    # useOffline, useReducedMotion
 │   ├── i18n/                     # Internationalization & localization
-│   │   ├── en.json               # English catalogue (819 keys)
-│   │   ├── fa.json               # Persian catalogue (819 keys, parity enforced)
+│   │   ├── en.json               # English catalogue (835 keys)
+│   │   ├── fa.json               # Persian catalogue (835 keys, parity enforced)
 │   │   ├── index.ts              # i18next configuration & language detector
 │   │   ├── resolve.ts            # Locale resolution
 │   │   └── store.ts / store.web.ts # Language persistence, per platform
@@ -785,7 +789,7 @@ FreeWhen/
 │   ├── runtime/                  # Per-convention serverless edges (see its README)
 │   ├── sql/                      # Atomic PL/pgSQL operations
 │   └── index.ts                  # Backend server entry point
-├── migrations/                   # PostgreSQL schema migrations (000–021)
+├── migrations/                   # PostgreSQL schema migrations (000–024)
 ├── scripts/                      # Toolchain, gates & maintenance scripts
 │   ├── gate/                     # 7 automated release gate scripts
 │   │   ├── credential-shapes.ts  # Secret regex and shape definitions
@@ -807,13 +811,13 @@ FreeWhen/
 │   ├── seo/                      # robots.txt and sitemap.xml generator
 │   ├── verify/                   # Deployment body and marker verification
 │   ├── run-engine-tests.ts       # Engine-specific test runner
-│   └── run-tests.ts              # Project test runner (1272 tests)
+│   └── run-tests.ts              # Project test runner (1584 tests)
 ├── tests/                        # Automated suites, grouped by domain
 │   ├── engine/ routing/ venues/ voting/ proposals/ availability/ follow-through/
 │   ├── auth/ events/ profile/ notifications/ parser/ realtime/ server/ backend/
 │   ├── db/ migrations & RLS · deploy/ script ordering · gate/ the gates themselves
 │   ├── docs/ workflow and documentation contracts · platform/ web + native splits
-│   ├── ui/ 29 component suites · privacy/ a11y/ theme/ lib/ fixtures/ submission/
+│   ├── ui/ 56 suites · privacy/ a11y/ theme/ lib/ fixtures/ submission/
 │   └── e2e/                      # Maestro device flows (`npm run test:e2e`)
 ├── assets/                       # Fonts, images, privacy notices, vendored runtime assets
 ├── public/                       # Copied verbatim into dist/ by expo export
@@ -946,7 +950,7 @@ The two that matter most, because they are the ones whose absence is invisible:
 
 ### Quality & Release Gates
 
-All seven validation gates must pass cleanly (`exit 0`) before any PR merge or release deployment:
+All eight validation gates must pass cleanly (`exit 0`) before any PR merge or release deployment:
 
 ```bash
 npm run gate:all
@@ -957,6 +961,7 @@ npm run gate:all
 | `gate:secrets` | `npm run gate:secrets` | Scans source and bundles for leaked server credentials or API keys. |
 | `gate:location` | `npm run gate:location` | Rejects background location permission declarations in manifests. |
 | `gate:engine-purity` | `npm run gate:engine-purity` | Asserts that `src/engine/` has zero dependencies on React Native, Expo, or I/O. |
+| `gate:env` | `npm run gate:env` | Confirms the public build variables the shipped bundle needs are present, so a feature cannot ship silently dead. |
 | `gate:logs` | `npm run gate:logs` | Guarantees all log output passes through redaction filters. |
 | `gate:design` | `npm run gate:design` | Prohibits hardcoded hex colors, arbitrary spacing, or raw fonts. |
 | `gate:i18n` | `npm run gate:i18n` | Enforces 100% key parity between Persian (`fa.json`) and English (`en.json`). |
@@ -965,7 +970,7 @@ npm run gate:all
 ### Automated Test Suites
 
 The runner is `node:test` — no Jest, no Vitest, no transform step. One invocation
-currently runs **1 272 tests across 171 suites** (1 255 pass, 17 skipped by design).
+currently runs **1 584 tests across 172 suites** (1 567 pass, 17 skipped by design).
 
 ```bash
 # Run the pure unit & integration test runner
@@ -1089,7 +1094,7 @@ not reliably do by hand turned out to matter:
 3. **`deploy.sh` needs a laptop with the key.** That is fine until the person is
    away, and it makes the deploy's provenance impossible to audit.
 
-### The seven release gates
+### The eight release gates
 
 ```bash
 npm run gate:all
@@ -1117,7 +1122,7 @@ what they are for.
 
 | Workflow | Trigger | What it guarantees |
 |---|---|---|
-| **CI** | push to `main`, every PR | typecheck, lint, tests, the seven gates **against a real `dist/`**, and migrations applied twice to a throwaway Postgres to prove they are idempotent |
+| **CI** | push to `main`, every PR | typecheck, lint, tests, the eight gates **against a real `dist/`**, and migrations applied twice to a throwaway Postgres to prove they are idempotent |
 | **Release APK** | dispatch, or a push whose message says `[fw:apk]` | every ABI plus universal, each **validated**, published as a **draft** by default |
 | **Deploy** | **dispatch only** | one target per run: migrate → serve → health check → verify |
 | **Resolve config** | called | the precedence chain in one place, with validation |
@@ -1127,7 +1132,7 @@ ABIs; it cannot publish a release and it cannot deploy. A bad APK is one
 download replaced in minutes; a bad deploy is the live product.
 
 The CI job is the honest addition rather than a box-tick: until it existed, the
-seven gates ran only when somebody remembered, and `gate:web` had never been run
+the gates ran only when somebody remembered, and `gate:web` had never been run
 against a bundle built with real `EXPO_PUBLIC_*` values. It exports first —
 `gate:web` scans `dist/`, and gating before the export would fail for the wrong
 reason.
