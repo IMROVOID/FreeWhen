@@ -30,6 +30,9 @@ function venue(overrides: Partial<RankedVenue> & { venueId: string; rank: number
   return {
     venueId: overrides.venueId,
     name: overrides.name ?? overrides.venueId,
+    // Tehrais, spaced so two fixtures are never coincident.
+    lat: overrides.lat ?? 35.7,
+    lng: overrides.lng ?? 51.4,
     rank: overrides.rank,
     floor: 50,
     mean: 60,
@@ -132,17 +135,29 @@ describe('FR-8.16 — the camera frames the event, never one participant', () =>
 });
 
 describe('the fallback ladder', () => {
-  test('no configured provider rests at list-only on both platforms', () => {
-    // Neither renderer is installed, so levels 1–2 are not reachable.
+  test('no configured provider rests at list-only on every platform', () => {
+    // Level 3 would be a static image this product does not generate.
     assert.equal(resolveMapLevel('native', 'none'), 4);
     assert.equal(resolveMapLevel('web', 'none'), 4);
+    assert.equal(resolveMapLevel('node', 'none'), 4);
   });
 
-  test('a configured provider reports its level on native and degrades on web', () => {
+  test('a configured MapBox provider is level 1 on native AND on the web', () => {
+    // ★ WEB WAS LEVEL 4 UNTIL PLAN 64.
+    //
+    // The old rule was "the web export is a demo surface with no dev-build
+    // renderer, so it goes straight to list-only". Plan 64 added
+    // `InteractiveMap.web.tsx`: the browser runs `mapbox-gl` against the same
+    // style and the same public token as native. A browser now gets a real map,
+    // and reporting 4 there would make the analytics a lie about a map that draws.
     assert.equal(resolveMapLevel('native', 'mapbox'), 1);
+    assert.equal(resolveMapLevel('web', 'mapbox'), 1);
     assert.equal(resolveMapLevel('native', 'maplibre'), 2);
-    // The web export is a demo surface with no development-build renderer.
-    assert.equal(resolveMapLevel('web', 'mapbox'), 4);
+    assert.equal(resolveMapLevel('web', 'maplibre'), 2);
+  });
+
+  test('the test runner stays list-only, because it has no canvas', () => {
+    assert.equal(resolveMapLevel('node', 'mapbox'), 4);
   });
 
   test('levels 3 and 4 are shipping states, not failures', () => {
@@ -151,15 +166,80 @@ describe('the fallback ladder', () => {
     assert.equal(isDegradedLevel(1), false);
   });
 
-  test('the configured provider defaults to none', () => {
-    // No EXPO_PUBLIC_MAP_PROVIDER is set in the test environment.
+  test('no provider variable and no token reads as none', () => {
+    // Neither EXPO_PUBLIC_MAP_PROVIDER nor a public token is set here.
     assert.equal(configuredProvider(), 'none');
   });
 
   test('the factory returns a working adapter at every level', () => {
     const adapter = createMapAdapter('native');
     assert.ok(adapter.configure instanceof Function);
+    // No token is set, so this build honestly reports the level it reached.
     assert.equal(adapter.level, 4);
+  });
+
+  test('a build with a token but no provider variable is still configured', () => {
+    // TWO VARIABLES FOR ONE FACT IS ONE VARIABLE TOO MANY.
+    //
+    // EXPO_PUBLIC_MAP_PROVIDER predates the migration and an operator may never
+    // have set it. Requiring BOTH means a deployment that passes its token still
+    // reports list-only - a map that silently never appears.
+    const env = (globalThis as { process: { env: Record<string, string | undefined> } }).process.env;
+    const before = env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
+
+    try {
+      env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN = 'pk.abc.def';
+      assert.equal(configuredProvider(), 'mapbox');
+      assert.equal(resolveMapLevel('web'), 1);
+    } finally {
+      if (before === undefined) delete env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
+      else env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN = before;
+    }
+  });
+
+  test('an explicit provider variable still wins over the token', () => {
+    // An operator who wants to pin one provider keeps that control.
+    const env = (globalThis as { process: { env: Record<string, string | undefined> } }).process.env;
+    const before = {
+      provider: env.EXPO_PUBLIC_MAP_PROVIDER,
+      token: env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN,
+    };
+
+    try {
+      env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN = 'pk.abc.def';
+      env.EXPO_PUBLIC_MAP_PROVIDER = 'maplibre';
+      assert.equal(configuredProvider(), 'maplibre');
+    } finally {
+      if (before.provider === undefined) delete env.EXPO_PUBLIC_MAP_PROVIDER;
+      else env.EXPO_PUBLIC_MAP_PROVIDER = before.provider;
+      if (before.token === undefined) delete env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
+      else env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN = before.token;
+    }
+  });
+
+  test('a token produces the real adapter, and its absence produces the null one', async () => {
+    // Arrange
+    const env = (globalThis as { process: { env: Record<string, string | undefined> } }).process.env;
+    const before = env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
+    const { MapboxMapAdapter } = await import('@/src/features/map/mapbox-adapter');
+
+    try {
+      env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN = 'pk.abc.def';
+      const withToken = createMapAdapter('web');
+
+      delete env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
+      const without = createMapAdapter('web');
+
+      // Assert - level 1 with a real adapter, level 4 without: never level 1 while
+      // drawing nothing, which would make `map_viewed.render_level` a lie.
+      assert.ok(withToken instanceof MapboxMapAdapter, 'a token did not produce the real adapter');
+      assert.equal(withToken.level, 1);
+      assert.equal(without.level, 4);
+      assert.equal(without instanceof MapboxMapAdapter, false);
+    } finally {
+      if (before === undefined) delete env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
+      else env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN = before;
+    }
   });
 });
 

@@ -129,10 +129,30 @@ export default function RankedVenuesScreen() {
     router.push({ pathname: '/event/[id]/propose', params: { id: eventId } });
   }, [eventId, router]);
 
-  // Venue coordinates are not on the ranking payload's participants, so the
-  // map receives what it can place; a venue without one stays in the list
-  // and is listed as off-map rather than silently dropped.
-  const coordinates: Record<string, Coordinate> = useMemo(() => ({}), []);
+  /**
+   * The venues' coordinates, taken from the ranking payload itself.
+   *
+   * ★ THIS WAS AN EMPTY OBJECT, SO NOTHING WAS EVER PLACEABLE.
+   *
+   * `RankedVenue` did not carry a coordinate — the server dropped it at the
+   * payload boundary — so the map was handed `{}` and drew an empty city while the
+   * list carried every fact. The coordinate is now part of the ranking, and it is
+   * public information (a venue, not a person), so there is nothing to withhold.
+   *
+   * A venue with no coordinate still stays in the list and is labelled off-map
+   * rather than pinned at (0, 0).
+   */
+  const coordinates: Record<string, Coordinate> = useMemo(() => {
+    const entries: Record<string, Coordinate> = {};
+
+    for (const venue of venues) {
+      if (Number.isFinite(venue.lat) && Number.isFinite(venue.lng)) {
+        entries[venue.venueId] = { lat: venue.lat, lng: venue.lng };
+      }
+    }
+
+    return entries;
+  }, [venues]);
 
   // ★ LOADING IS SKELETON ROWS, NOT A CENTRED SPINNER (§6, Plan 11 Task 5).
   if (isLoading) {

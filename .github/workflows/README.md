@@ -70,7 +70,7 @@ consumed by the **build step**, not by the host.
 | `FREEWHEN_DEMO_TOKEN` | reviewer path | `/start` has no demo event to open; `/e/<token>` is not checked |
 | `FREEWHEN_MAPBOX_PUBLIC_TOKEN` | the map | the map degrades to list-only |
 | `FREEWHEN_TILE_STYLE_URL` | no | the default style is used |
-| `FREEWHEN_CARTO_API_KEY` | the location picker's basemap | the raster tiles are requested without a key, so the picker shows a blank grid and reads as "the app wants API keys" — a publishable tile key, safe in the bundle |
+| `FREEWHEN_MAPBOX_PUBLIC_TOKEN` | every map surface | the bundle inlines an empty token, so the picker, the proposal preview, the ranked panel and the event route all render the "map unavailable" state and nothing in any log says why — a `pk.` token, safe in the bundle by design |
 | `FREEWHEN_EXTRA_ORIGINS` | no | a custom domain gets no CORS headers and the whole API fails there — see below |
 | `FREEWHEN_SUPABASE_URL` | CI gates | `gate:web` scans a bundle built without a Supabase origin |
 | `FREEWHEN_SUPABASE_PUBLISHABLE_KEY` | CI gates | same |

@@ -15,6 +15,17 @@
  * `shareBarTail` was `space[3]` of transparent padding under a `space[1]` bar,
  * inside a card whose foot reserved `space[5] + space[3]` to clear it: four pixels
  * of gauge floating above a strip of nothing.
+ *
+ * ★ THE PROVIDER ASSERTIONS MOVED OUT OF THIS FILE.
+ *
+ * This suite is about the CARD — that the picture is mounted, that the stale
+ * label is gone, that the foot is the gauge. The URL's shape, the theme-to-style
+ * mapping, the density parameter and the degradation states belong to the
+ * picture itself and live in `static-map.test.ts`, against the module that builds
+ * them.
+ *
+ * Keeping both sets here meant a provider migration had to edit a card test,
+ * which is how a test stops describing what it is named after.
  */
 
 import '../ui/support/register';
@@ -22,13 +33,6 @@ import '../ui/support/register';
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { readFileSync } from 'node:fs';
-
-import { space } from '@/src/theme/tokens';
-import {
-  PROPOSAL_MAP_PREVIEW_HEIGHT,
-  previewTileUrls,
-  tileCoordinate,
-} from '@/src/features/proposals/components/ProposalMapPreview';
 
 let renderComponent: typeof import('../ui/support/render').renderComponent;
 
@@ -46,67 +50,6 @@ function code(path: string): string {
 
 const CARD = code('src/features/proposals/components/ProposalCard.tsx');
 const EVENT_HOME = code('app/event/[id]/index.tsx');
-
-/* ── The tile ─────────────────────────────────────────────────────────────── */
-
-test('a point resolves to the tile that contains it', () => {
-  // Arrange — Tehran, and London, at the preview zoom. The reference values are the
-  // standard slippy-map coordinates for those points.
-  const tehran = tileCoordinate(35.6892, 51.389, 15);
-  const london = tileCoordinate(51.5074, -0.1278, 15);
-
-  // Act / Assert
-  assert.deepEqual(tehran, { x: 21061, y: 12902 });
-  assert.deepEqual(london, { x: 16372, y: 10896 });
-});
-
-test('an out-of-range latitude is clamped, not searched for', () => {
-  // Arrange — a payload can carry any number; the projection is undefined past ±85°.
-  for (const lat of [-91, -900, 90, 900]) {
-    // Act
-    const tile = tileCoordinate(lat, 0, 12);
-
-    // Assert
-    assert.ok(Number.isFinite(tile.x) && Number.isFinite(tile.y), `lat ${lat} produced ${tile.x},${tile.y}`);
-    assert.ok(tile.y >= 0 && tile.y < 2 ** 12, `lat ${lat} left the grid at y=${tile.y}`);
-  }
-});
-
-test('longitude wraps at the antimeridian', () => {
-  // Arrange — the tile grid is periodic, so 181°E is the same column as 179°W.
-  const east = tileCoordinate(0, 181, 10);
-  const west = tileCoordinate(0, -179, 10);
-
-  // Act / Assert
-  assert.equal(east.x, west.x);
-});
-
-test('the preview uses the picker’s provider, layers and key', () => {
-  // Arrange — a second rule for what dark looks like is how two maps in one app
-  // start disagreeing.
-  const light = previewTileUrls(35.6892, 51.389, false);
-  const dark = previewTileUrls(35.6892, 51.389, true);
-
-  // Act / Assert
-  assert.equal(light.length, 1);
-  assert.match(light[0]!, /cartocdn\.com\/rastertiles\/voyager\/15\/\d+\/\d+@2x\.png/);
-
-  // Dark is TWO layers: the canvas, then white place names over it — the pairing
-  // `LocationMapPicker` documents.
-  assert.equal(dark.length, 2);
-  assert.match(dark[0]!, /dark_nolabels/);
-  assert.match(dark[1]!, /dark_only_labels/);
-});
-
-test('the tile zoom is near enough to tell two streets apart', () => {
-  // Arrange — the preview is one tile, 96pt tall.
-  const near = tileCoordinate(35.6892, 51.389, 15);
-  const oneKmNorth = tileCoordinate(35.6982, 51.389, 15);
-
-  // Act — one kilometre of latitude at zoom 15 is about half a tile.
-  assert.ok(Math.abs(oneKmNorth.y - near.y) <= 1, 'a kilometre moves the preview more than one tile');
-  assert.ok(PROPOSAL_MAP_PREVIEW_HEIGHT > space[10], 'the preview is too short to read as a map');
-});
 
 /* ── The card ─────────────────────────────────────────────────────────────── */
 
@@ -138,26 +81,6 @@ test('the stale label is no longer the visible content of the venue block', () =
   assert.ok(!visibleLabel, 'the venue block still prints "open in another app" as text');
   assert.ok(!asButton, 'the venue block still renders a labelled button where a map belongs');
   assert.ok(asAccessibilityLabel, 'the map affordance lost its accessible name');
-});
-
-test('a rendered preview carries the venue’s point and a description', async () => {
-  // Arrange
-  const { ProposalMapPreview } = await import(
-    '@/src/features/proposals/components/ProposalMapPreview'
-  );
-
-  // Act
-  const screen = renderComponent(ProposalMapPreview, {
-    lat: 35.6892,
-    lng: 51.389,
-    label: 'کافه مرکزی',
-    testID: 'preview',
-  });
-
-  // Assert — the picture is information, so it has a description; an empty alt would
-  // make the one element that says WHERE silent to a screen reader.
-  assert.match(screen.html, /21061\/12902/, 'the preview does not carry the venue’s tile');
-  assert.ok(screen.html.includes('کافه مرکزی'), 'the preview has no accessible description');
 });
 
 test('an impossible coordinate degrades to a pin, not to a label', async () => {

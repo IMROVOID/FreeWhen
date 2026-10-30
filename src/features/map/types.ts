@@ -110,8 +110,20 @@ export const MIN_EVENT_ZOOM = 11;
 /** The pitch for the Meet Point reveal (PRD-04: ~45–60°). */
 export const MEET_POINT_PITCH = 50;
 
-/** The resting pitch for the ranked map — tilted enough to read as 3D. */
-export const DEFAULT_PITCH = 0;
+/**
+ * The resting pitch for every map — tilted enough to read as 3D.
+ *
+ * ★ THIS WAS `0`, WHICH IS A FLAT CAMERA.
+ *
+ * A pitch of zero draws a plain top-down raster: no perspective, no depth, and
+ * nothing that distinguishes the product's map from a screenshot. The map rests
+ * at 50° now, and — because it is the same value as `MEET_POINT_PITCH` — the
+ * camera no longer lurches when the Meet Point reveal takes over.
+ *
+ * It is a DEFAULT, not a clamp: the user is free to flatten the camera, and
+ * nothing here forces the pitch back.
+ */
+export const DEFAULT_PITCH = 50;
 
 /** The padding applied around the event's own extent when fitting the camera. */
 export const EVENT_PADDING_RATIO = 0.12;

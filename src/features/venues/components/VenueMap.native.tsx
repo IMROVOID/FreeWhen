@@ -30,8 +30,12 @@ import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { EmptyState } from '@/src/components/ui/EmptyState';
+import { InteractiveMap } from '@/src/components/ui/InteractiveMap';
+import type { MapMarker } from '@/src/components/ui/InteractiveMap';
 import { Text } from '@/src/components/ui/Text';
 import { ParticipantMarker } from '@/src/features/venues/components/ParticipantMarker';
+import { mapAppearance } from '@/src/features/map/appearance';
+import { DEFAULT_MAP_CENTRE, nearestVenue } from '@/src/features/map/projection';
 import { boundingBox } from '@/src/features/map/level';
 import {
   DEFAULT_PITCH,
@@ -41,7 +45,7 @@ import {
 import { buildVenuePins, offsetCoincident } from '@/src/features/map/pins';
 import type { ApproxArea, VenuePin } from '@/src/features/map/types';
 import type { VenueMapProps } from '@/src/features/venues/components/VenueMap.types';
-import { participantColors, radius, size, space } from '@/src/theme/tokens';
+import { map as mapTokens, participantColors, radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Theme } from '@/src/theme/tokens';
 
@@ -114,6 +118,27 @@ export function VenueMap({
     return adapter.onSelectVenue(onSelectVenue);
   }, [adapter, onSelectVenue]);
 
+  const appearance = mapAppearance(themeName, theme.primary);
+
+  const markers: MapMarker[] = useMemo(
+    () => [
+      ...areasModel.map((area) => ({
+        id: area.participantId,
+        coordinate: area.coordinate,
+        color: area.color,
+        label: t('map.participantPinLabel', { name: area.name }),
+      })),
+      ...pins.map((pin) => ({
+        id: pin.venueId,
+        coordinate: pin.coordinate,
+        color: pinTone(pin, theme),
+        selected: pin.selected,
+        label: t('map.venuePinLabel', { rank: pin.rank, name: pin.name }),
+      })),
+    ],
+    [areasModel, pins, t, theme],
+  );
+
   const hasAnyLocation = pins.length > 0 || areasModel.length > 0;
 
   // ★ AC-4.5.1 — the organizer's state seconds after creating an event.
@@ -135,16 +160,60 @@ export function VenueMap({
 
   return (
     <View testID={testID} style={[styles.panel, { backgroundColor: theme.surface1, borderColor: theme.line }]}>
-      {/* The drawing surface. At levels 3–4 it is the note below, and every
-          fact it would show is in the list. */}
-      <View
-        testID={testID ? `${testID}-surface` : undefined}
-        style={[styles.surface, { backgroundColor: theme.surface2 }]}
-      >
-        <Text variant="caption" color={theme.textFaint} align="center">
-          {adapter.level === 4 ? t('ranking.listOnlyNote') : t('map.staticLevel')}
-        </Text>
-      </View>
+      {/*
+        The drawing surface.
+
+        At level 1 — a build with a MapBox token — this is a real map. Below that
+        it is the note, and every fact the map would show is in the legend and the
+        list beneath it.
+
+        The camera, the area colours and the pin tones were all computed above and
+        handed to the adapter; this reads the same values so the two renderers
+        cannot disagree about what "the map" contains.
+      */}
+      {adapter.level === 1 ? (
+        <View
+          testID={testID ? `${testID}-surface` : undefined}
+          style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}
+        >
+          <InteractiveMap
+            camera={
+              cameraBox === null
+                ? { centre: DEFAULT_MAP_CENTRE, zoom: MIN_EVENT_ZOOM, pitch: DEFAULT_PITCH, bearing: 0 }
+                : {
+                    centre: {
+                      lat: (cameraBox.southWest.lat + cameraBox.northEast.lat) / 2,
+                      lng: (cameraBox.southWest.lng + cameraBox.northEast.lng) / 2,
+                    },
+                    zoom: MIN_EVENT_ZOOM,
+                    pitch: DEFAULT_PITCH,
+                    bearing: 0,
+                  }
+            }
+            markers={markers}
+            theme={appearance.mode}
+            accent={appearance.accent}
+            // A pin tap is the map→list direction of the P0 selection sync.
+            onPress={
+              onSelectVenue
+                ? (coordinate) => {
+                    const nearest = nearestVenue(pins, coordinate);
+                    if (nearest) onSelectVenue(nearest);
+                  }
+                : undefined
+            }
+          />
+        </View>
+      ) : (
+        <View
+          testID={testID ? `${testID}-surface` : undefined}
+          style={[styles.surface, { backgroundColor: theme.surface2 }]}
+        >
+          <Text variant="caption" color={theme.textFaint} align="center">
+            {adapter.level === 4 ? t('ranking.listOnlyNote') : t('map.staticLevel')}
+          </Text>
+        </View>
+      )}
 
       {/* The participant areas, as text. Approximate by construction. */}
       {areasModel.length > 0 && (
@@ -218,6 +287,12 @@ const styles = StyleSheet.create({
   centred: {
     minHeight: size.buttonLarge * 3,
     justifyContent: 'center',
+  },
+  mapFrame: {
+    height: mapTokens.height,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
   surface: {
     borderRadius: radius.md,

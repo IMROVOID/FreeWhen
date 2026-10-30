@@ -349,6 +349,8 @@ jobs:
           EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL }}
           EXPO_PUBLIC_API_URL: ${{ vars.FREEWHEN_SERVER_URL }}
           EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
+          # Plan 64: this token is the ONLY map credential the APK needs. There is
+          # no basemap key any more, and no previous-provider key to pass.
           EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
           EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
         run: bash scripts/build/build-apk.sh

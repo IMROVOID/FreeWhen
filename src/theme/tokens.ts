@@ -205,6 +205,31 @@ export const participantColors = [
   '#FF7A8A',
 ] as const;
 
+/**
+ * The map's own chrome.
+ *
+ * ★ A MARKER'S RING IS NOT A THEME COLOUR, AND IT IS STILL A TOKEN.
+ *
+ * A pin is drawn over a basemap the app does not control: a light ring is what
+ * separates it from a dark street, and a dark casing is what separates an
+ * accent-coloured line from a pale one. Those two values are deliberately
+ * theme-INDEPENDENT — that is the point — but they are still design decisions, so
+ * they live here rather than as literals in two renderers (`gate:design` enforces
+ * it, correctly).
+ */
+export const map = {
+  /** The ring around a marker. White reads on both the light and the dark style. */
+  markerRing: '#FFFFFF',
+  /** The underlay beneath a route line, so the accent stays legible either way. */
+  routeCasing: '#000000',
+  /** The opacity of that underlay. */
+  routeCasingOpacity: 0.25,
+  /** The shadow under a marker, which lifts it off a busy basemap. */
+  markerShadow: 'rgba(0,0,0,0.4)',
+  /** The drawn map's height, in points. */
+  height: 260,
+} as const;
+
 export const radius = {
   xs: 8,
   sm: 12,

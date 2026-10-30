@@ -44,6 +44,8 @@ function venue(overrides: Partial<RankedVenue> & { venueId: string; rank: number
   return {
     venueId,
     name: 'کافه دیدار',
+    lat: 35.7,
+    lng: 51.4,
     rank,
     floor: 55,
     mean: 62,

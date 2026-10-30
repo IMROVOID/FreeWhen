@@ -30,6 +30,17 @@ export function configuredProvider(): 'mapbox' | 'maplibre' | 'none' {
   const raw = readEnv('EXPO_PUBLIC_MAP_PROVIDER');
   if (raw === 'mapbox') return 'mapbox';
   if (raw === 'maplibre') return 'maplibre';
+
+  // ★ A HOLDING A PUBLIC TOKEN IS BEING CONFIGURED.
+  //
+  // `EXPO_PUBLIC_MAP_PROVIDER` predates the migration and may simply not be set;
+  // requiring an operator to set BOTH it and the token means a deployment that
+  // passes its token still reports list-only, which is a map that silently never
+  // appears. The explicit variable still wins, so an operator who wants to pin one
+  // provider keeps that control.
+  const token = readEnv('EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN');
+  if (typeof token === 'string' && token.trim().startsWith('pk.')) return 'mapbox';
+
   return 'none';
 }
 
@@ -43,10 +54,16 @@ export function resolveMapLevel(
   platform: 'native' | 'web' | 'node',
   provider: 'mapbox' | 'maplibre' | 'none' = configuredProvider(),
 ): MapRenderLevel {
-  // Web has no development-build renderer in this product: the web export is
-  // a demo surface, and a DOM map would be a second implementation of the
-  // adapter. It goes straight to list-only.
-  if (platform === 'web') return 4;
+  // ★ WEB IS NO LONGER LEVEL 4.
+  //
+  // This used to return 4 unconditionally, on the theory that "the web export is
+  // a demo surface and a DOM map would be a second implementation of the adapter".
+  // Plan 64 removed the premise: `InteractiveMap.web.tsx` IS that implementation,
+  // and it is the same MapBox style and the same public token as the native one.
+  // A browser now gets a real, pannable, pitched map.
+  //
+  // Node is different: the test runner has no canvas, so it stays list-only.
+  if (platform === 'node') return 4;
 
   if (provider === 'mapbox') return 1;
   if (provider === 'maplibre') return 2;
@@ -67,15 +84,25 @@ export function isDegradedLevel(level: MapRenderLevel): boolean {
 }
 
 /**
- * Reads a public Expo env var without a hard dependency on `process`.
+ * Reads the two public Expo env vars this module needs.
  *
- * `EXPO_PUBLIC_*` values are inlined at build time; under Node they may be
- * absent, and a missing value must read as "not configured" rather than throw.
+ * ★ THE REFERENCE MUST BE LITERAL, NOT COMPUTED.
+ *
+ * `EXPO_PUBLIC_*` is inlined by Metro rewriting the literal member expression
+ * `process.env.NAME`. A computed lookup (`env[name]`, or one reached through
+ * `globalThis`) stays a runtime read, and a browser has no `process` — so the
+ * bundle shipped without the value and every map reported "not configured" on a
+ * deployment that had set it. `mapbox-token.ts` documents the same trap; both were
+ * found by scanning `dist/` after an export, not by reading the code.
+ *
+ * The `typeof` guard keeps the Node runner honest, where no substitution happens
+ * and the real environment is the answer.
  */
-function readEnv(name: string): string | undefined {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-    ?.env;
-  return env?.[name];
+function readEnv(name: 'EXPO_PUBLIC_MAP_PROVIDER' | 'EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN'): string | undefined {
+  if (typeof process === 'undefined') return undefined;
+
+  if (name === 'EXPO_PUBLIC_MAP_PROVIDER') return process.env.EXPO_PUBLIC_MAP_PROVIDER;
+  return process.env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
 }
 
 /**

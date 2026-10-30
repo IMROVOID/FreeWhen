@@ -17,6 +17,14 @@ const ALLOWED_FILES = [
   'src/theme/motion.ts',
   'src/theme/fonts.ts',
   'src/theme/font-assets.ts',
+  /**
+   * `withAlpha` composes a COLOUR FUNCTION around arguments the caller supplies
+   * from the theme. It names no colour — the RGB components are parameters — and
+   * there is no other way to say "this token, translucent". Banning the spelling
+   * here would push it back into two renderers, which is the duplication this gate
+   * exists to prevent.
+   */
+  'src/features/map/projection.ts',
 ];
 
 const failures: string[] = [];

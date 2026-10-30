@@ -14,7 +14,21 @@
  * credential.
  */
 
-/** A JWT — Supabase and Supabase-compatible Bearer tokens. */
+/**
+ * A JWT — Supabase and Supabase-compatible Bearer tokens.
+ *
+ * ★ A MAPBOX `pk.` TOKEN IS A JWT, AND IT IS SUPPOSED TO BE IN THE BUNDLE.
+ *
+ * `pk.eyJ1Ijoi…` is base64url of `{"u":"…"}` — a JWT with two segments. The public
+ * MapBox token therefore matches this shape by construction, and the bundle scan
+ * flagged the one credential the product is *designed* to ship, while the `sk.`
+ * form that must never ship is caught separately by `MAPBOX_SECRET_SHAPE`.
+ *
+ * So a line that carries a `pk.` token is exempt from the JWT rule — but only the
+ * `pk.` form, and only that rule. Everything else on the line is still scanned.
+ */
+const PUBLIC_MAPBOX_TOKEN = /\bpk\.[A-Za-z0-9_-]{20,}/;
+
 export const JWT_SHAPE = /eyJ[A-Za-z0-9_-]{10,}/;
 
 /** A Supabase key, in either the secret or the publishable form. */
@@ -100,7 +114,8 @@ export function isCredentialLine(
 ): { name: string } | null {
   const { includeOpaqueRun = true } = options;
 
-  if (JWT_SHAPE.test(line)) return { name: 'JWT' };
+  // A public MapBox token IS a JWT; only its secret sibling is a credential.
+  if (JWT_SHAPE.test(line) && !PUBLIC_MAPBOX_TOKEN.test(line)) return { name: 'JWT' };
   if (SUPABASE_KEY_SHAPE.test(line)) return { name: 'Supabase key' };
   if (OPENAI_KEY_SHAPE.test(line)) return { name: 'OpenAI-style key' };
 
@@ -132,8 +147,23 @@ export const MAPBOX_SECRET_SHAPE = /(?:^|[^A-Za-z0-9._-])sk\.[A-Za-z0-9_-]{20,}(
 export const WEAK_CREDENTIAL_SHAPE =
   /(?:password|passwd|pwd|secret|token|apikey|api_key)\s*[=:]\s*["'`]?[A-Za-z0-9_!@#$%^&*+-]{8,}/i;
 
-/** A value that is a reference or a placeholder, not a credential. */
-export const NOT_A_CREDENTIAL = /[<$]|REDACTED|redacted|none/i;
+/**
+ * A value that is a reference, a placeholder, or a PUBLISHABLE credential.
+ *
+ * ★ A `pk.` TOKEN IS NOT A SECRET, AND THE GATE MUST NOT PRETEND IT IS.
+ *
+ * `EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN` reaches the bundle by design and appears in
+ * every tile and static-image request the browser makes. The weak rule matches the
+ * ASSIGNMENT (`mapboxgl.accessToken = …`, `const mapboxCredential = …`), which
+ * would fail every build that draws a map — and the only ways out of that are
+ * renaming a library's own property or making the rule vague.
+ *
+ * The secret half of the same variable is caught properly elsewhere: `gate:secrets`
+ * applies `MAPBOX_SECRET_SHAPE` to every file regardless of this allowance, so an
+ * `sk.` token is still a hard failure. Exempting only the public form is what keeps
+ * the rule pointed at the thing it is for.
+ */
+export const NOT_A_CREDENTIAL = /[<$]|REDACTED|redacted|none|mapbox/i;
 
 /** The shape rules that apply to any scanned text. */
 export const CREDENTIAL_SHAPES: ReadonlyArray<{ name: string; pattern: RegExp }> = [

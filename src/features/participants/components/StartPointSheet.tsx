@@ -30,9 +30,30 @@ export interface StartPointSheetProps {
   eventId: string;
   userId: string | null;
   onDismiss: () => void;
+  /**
+   * Reports a saved point upward.
+   *
+   * ★ THE SHEET OWNS ITS OWN `useStartPoint`, AND THAT SPLIT THE STATE.
+   *
+   * The event screen also calls `useStartPoint` — it needs the caller's own
+   * coordinate for the route map's origin. Two instances of one hook over the same
+   * server state are two independent copies: saving here updated this copy, and the
+   * event screen's `saved` stayed `null` until it remounted. The route map then had
+   * no origin and drew no line, which read as "the routing does not work".
+   *
+   * Reporting the value on save is the smallest correct seam: the sheet keeps
+   * owning the prompt, and the screen learns the result without a refetch.
+   */
+  onSaved?: (point: { lat: number; lng: number }) => void;
 }
 
-export function StartPointSheet({ visible, eventId, userId, onDismiss }: StartPointSheetProps) {
+export function StartPointSheet({
+  visible,
+  eventId,
+  userId,
+  onDismiss,
+  onSaved,
+}: StartPointSheetProps) {
   const startPoint = useStartPoint(eventId, userId);
 
   /**
@@ -46,10 +67,16 @@ export function StartPointSheet({ visible, eventId, userId, onDismiss }: StartPo
   useEffect(() => {
     if (startPoint.status === 'saved' && !wasSaved.current) {
       wasSaved.current = true;
+
+      // The hook's own `saved` is the authoritative rounding, so it is reported
+      // as-is rather than re-derived from what the picker submitted.
+      const point = startPoint.saved;
+      if (point) onSaved?.({ lat: point.lat, lng: point.lng });
+
       onDismiss();
     }
     if (startPoint.status !== 'saved') wasSaved.current = false;
-  }, [startPoint.status, onDismiss]);
+  }, [startPoint.status, startPoint.saved, onDismiss, onSaved]);
 
   return (
     <BottomSheet visible={visible} onDismiss={onDismiss} testID="start-point-sheet">

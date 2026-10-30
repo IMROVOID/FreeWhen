@@ -120,8 +120,8 @@ fi
 # Twice now the deployment published a page whose HTML and JS were fine while
 # every binary under `static/assets/` 404'd: the first time the `.vercelignore`
 # inherited `.gitignore`'s exclusion of the tree, so all 24 font files vanished
-# and English fell back to a system face. Then the CARTO tiles went the same way
-# because `EXPO_PUBLIC_CARTO_API_KEY` never reached the bundler, so the map drew
+# and English fell back to a system face. Then the basemap tiles went the same way
+# because the basemap key never reached the bundler, so the map drew
 # an empty grid. Both shipped green because nothing here fetched an asset.
 #
 # The JS bundle path is discovered from the served HTML rather than hardcoded:

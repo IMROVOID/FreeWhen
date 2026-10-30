@@ -46,6 +46,15 @@ export const SIGNIN_PER_IP = 30;
 export const SEARCH_PER_IP = 60;
 
 /**
+ * Route geometry per address.
+ *
+ * Higher than search because one event page draws one line per proposed venue,
+ * so a single legitimate view can spend several calls. Still bounded: the
+ * alternative is an unmetered egress path into a MapBox account.
+ */
+export const GEOMETRY_PER_IP = 240;
+
+/**
  * The ceiling on tracked keys.
  *
  * An unbounded map keyed by attacker-chosen strings is a memory exhaustion
@@ -178,6 +187,7 @@ export const limiters = {
   mutationByEvent: new RateLimiter(MUTATION_PER_EVENT),
   signInByIp: new RateLimiter(SIGNIN_PER_IP),
   searchByIp: new RateLimiter(SEARCH_PER_IP),
+  geometryByIp: new RateLimiter(GEOMETRY_PER_IP),
 } as const;
 
 /** Clears every limiter. Tests only — a running server never calls this. */

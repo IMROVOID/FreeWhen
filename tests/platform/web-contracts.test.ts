@@ -73,14 +73,27 @@ test('no shared platform file imports a native module', () => {
   }
 });
 
-test('the web map fallback does not read as an error', () => {
-  // Arrange
+test('the web map does not read as an error, and draws when it can', () => {
+  // Arrange — AC-18.4.1: a designed state, never a failure state.
   const source = code('src/features/venues/components/VenueMap.web.tsx');
 
-  // Act / Assert — AC-18.4.1: a designed fallback, not a failure state.
-  assert.ok(source.includes('unavailableOnWeb'), 'the localized fallback copy is not used');
-  assert.ok(!/textAlert|textDanger|errorColor|variant="danger"/.test(source), 'the fallback uses an error colour');
-  assert.ok(!/retry/i.test(source), 'the fallback offers a retry that cannot succeed');
+  // ★ THIS USED TO ASSERT THE FALLBACK COPY WAS THE WEB PANEL'S CONTENT.
+  //
+  // Web was list-only at level 5, so the assertion was "the 'map unavailable in
+  // the browser' sentence is what renders, and it is not styled as an error".
+  // Plan 64 gave the browser a real map (`InteractiveMap.web.tsx` runs
+  // `mapbox-gl` against the same style and token as native), so the copy is no
+  // longer the panel's body. What survives — and is what AC-18.4.1 is actually
+  // about — is that an unavailable map is never dressed as a failure.
+  assert.ok(
+    /InteractiveMap/.test(source),
+    'the web panel mounts no map surface, so it is still list-only',
+  );
+  assert.ok(
+    !/textAlert|textDanger|errorColor|variant="danger"/.test(source),
+    'the map panel uses an error colour',
+  );
+  assert.ok(!/retry/i.test(source), 'the panel offers a retry that cannot succeed');
 });
 
 // ──────────────────────────────────────────────────────────────────────────

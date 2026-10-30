@@ -42,19 +42,27 @@ except their own implementation files and `*.web.*`.
 ## Where a platform gets a different COMPONENT
 
 Haptics and direction differ only in implementation. The map differs in
-**kind**: web has no Mapbox, so `VenueMap.web.tsx` renders a designed
-list-only state rather than a degraded map. Same props,
-different content — and the `.web.tsx` sibling is what keeps
-`@rnmapbox/maps` out of the export entirely.
+**kind**: the two platforms use different map LIBRARIES, so
+`InteractiveMap.web.tsx` runs `mapbox-gl` and `InteractiveMap.native.tsx` runs
+`react-native-maps`. Same props, different engine — and the two siblings are what
+keep `mapbox-gl` out of the native bundle and `react-native-maps` out of the web
+export. `src/components/ui/InteractiveMap.tsx` holds only types and a throwing
+fallback.
+
+The same split applies to `VenueMap` and `EventRouteMap`, whose `.web`/`.native`
+siblings differ in content as well as library.
 
 ## What is deliberately absent on web
 
 The web surface is a reviewer and viewer path, not the participant product:
 
-- **No map.** The ranked list carries every fact the map would show.
 - **No haptics.** Press feedback is the CSS active state on `Pressy`.
 - **No notifications.** Push is a native capability.
 - **No mobility data, no background location.**
+- **No native basemap SDK.** Web gets MapBox through `mapbox-gl`; native gets
+  MapBox raster tiles over a blank Google map shell, because
+  `@rnmapbox/maps` needs a private Maven that this project's no-account APK build
+  cannot use (Plan 64 D64-1).
 
 A reader who finds an undocumented limitation discounts every other claim.
 This list is the honest boundary, and `src/platform/` is where it is held.

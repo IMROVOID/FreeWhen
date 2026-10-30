@@ -222,6 +222,21 @@ export interface Aggregate {
 export interface RankedVenue {
   venueId: string;
   name: string;
+  /**
+   * The venue's coordinate, so the map can PLACE it.
+   *
+   * ★ THE PAYLOAD DROPPED THIS, AND THE MAP HAD NOTHING TO DRAW.
+   *
+   * `server/routes/rank-travel.ts` already selected `v.lat`/`v.lng` and used them
+   * to build the matrix, then left them out of the answer. The ranked screen
+   * compensated by passing `coordinates = {}` to the map, so no venue pin has ever
+   * been placeable — the map drew an empty city and the list carried every fact.
+   *
+   * A venue's coordinate is public information (it is a restaurant, not a person),
+   * so unlike a participant's start point there is nothing to fuzz here.
+   */
+  lat: number;
+  lng: number;
   /** 1-based. */
   rank: number;
   floor: number;

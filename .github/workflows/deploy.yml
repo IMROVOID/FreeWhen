@@ -321,14 +321,17 @@ jobs:
           EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
           EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
           EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
-          # ★ THE CARTO BASEMAP KEY BELONGS IN THIS SHELL, TOO.
+          # ★ THE MAPBOX TOKEN IS ALREADY ABOVE, AND IT IS NOW THE ONLY ONE.
           #
-          # `LocationMapPicker` reads `process.env.EXPO_PUBLIC_CARTO_API_KEY`,
-          # and `EXPO_PUBLIC_*` is substituted by the bundler rather than read at
-          # runtime. Setting it only on the host produced a bundle whose every
-          # tile URL had no key, so the map rendered blank and looked like it was
-          # demanding API keys. Same trap as the token above.
-          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
+          # Plan 64 retired the previous basemap provider: its key is gone from this
+          # shell, from `.env.example` and from `gate:env`. Every map — the picker,
+          # the proposal preview, the ranked panel and the event route — is drawn
+          # from `EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN`, which is passed above and
+          # checked by `gate:env`.
+          #
+          # Deleting the variable rather than leaving it empty is deliberate: the
+          # bundler inlines whatever is here, so a stale key would keep a dead
+          # provider alive in every future bundle.
         run: bash scripts/build/export-web.sh
 
       - name: Compose the single static root

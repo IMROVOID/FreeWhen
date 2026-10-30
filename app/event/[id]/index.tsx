@@ -48,6 +48,9 @@ import { ListSkeleton } from '@/src/components/states/ListSkeleton';
 import { OfflineBanner } from '@/src/components/states/OfflineBanner';
 import { EventManagementModal } from '@/src/features/events/components/EventManagementModal';
 import { StartPointSheet } from '@/src/features/participants/components/StartPointSheet';
+import { useStartPoint } from '@/src/features/participants/hooks/useStartPoint';
+import { EventRouteMap } from '@/src/features/venues/components/EventRouteMap';
+import type { RouteDestination } from '@/src/features/venues/components/EventRouteMap';
 import { listParticipants } from '@/src/features/participants/services/participants';
 import { shouldOfferStartPoint } from '@/src/features/participants/services/start-point-gate';
 import { EventShareModal } from '@/src/features/events/components/EventShareModal';
@@ -140,6 +143,8 @@ export default function EventHomeScreen() {
     };
   }, [eventId]);
 
+  const startPoint = useStartPoint(eventId, myUserId);
+
   const askForStartPoint = shouldOfferStartPoint({
     state: startPointState,
     ready: startPointKnown && !isLoadingEvent,
@@ -206,6 +211,57 @@ export default function EventHomeScreen() {
   const rankedProposals = useMemo(
     () => rankProposals(proposals.map((proposal) => ({ ...proposal, tally: tallyFor(proposal.id) }))),
     [proposals, tallyFor],
+  );
+
+  /**
+   * Where the viewer is, for the route map's origin.
+   *
+   * ★ THIS CANNOT COME FROM THE PARTICIPANT LIST.
+   *
+   * `listParticipants` deliberately carries `start_point_state`, never a
+   * coordinate — the server decides what each viewer may see, so the screen has no
+   * filtering of its own to get wrong. Anyone's precise position would be a
+   * privacy regression here, so this is the CALLER'S OWN saved point, from the
+   * hook that owns it. `null` means "not set", which the map draws as no origin
+   * rather than as a guess.
+   */
+  const [savedStartPoint, setSavedStartPoint] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
+
+  const myStartPoint = useMemo(() => {
+    // The value the sheet reported wins: it is the freshest truth this screen has,
+    // and `startPoint.saved` on this instance never sees the sheet's own save.
+    if (savedStartPoint) return savedStartPoint;
+
+    const saved = startPoint.saved;
+    if (!saved) return null;
+    if (!Number.isFinite(saved.lat) || !Number.isFinite(saved.lng)) return null;
+    return { lat: saved.lat, lng: saved.lng };
+  }, [savedStartPoint, startPoint.saved]);
+
+  /**
+   * The proposals that have a place, in rank order.
+   *
+   * A time-only proposal has no coordinate, so it contributes nothing to the map —
+   * pinning it at (0, 0) would put an option in the Atlantic. The list below still
+   * carries it, which is why the map is contextual and never the only path
+   * (FR-4.5).
+   */
+  const mapDestinations = useMemo<RouteDestination[]>(
+    () =>
+      rankedProposals.flatMap((proposal) =>
+        proposal.venue
+          ? [
+              {
+                id: proposal.id,
+                name: proposal.venue.name,
+                coordinate: { lat: proposal.venue.lat, lng: proposal.venue.lng },
+              },
+            ]
+          : [],
+      ),
+    [rankedProposals],
   );
 
   const loadEvent = useCallback(async () => {    setIsLoadingEvent(true);
@@ -471,6 +527,24 @@ export default function EventHomeScreen() {
         />
       ) : (
         <View style={styles.list} testID="event-home-proposals">
+          {/*
+            ★ THE EVENT, DRAWN: WHERE EVERYONE IS RELATIVE TO WHAT IS PROPOSED.
+
+            A list of place names in Tehran says nothing about whether three of
+            them are around the corner from each other. The map answers that in one
+            look, and it is READ-ONLY by construction — `EventRouteMap` accepts no
+            press handler, so a tap on the map does nothing and the route cannot be
+            edited from the event page. The camera is the user's to move.
+
+            It sits above the cards because it frames them: the pins are the
+            proposals below, in the same order, with the same ranks.
+          */}
+          <EventRouteMap
+            origin={myStartPoint}
+            destinations={mapDestinations}
+            testID="event-home-map"
+          />
+
           {/* ★ FR-2.4 — A RE-ORDERED LIST MUST SAY IT IS RE-ORDERED.
               "Re-ordering by score happens only in the ranked view, and the list
               must state that it is ranked — otherwise users misread creation
@@ -590,6 +664,7 @@ export default function EventHomeScreen() {
         visible={askForStartPoint}
         eventId={eventId}
         userId={myUserId}
+        onSaved={setSavedStartPoint}
         onDismiss={() => setStartPointAnswered(true)}
       />
     </ScrollView>

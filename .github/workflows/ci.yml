@@ -89,8 +89,6 @@ jobs:
       # step saw neither, so the spawned gate failed on the very run that proves the
       # export works, and reported it as a failing test in the tree.
       - name: Unit and component tests
-        env:
-          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
         run: npm test
 
       # The engine suite names its cases (AC-12.1.1), so it reports *which*
@@ -136,11 +134,11 @@ jobs:
           EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
           EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
           EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
-          # LocationMapPicker builds its tile URLs from this, and the bundler inlines
-          # it. Without it the exported bundle has keyless tile URLs and gate:env`r
-          # refuses the tree — which is the point: the same omission on a deploy ships a
-          # map whose tiles CARTO will not serve.
-          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
+          # Every map is drawn from this token, and the bundler inlines it. Without
+          # it the exported bundle renders the "map unavailable" state everywhere and
+          # `gate:env` refuses the tree — which is the point: the same omission on a
+          # deploy ships an app whose map never appears.
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
         run: npm run export:web
 
       # ★ THE GATES READ THE SAME ENVIRONMENT THE EXPORT DID.
@@ -151,7 +149,7 @@ jobs:
       # works, which is a gate reporting its own missing input as a defect in the tree.
       - name: All eight gates
         env:
-          EXPO_PUBLIC_CARTO_API_KEY: ${{ vars.FREEWHEN_CARTO_API_KEY }}
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
         run: npm run gate:all
 
       # A failure here means a server credential reached the bundle. The log

@@ -98,3 +98,33 @@ export function providerKey(service: ProviderService): string | null {
  * accidental import could expose.
  */
 export const serverProviderKeys: ProviderKeyProvider = (service) => providerKey(service);
+
+/**
+ * The MapBox token, read from the public variable.
+ *
+ * ★ THIS ONE IS NOT A SECRET, AND THAT DOES NOT LET IT OFF THE HOOK.
+ *
+ * `EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN` is inlined into the client bundle by design —
+ * it appears in every tile request, exactly like the publishable Supabase key —
+ * so `gate:secrets` does not reject its presence. What it rejects, and what this
+ * reader refuses, is the SECRET form: pasting an `sk.` token into the deploy
+ * would publish a credential to every visitor, and the failure would look like
+ * "the map works", which is the worst possible outcome.
+ *
+ * The server reads the same variable the bundle does, so the line drawn on an
+ * event page and the basemap behind it can never come from two different
+ * accounts.
+ */
+export function readMapboxPublicToken(): string | null {
+  const value = process.env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN?.trim() ?? '';
+
+  if (value === '') return null;
+  if (value.startsWith('sk.')) {
+    // The name is logged, never the value — and this is a deploy mistake worth a
+    // warning, because the map degrades to the straight-line geometry.
+    logSafe('mapbox_secret_token_in_public_variable', { variable: 'EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN' });
+    return null;
+  }
+
+  return value.startsWith('pk.') ? value : null;
+}

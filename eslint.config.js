@@ -16,9 +16,22 @@ import reactHooks from 'eslint-plugin-react-hooks';
 const NATIVE_ONLY_MODULES = [
   '@rnmapbox/maps',
   '@maplibre/maplibre-react-native',
+  // Plan 64 - the native map surface. Web uses `mapbox-gl`; reaching this from a
+  // shared file would put a native module in the web bundle and kill the export.
+  'react-native-maps',
   'expo-notifications',
   'expo-haptics',
 ];
+
+/**
+ * `mapbox-gl` is the mirror image: a DOM library that must never reach a native
+ * bundle.
+ *
+ * It is not in the list above because that list is checked against `*.web.tsx`
+ * too (a native module may not be imported there). This one is banned everywhere
+ * EXCEPT the web implementation, which is enforced by the override below.
+ */
+const WEB_ONLY_MODULES = ['mapbox-gl'];
 
 /**
  * The banned-physical-property rule (PRD-11 §7, Style Guide §5).
@@ -219,6 +232,10 @@ export default tseslint.config(
       'src/platform/*.native.ts',
       'src/platform/*.web.ts',
       'src/map/**',
+      // Plan 64 - the map surfaces are the only files that may import a map
+      // library. Everything else imports the bare `InteractiveMap` specifier.
+      'src/components/ui/InteractiveMap.native.tsx',
+      'src/components/ui/InteractiveMap.web.tsx',
       'src/theme/useMotion.ts',
       'src/theme/useMotion.web.ts',
     ],
@@ -245,8 +262,21 @@ export default tseslint.config(
             name,
             message: `${name} cannot be imported on web.`,
           })),
+          // The mirror of the rule above: a DOM library in a native bundle fails
+          // at import time on a device, not at call time.
+          patterns: WEB_ONLY_MODULES.map((name) => ({
+            group: [`${name}`, `${name}/*`],
+            message: `${name} is a browser library. Only *.web.tsx may import it.`,
+          })),
         },
       ],
+    },
+  },
+  {
+    // The web map implementation is the one place `mapbox-gl` belongs.
+    files: ['src/components/ui/InteractiveMap.web.tsx'],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
   {

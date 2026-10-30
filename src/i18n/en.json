@@ -726,7 +726,8 @@
     "unavailableOnWeb": "The map is not available in the browser",
     "unavailableOnWebBody": "The ranked list below has everything you need: each place, its reason and its travel estimate.",
     "zoomIn": "Zoom in",
-    "zoomOut": "Zoom out"
+    "zoomOut": "Zoom out",
+    "directionOnly": "The route is shown as a direct direction, not a road."
   },
   "privacy": {
     "heading": "Privacy",

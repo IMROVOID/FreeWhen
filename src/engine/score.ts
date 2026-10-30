@@ -224,6 +224,12 @@ export function scoreVenues(
     return {
       venueId: aggregate.venueId,
       name: venue?.name ?? aggregate.venueId,
+      // The map draws this venue, so the coordinate travels with the ranking.
+      // `0, 0` is the honest fallback for a caller that supplied no context: it is
+      // a missing coordinate, and `buildVenuePins` already omits a venue it cannot
+      // place rather than pinning it in the Atlantic.
+      lat: venue?.lat ?? 0,
+      lng: venue?.lng ?? 0,
       rank: index + 1,
       floor: round2(aggregate.floor),
       mean: round2(aggregate.mean),

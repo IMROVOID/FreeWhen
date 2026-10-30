@@ -29,6 +29,7 @@ import { deleteAccountHandler } from './routes/account';
 import { getProfileHandler, putProfileHandler } from './routes/profile';
 import { joinInviteHandler, resolveInviteHandler } from './routes/invite';
 import { placeSearchHandler } from './routes/place-search';
+import { routeGeometryHandler } from './routes/route-geometry-http';
 import {
   deleteStartPointHandler,
   listParticipantsHandler,
@@ -122,6 +123,13 @@ const ROUTES: Route[] = [
   { method: 'DELETE', segments: ['api', 'proposals', ':id'], handler: withdrawProposalHandler },
   // Phase 6 — server-mediated place search (PRD-04 §4.5, PRD-10 D9).
   { method: 'GET', segments: ['api', 'place-search'], handler: placeSearchHandler },
+  // Plan 64 - the route line on an event page. Server-mediated for the same
+  // reason place search is: one seam decides which provider draws it.
+  {
+    method: 'GET',
+    segments: ['api', 'route', 'geometry'],
+    handler: routeGeometryHandler,
+  },
   // Phase 7 — voting, the Decision Status area, confirmation and the log.
   { method: 'PUT', segments: ['api', 'proposals', ':id', 'vote'], handler: castVoteHandler },
   // Removing one's own vote. `PUT` above is an upsert, so without this there is no

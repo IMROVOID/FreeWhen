@@ -11,17 +11,24 @@
  * ★ THIS GATE WOULD NOT HAVE CAUGHT THE BLANK MAP, AND THAT IS WHY IT IS DESCRIBED
  *   NARROWLY.
  *
- * The shipped map was blank while the key was present and CARTO answered `200`; the
- * grid was anchored with a logical inset and drew outside its frame. Claiming this gate
- * prevents that would be a false account of what it does — it prevents a MISSING KEY,
- * which is a real and quiet failure mode of its own (`EXPO_PUBLIC_*` is inlined at build
- * time, so a variable set only on the host produces a bundle with an empty value).
+ * The shipped map was blank while the key was present and the provider answered `200`;
+ * the tile grid was anchored with a logical inset and drew outside its frame. Claiming
+ * this gate prevents that would be a false account of what it does — it prevents a
+ * MISSING KEY, which is a real and quiet failure mode of its own (`EXPO_PUBLIC_*` is
+ * inlined at build time, so a variable set only on the host produces a bundle with an
+ * empty value).
+ *
+ * ★ PLAN 64 MOVED THE PROVIDER, NOT THE RULE.
+ *
+ * The required variable is now the MapBox public token. A `pk.` token in a bundle is
+ * correct by design; `gate:secrets` rejects the `sk.` form in any scanned text, so the
+ * two gates cover opposite mistakes on the same variable.
  *
  * ★ IT READS `.env`, AND THE PRODUCTION VALUES ARE CHECKED ON THE DEPLOY PATH.
  *
- * A local `.env` proves the build CAN carry the key; it does not prove the deploy does.
- * `deploy.yml` passes `vars.FREEWHEN_CARTO_API_KEY` into `export-web.sh`, which is the
- * sanctioned writer — see the note there.
+ * A local `.env` proves the build CAN carry the token; it does not prove the deploy
+ * does. `deploy.yml` passes `vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN` into `export-web.sh`,
+ * which is the sanctioned writer — see the note there.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -40,9 +47,9 @@ interface RequiredPublicVar {
 
 const REQUIRED: readonly RequiredPublicVar[] = [
   {
-    name: 'EXPO_PUBLIC_CARTO_API_KEY',
-    without: 'the location picker renders a blank map with no explanation',
-    source: 'https://carto.com/developers/basemaps/guides/quickstart/',
+    name: 'EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN',
+    without: 'every map renders the "unavailable" state on every device',
+    source: 'https://docs.mapbox.com/help/getting-started/access-tokens/',
   },
 ];
 

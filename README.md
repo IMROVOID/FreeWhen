@@ -619,8 +619,8 @@ Edit them as binary assets, not by regenerating in code.
 | **Neshan** (Direction) | Point-to-point routing when the matrix fails | 2 |
 | **OpenRouteService** | Open-source routing engine | 3 |
 | **Haversine** | Straight-line distance, computed locally | 4 |
-| **Mapbox** | Base tiles for the native map | — |
-| **CARTO** | Raster basemap for the location picker, keyed by `EXPO_PUBLIC_CARTO_API_KEY` | — |
+| **Mapbox** | Every map, on both platforms — see the row above | — |
+| **MapBox** | Every map: the location picker, the proposal preview, the ranked panel and the event route. Styles `streets-v12` (light) and `dark-v11` (dark), 3D pitch, `pk.` token only | — |
 
 The QR code on `/start` and the share card is **encoded locally** (`src/features/settings/components/QrCode.tsx`: byte mode, error-correction L, versions 1–10). A hosted QR image service would send the live demo invite token to a third party on every page load, and `gate:web` rejects a third-party script origin outright.
 
@@ -884,9 +884,9 @@ FreeWhen strictly distinguishes between client-inlined variables and server-only
 |---|---|---|---|
 | `EXPO_PUBLIC_SUPABASE_URL` | Yes | Supabase endpoint URL | `—` |
 | `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | RLS-protected publishable anon key | `—` |
-| `EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN` | Yes (map) | Restricted Mapbox public token (`pk.*`) | `—` |
-| `EXPO_PUBLIC_TILE_STYLE_URL` | No | Custom vector tile style URL | `—` |
-| `EXPO_PUBLIC_CARTO_API_KEY` | No (location picker) | Publishable CARTO basemap tile key. Safe in the bundle by design — it appears in every tile URL. | `—` |
+| `EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN` | No (every map) | Publishable MapBox token (`pk.*`). Safe in the bundle by design — it appears in every tile and static-image request. An `sk.` token is refused by `gate:secrets` and by `readMapboxToken()`. | `—` |
+| `EXPO_PUBLIC_TILE_STYLE_URL` | No | Overrides the shared light/dark style pair | `—` |
+| `EXPO_PUBLIC_MAP_PROVIDER` | No | Pins the renderer (`mapbox` / `maplibre`). A `pk.` token alone is enough | `—` |
 | `EXPO_PUBLIC_APP_BASE_URL` | Yes | Base URL used to formulate invite links, `canonical`, `og:url`, the sitemap — **and the API origin when `EXPO_PUBLIC_API_URL` is unset** | `—` |
 | `EXPO_PUBLIC_API_URL` | No | The API origin when it differs from the app origin. Leave blank in the single-origin deployment. | falls back to `EXPO_PUBLIC_APP_BASE_URL` |
 | `EXPO_PUBLIC_DEMO_TOKEN` | Yes (reviewer path) | The stable invite token `/start` routes to. Must resolve to the seeded `is_demo` event | `—` |
@@ -1299,7 +1299,7 @@ These are consciously deferred limitations, documented rather than hidden. Each 
 | **G-4** | **No age verification.** | Low | A documented decision; the listing states 18+ | If the user base skews young |
 | **G-5** | **Organizer identity is device-scoped.** Losing the device loses organizer control. | Event can strand | Ownership continuity prevents the worst case | Account system |
 | **G-6** | **No CAPTCHA on anonymous sign-in.** | DB-size abuse | Time | If abuse is observed |
-| **G-7** | **The browser has no 3D map.** The ranked list is complete; the map is Android-only. | Low — the list carries the decision | No web build of the native map renderer; a web map is a separate renderer with separate costs (OQ-18.3, deferred to P2) | When a reviewer's confusion is traced to the missing map rather than to the ranking |
+| **G-7** | ~~The browser has no 3D map.~~ **Resolved in Plan 64:** the browser runs `mapbox-gl` against the same style and token as native, with a pitched camera. The ranked list remains the complete path. | — | No web build of the native map renderer; a web map is a separate renderer with separate costs (OQ-18.3, deferred to P2) | When a reviewer's confusion is traced to the missing map rather than to the ranking |
 | **G-8** | **No automated rollback.** The workflows publish; reverting a release or a deploy is still a manual act. | Low — releases are drafts by default and migrations are additive | A rollback action needs a previous-artifact store and a decision about what "the previous good deploy" means per provider | The first time a bad release reaches a reviewer |
 | **G-9** | **No iOS build pipeline.** | Low — the reviewer path is the web export | No Apple credentials, no macOS runner, no signing certificate. `README` has always listed iOS as missing | An Apple developer account |
 | **G-10** | **Only the static half is deployed to a public host.** Both live targets (Vercel, Netlify) serve the web export; no backend is hosted, so `/api/*` and `/start`'s live ranking rely on a server that is not running there. | **Medium** — `/start` renders but its data requests fail until a backend exists | Every backend target needs one thing this survey could not supply: an account token (Railway), account scope (Cloudflare), a connected repo (Render), or an ssh host (VPS). The two static deployments prove the artifact, not the stack | Before any reviewer is given a URL rather than a local checkout |

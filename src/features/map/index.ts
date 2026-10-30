@@ -1,32 +1,51 @@
 /**
- * The adapter factory (Plan 08 Task 7).
+ * The adapter factory (Plan 08 Task 7, Plan 64).
  *
- * ★ THE ONLY PLACE A RENDERER WOULD BE CONSTRUCTED.
+ * ★ THE ONLY PLACE A RENDERER IS CONSTRUCTED.
  *
- * Levels 1 and 2 need a native module this build does not ship, and importing
- * one behind a conditional would still break the web bundle and the Node test
- * runner at import time. When a renderer is added, it is constructed here and
- * nowhere else — the screen and the list never change.
+ * The screen and the list never change with the renderer: they talk to
+ * `MapAdapter` and nothing else. Levels 1 and 2 need a platform module, and
+ * importing one behind a conditional would still break the wrong bundle at import
+ * time, so the construction is confined here and the platform substitution
+ * (`InteractiveMap.web.tsx` / `.native.tsx`) handles the split.
  *
  * The reported level is the CONFIGURED one, so `map_viewed.render_level`
- * distinguishes "no map was configured" (3–4) from "a map crashed" (the
- * error boundary, which reports 4 after catching).
+ * distinguishes "no map was configured" (3–4) from "a map crashed" (the error
+ * boundary, which reports 4 after catching).
  */
 
 import { NullMapAdapter } from './null-adapter';
+import { MapboxMapAdapter } from './mapbox-adapter';
 import { resolveMapLevel } from './level';
+import { hasMapbox } from './mapbox-token';
 import type { MapAdapter } from './types';
 
 export type MapPlatform = 'native' | 'web' | 'node';
 
+export { MapboxMapAdapter } from './mapbox-adapter';
+
 /**
  * Builds the adapter for this platform.
  *
- * Every level currently resolves to the null adapter, because no renderer is
- * installed. That is the honest position: the props, the camera framing and
- * the selection wiring are real and tested; only the drawing is absent, and
- * the level says so.
+ * ★ LEVEL 1 IS NOW REACHABLE, AND ONLY WHEN A TOKEN EXISTS.
+ *
+ * Before Plan 64 every level resolved to the null adapter because no renderer was
+ * installed. Now:
+ *
+ *  - a build with a MapBox public token gets `MapboxMapAdapter`, on native AND on
+ *    the web (level 1);
+ *  - a build without one still resolves down the ladder, and reports the level it
+ *    actually reached — never level 1 with nothing drawn.
+ *
+ * That last sentence is the whole reason `hasMapbox()` is checked here as well as
+ * in `resolveMapLevel`: the level says what a build is configured for, and this
+ * says what it can actually construct. A `MapboxMapAdapter` that drew nothing while
+ * claiming level 1 would make the analytics number a lie.
  */
 export function createMapAdapter(platform: MapPlatform): MapAdapter {
-  return new NullMapAdapter(resolveMapLevel(platform));
+  const level = resolveMapLevel(platform);
+
+  if (level === 1 && hasMapbox()) return new MapboxMapAdapter();
+
+  return new NullMapAdapter(level);
 }
