@@ -47,15 +47,6 @@ function code(path: string): string {
     .replace(/^\s*\/\/.*$/gm, '');
 }
 
-test('the geometry module exports its two functions', async () => {
-  const geometry = await import('@/src/components/ui/segmented-geometry');
-
-  // Assert — the numeric behaviour lives in `segmented-inside-rail.test.ts`, which
-  // encodes the border-edge origin Yoga actually uses. This file keeps only the
-  // source constraints, which that file cannot check.
-  assert.equal(typeof geometry.indicatorLeftFor, 'function', 'indicatorLeftFor is not a function');
-  assert.equal(typeof geometry.segmentWidthFor, 'function', 'segmentWidthFor is not a function');
-});
 
 /* ── Source constraints ──────────────────────────────────────────────────── */
 
@@ -86,32 +77,35 @@ test('the control subscribes to the direction, and asks no platform manager', ()
   );
 });
 
-test('the indicator is positioned by a transform, not by a layout inset', () => {
-  // Arrange — every LAYOUT inset is mirrored by the layout direction, which is what
-  // made the anchor direction-dependent in the first place: `insetInlineStart`
-  // resolves against the document, an explicit `left` becomes the inline-END inset
-  // in an RTL parent, and a nonzero inset would be measured from a different origin
-  // on native than on the web.
+test('the indicator is positioned by an animated percentage, not a pixel inset', () => {
+  // Arrange — every PIXEL horizontal position is either mirrored by the layout
+  // direction or needs a measurement to compute, and both of those shipped a wrong
+  // or invisible pill:
   //
-  // The pill therefore anchors at the rail's leading corner with a ZERO inset (the
-  // one value that means the same thing on every origin) and the whole position is
-  // an animated `translateX`, which no direction mirrors.
+  //  - `insetInlineStart` resolves against the document direction;
+  //  - an explicit `left` in pixels becomes the inline-END inset in an RTL parent;
+  //  - a `translateX` takes pixels, so its value had to come from `onLayout` — and
+  //    when that measurement never arrived the pill rendered zero wide and painted
+  //    nothing.
+  //
+  // A PERCENTAGE `left` resolves against the track's own width, so the layout
+  // engine computes it and nothing has to be measured.
   const chip = code('src/components/ui/Chip.tsx');
 
-  // Assert — no NONZERO logical inset, because that is what would flip or move.
+  // Assert — no nonzero logical inset...
   assert.doesNotMatch(
     chip,
     /insetInline(Start|End):\s*space\[/,
     'the indicator is anchored at a nonzero logical inset, which the direction flips',
   );
-  assert.ok(
-    /indicatorLeftFor\(/.test(chip),
-    'the control does not use the shared geometry, so the two paths can drift',
+  // ...the position is an animated percentage...
+  assert.match(
+    chip,
+    /left:\s*`\$\{animatedOffset\.value\}%`/,
+    'the position is not an animated percentage `left`',
   );
-  assert.ok(
-    /translateX:\s*animatedOffset\.value/.test(chip),
-    'the position is not carried by a direction-independent transform',
-  );
+  // ...and no pixel transform survives.
+  assert.doesNotMatch(chip, /translateX:/, 'a pixel transform is still placing the pill');
 });
 
 test('the base indicator style declares no horizontal anchor of its own', () => {

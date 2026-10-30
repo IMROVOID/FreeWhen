@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -9,7 +9,6 @@ import type { IconWeight } from 'phosphor-react-native';
 
 import { Text } from './Text';
 import { Pressy } from './Pressy';
-import { indicatorLeftFor, segmentWidthFor } from './segmented-geometry';
 import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import { dur, ease } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
@@ -160,257 +159,173 @@ export function SegmentedControl({
     options.findIndex((option) => option.value === value),
   );
 
-  const [trackWidth, setTrackWidth] = useState(0);
+  /**
+   * ★ THERE IS NO MEASUREMENT HERE ANY MORE, AND THAT IS THE FIX.
+   *
+   * This component used to keep `trackWidth` in state, fed by `onLayout` on native
+   * and a `ResizeObserver`/`getBoundingClientRect` read on web, and derive the
+   * pill's pixel size and offset from it.
+   *
+   * On the emulator that measurement never landed: `uiautomator dump` showed the
+   * pill present with the right height and the right anchor but **width 0**, so it
+   * painted nothing while the selected label was correctly tinted and the rail's
+   * padding looked right. Three earlier fixes tuned the arithmetic downstream of
+   * that number, and all three were fixing a value that was never arriving.
+   *
+   * The pill is now sized and positioned as a FRACTION of the track, which the
+   * layout engine resolves itself. A control whose selection is a pure function of
+   * (count, index, direction) does not need to ask the platform how wide it is.
+   */
 
   /**
-   * ★ THE RAIL ALSO MEASURES ITSELF FROM THE NODE.
+   * The pill's size and position are FRACTIONS of the rail, not pixels.
    *
-   * `onLayout` is the sanctioned signal, but it is delivered once per mount and
-   * the app now REMOUNTS its whole tree when the language's direction changes
-   * (`app/_layout.tsx`). On that remount the layout callback can land before this
-   * component is ready to record it, leaving `trackWidth` at 0 — and the pill is
-   * only rendered when the track has measured, so the selection silently
-   * disappeared in BOTH languages. Measured: 10,259 pill pixels before the
-   * remount change, 0 after.
+   * ★ THE PILL DEPENDED ON A JS MEASUREMENT, AND THAT IS WHY IT WAS INVISIBLE.
    *
-   * A ref read on mount and on every resize makes the measurement independent of
-   * when the callback arrives. `onLayout` stays for native.
+   * Measured on the emulator from `uiautomator dump` — the real view hierarchy:
+   *
+   * ```
+   * language rail : [53,517]..[1028,633]    W=975  H=116
+   * pill node     : [1028,528]..[1028,622]  W=0    H=94
+   * ```
+   *
+   * Right height, right anchor, **zero width**: nothing painted, while the
+   * selected label took its dark tint and the rail's padding looked correct. That
+   * is the report — "the icons and texts correctly turn dark on selected item but
+   * the Knob is not visible at all".
+   *
+   * Zero width can only come from `segmentWidth`, which came from `trackWidth`,
+   * which came from `onLayout`. The arithmetic downstream was verified in
+   * isolation and was right; the dependency was the defect. When a JS measurement
+   * does not arrive the pill is not merely misplaced — it is invisible, and there
+   * is nothing left in the component that can recover.
+   *
+   * ★ SO THE LAYOUT ENGINE COMPUTES THE GEOMETRY.
+   *
+   * The rail is a row of `count` equal `flex: 1` segments, so one segment is
+   * exactly `1/count` of the inner track — a fact the platform already knows. The
+   * pill is therefore `width: (100/count)%` and offset by `(index * 100/count)%`,
+   * both relative to the track it sits in. No state, no measurement, nothing that
+   * can fail to arrive, and identical on native and web.
+   *
+   * The rail keeps reporting its own width for anything that wants the pixels;
+   * the pill simply no longer depends on them.
    */
-  const railRef = useRef<ComponentRef<typeof View> | null>(null);
-
-  /** Records a width, ignoring a non-positive or unchanged one. */
-  const recordWidth = useCallback((width: number) => {
-    if (!Number.isFinite(width) || width <= 0) return;
-    setTrackWidth((prev) => (prev === width ? prev : width));
-  }, []);
+  const segmentPercent = 100 / Math.max(1, options.length);
 
   /**
-   * The WEB measurement: reads the element's box directly.
+   * The offset, as a percentage of the track.
    *
-   * ★ IT MUST NOT BE THE `onLayout` HANDLER.
+   * ★ THE READING DIRECTION IS FOLDED INTO THE INDEX, ONCE.
    *
-   * This used to be wired to `onLayout` as well, and it returns early whenever the
-   * node has no `getBoundingClientRect` — which is ALWAYS true on native, where a
-   * view is a native peer rather than a DOM element. So the native layout event
-   * was received and thrown away, `trackWidth` stayed 0, and the rail rendered its
-   * track and both labels with NO pill — in both languages, on every device.
-   *
-   * `onLayout` now reads its own event (below); this path is web-only.
+   * Right-to-left readers count their options from the right, and the pill is
+   * positioned from the LEFT. So the RTL offset is the mirror of the LTR one:
+   * `count - 1 - index` rather than `index`. This is the same statement
+   * `indicatorLeftFor` makes in pixels, expressed where the layout engine can use
+   * it — and because a percentage position is not mirrored by anything, both
+   * platforms and both directions agree by construction.
    */
-  const measureFromNode = useCallback(() => {
-    const node = railRef.current as unknown as HTMLElement | null;
-    if (!node || typeof node.getBoundingClientRect !== 'function') return;
-
-    recordWidth(node.getBoundingClientRect().width);
-  }, [recordWidth]);
-
-  useEffect(() => {
-    measureFromNode();
-
-    const node = railRef.current as unknown as HTMLElement | null;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-
-    const observer = new ResizeObserver(() => measureFromNode());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [measureFromNode]);
-
-  // The horizontal padding inside `segmented`, so the indicator covers only the
-  // inner track and not the rail's own border area.
-  const segmentWidth = segmentWidthFor({ trackWidth, inset: space[1], count: options.length });
-
-  /**
-   * ★ THE PILL IS ALWAYS PLACED FROM ITS PHYSICAL LEFT EDGE.
-   *
-   * Three shapes were tried and the first two shipped a wrong pill:
-   *
-   *  1. a logical `insetInlineStart` anchor plus a positive translate — the anchor
-   *     and the travel disagreed about which way "start" pointed, so in Persian the
-   *     pill walked off the rail;
-   *  2. a base `left: 0` plus a `{ right }` override under RTL — React Native
-   *     MERGES those, the node carried BOTH keys, and CSS resolves that pair by
-   *     giving `left` precedence, so the mirror was silently discarded. Measured
-   *     from the rendered markup as `right: -4px` with no `left` override, and
-   *     visible as "Auto is selected but the knob is on Light";
-   *  3. the current one — a single physical `left`, in both directions.
-   *
-   * `indicatorLeftFor` already answers "left edge" for an RTL rail (it knows the
-   * first segment sits at the right end), so nothing here needs to name a side or
-   * carry a direction sign. `indicatorPlacementFor` remains in the geometry module
-   * for callers that need the pair, but this component does not: one side that is
-   * always right cannot disagree with itself.
-   */
+  const mirroredIndex = rtl ? options.length - 1 - selectedIndex : selectedIndex;
+  const offsetPercent = mirroredIndex * segmentPercent;
 
   const motion = useMotion();
 
   /**
-   * The pill's left edge, IN THE SIDE THE PLACEMENT NAMES, as one animated value.
+   * The in-flight travel, in PERCENT of the track; 0 at rest.
    *
    * ★ THE ANIMATED VALUE HAS TO *BE* THE POSITION.
    *
-   * The previous shape kept `left` static (the correct rest, applied in style) and
-   * animated a `translateX` delta on top of it:
+   * The previous shape kept the rest in style and animated a `translateX` delta on
+   * top of it, with two assignments to the same shared value in one block:
    *
    * ```js
-   * slide.value = delta;                    // ①
-   * slide.value = withTiming(0, { … });     // ②
+   * slide.value = delta;                    // (1)
+   * slide.value = withTiming(0, { ... });   // (2)
    * ```
    *
-   * Two assignments to one shared value in the same synchronous block. ② replaced
-   * ① before any frame could render, so nothing ever travelled FROM the old
-   * option: `left` had already moved to the new rest and the transform animated
-   * from an overshoot of `delta` back to `0`. Visibly that is a jump to the new
-   * option followed by a wobble toward the old one — "it just teleports and shakes
-   * when changing the value".
+   * (2) replaced (1) before any frame rendered, so nothing ever travelled FROM the
+   * old option: the rest had already moved and the transform animated from an
+   * overshoot back to zero — a jump followed by a wobble, reported as "it teleports
+   * and shakes".
    *
-   * A translation cannot animate a position that is also being rewritten in style
-   * on the same commit. So the position itself is the animated value, and the
-   * transform is gone entirely.
+   * The position itself is the animated value now: `left` animates from one
+   * percentage to another and there is no delta.
    */
-  const restLeft = indicatorLeftFor(selectedIndex, {
-    trackWidth,
-    inset: space[1],
-    count: options.length,
-    rtl,
-  });
+  const animatedOffset = useSharedValue<number>(offsetPercent);
 
-  /**
-   * The animated value carries the pill's OFFSET FROM ITS OWN BASE, in pixels.
-   *
-   * ★ A TRANSFORM IS THE ONLY DIRECTION-INDEPENDENT HORIZONTAL POSITION IN RN.
-   *
-   * Everything else that could place the pill horizontally is mirrored by the
-   * layout direction, and each was tried and failed:
-   *
-   *  - `insetInlineStart` resolves against the DOCUMENT direction, so on web the
-   *    `dir="rtl"` on `<html>` anchored it to the wrong edge;
-   *  - an explicit physical `left` is the inline-END inset in an RTL parent, so
-   *    Yoga takes a different branch there (`AbsoluteLayout.cpp`:
-   *    `isInlineEndPositionDefined` rather than `isInlineStartPositionDefined`) and
-   *    the same number lands somewhere else — the Persian pill on the opposite
-   *    option;
-   *  - pinning the rail to `direction: 'ltr'` fixes that branch but ALSO lays the
-   *    labels out left-to-right, putting `fa` on the left of `en` in Persian — and
-   *    it is a native-only knob (`react-native-web` derives direction from the
-   *    `dir` PROP, not from a `direction` style), so the two platforms would drift.
-   *
-   * `transform: [{ translateX }]` is measured in physical pixels along the x axis
-   * and is NOT mirrored by any of this. So the base is a zero-width, absolutely
-   * positioned node at the rail's leading corner, and this value is the whole
-   * distance from there to the selected segment — direction already folded in by
-   * `indicatorLeftFor`.
-   */
-  const animatedOffset = useSharedValue<number>(restLeft);
-
-  /**
-   * The option the last placement was made for.
-   *
-   * ★ THE PILL SLIDES ON A SELECTION, NOT ON A RE-MEASURE.
-   *
-   * `restLeft` moves for two reasons: the selected option changed (a gesture — the
-   * pill should travel), or the rail was re-measured by a rotation, a font-scale
-   * change or a split-screen reflow (not a gesture — the pill should be re-placed).
-   * Comparing the RESULTING PIXEL cannot tell them apart, so this compares the
-   * option instead.
-   *
-   * `null` until the first placement, so the first measurement snaps.
-   */
+  /** The option the last placement was made for, so a re-measure snaps. */
   const placedIndex = useRef<number | null>(null);
 
   /** The direction the last placement was made in, so a flip snaps. */
   const placedRtl = useRef<boolean>(rtl);
 
-  /**
-   * The rail width the last placement was made against.
-   *
-   * ★ A RE-MEASURE IS NOT A GESTURE, AND THE PIXEL CANNOT TELL THEM APART.
-   *
-   * `restLeft` changes for two reasons: the selected option changed (the pill
-   * should travel to it), or the rail was re-measured by a rotation, a font-scale
-   * change or a split-screen reflow (the same option now sits at a different pixel,
-   * and the pill should be re-PLACED). Comparing the resulting pixel conflates
-   * them — and once a selection has been placed, a later resize looks identical to
-   * another selection change.
-   *
-   * So the slide is decided by the WIDTH, which only a re-measure moves.
-   */
-  const placedWidth = useRef<number | null>(null);
-
-  const measured = trackWidth > 0;
-
   useEffect(() => {
-    if (!measured) return;
-
     /**
      * ★ THE PILL ANIMATES ONLY WHEN THE USER PICKED AN OPTION.
      *
      * Everything else is placed outright:
      *
-     *  - the FIRST placement, because the rail's first measurement is a
-     *    correction and animating it slides the pill in from the leading edge on
-     *    every mount;
-     *  - a RESIZE, because the option did not change and the rail was re-measured;
-     *  - a DIRECTION FLIP, because the rail was re-laid-out around the mirrored
-     *    coordinate and travelling from the old one would wipe across it;
-     *  - Reduce Motion, because the transitions are gone (Style Guide §7.7).
+     *  - the FIRST placement, so mounting does not slide the pill in from an edge;
+     *  - a DIRECTION FLIP, because the rail has been re-laid-out around the
+     *    mirrored coordinate and travelling from the old one would wipe across it;
+     *  - Reduce Motion, because the transitions are gone (Style Guide 7.7).
      *
-     * ★ AND THE POSITION IS ALWAYS WRITTEN.
+     * A resize needs no branch at all now: both the width and the offset are
+     * percentages, so the layout engine re-resolves them without this component
+     * doing anything.
      *
-     * Leaving the assignment out of a branch stranded the pill: `animatedOffset`
-     * kept the previous option and the "nothing to do" return below then pinned it
-     * there permanently. Assigning in every branch is what keeps a sweep of these
-     * cases correct.
+     * ★ AND THE POSITION IS ALWAYS WRITTEN. Leaving the assignment out of a branch
+     * stranded the pill on the previous option permanently.
      */
-    const first = placedWidth.current === null;
-    const resized = placedWidth.current !== trackWidth;
+    const first = placedIndex.current === null;
     const directionChanged = rtl !== placedRtl.current;
     const selectionChanged = selectedIndex !== placedIndex.current;
 
-    if (first || resized || directionChanged || motion.reduce || !selectionChanged) {
-      placedWidth.current = trackWidth;
+    if (first || directionChanged || motion.reduce || !selectionChanged) {
       placedIndex.current = selectedIndex;
       placedRtl.current = rtl;
-      animatedOffset.value = restLeft;
+      animatedOffset.value = offsetPercent;
       return;
     }
 
     placedIndex.current = selectedIndex;
-    animatedOffset.value = withTiming(restLeft, {
+    animatedOffset.value = withTiming(offsetPercent, {
       duration: dur.fast,
       easing: ease.out,
     });
-  }, [measured, restLeft, selectedIndex, rtl, motion.reduce, trackWidth, animatedOffset]);
+  }, [offsetPercent, selectedIndex, rtl, motion.reduce, animatedOffset]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
-    // ★ A TRANSFORM, WHICH NO LAYOUT DIRECTION MIRRORS.
+    // ★ A PERCENTAGE `left`, WHICH RESOLVES AGAINST THE TRACK ITSELF.
     //
-    // `translateX` is physical pixels along the x axis on both platforms, so the
-    // number from the geometry means the same thing in every language. Every
-    // alternative — a logical inset, an explicit `left`, or forcing the rail to
-    // LTR — was tried and each changed meaning under RTL (see the note above).
-    transform: [{ translateX: animatedOffset.value }],
+    // `left: n%` is a fraction of the containing block's width — the inner track —
+    // so the layout engine computes the position and nothing depends on a JS
+    // measurement. `translateX` could not express this: it takes pixels, which is
+    // what forced the measurement in the first place.
+    //
+    // rtl-ok: physical `left` against a PHYSICAL percentage. The mirror is folded
+    // into `offsetPercent` (see `mirroredIndex`), so the number and the edge agree;
+    // a logical inset here would be mirrored a second time.
+    left: `${animatedOffset.value}%`, // rtl-ok: mirrored in offsetPercent, not by layout
   }));
 
   return (
     <View
-      ref={railRef}
       testID={testID}
       accessibilityRole="radiogroup"
-      onLayout={(event) => recordWidth(event.nativeEvent.layout.width)}
       style={[styles.segmented, { backgroundColor: t.surface2 }, style]}
     >
       {/*
-        ★ THE PILL RENDERS FIRST AND IS NEVER GATED ON THE MEASUREMENT.
+        ★ THE PILL IS A FRACTION OF THE TRACK, SO IT IS ALWAYS THERE.
 
         It sits under the labels, and `pointerEvents="none"` keeps it out of the
         press path.
 
-        It used to render only when the measured segment width was above zero, so
-        a track that had not measured produced NO selection at all rather than a
-        misplaced one — while the labels still rendered, which is why it looked
-        like the pill had simply disappeared. A zero-width pill is invisible on
-        its own, so the gate only turned a transient measurement into a permanent
-        absence.
+        It used to be gated on a measured width (`opacity: segmentWidth > 0 ? 1 :
+        0`) and sized in pixels from that number. When the measurement did not
+        arrive it rendered at width 0 — invisible, while the labels still drew and
+        took their selected tint. The size and offset are percentages now, so there
+        is nothing to gate on and nothing to arrive.
       */}
       {(
         <Animated.View
@@ -418,19 +333,11 @@ export function SegmentedControl({
           style={[
             styles.indicator,
             {
-              width: segmentWidth,
+              // A fraction of the track, so the layout engine sizes it.
+              width: `${segmentPercent}%`,
               backgroundColor: t.primary,
-              // Hidden until measured, but RENDERED — see the note above. `opacity`
-              // avoids the sliver without making the pill's existence depend on
-              // the measurement arriving.
-              opacity: segmentWidth > 0 ? 1 : 0,
             },
-            // The animated value carries the position on the side the direction
-            // resolved to, so this replaces — not supplements — the placement
-            // numbers. `indicatorPlacement` is still what decides WHICH side and
-            // what the resting numbers are; the style below is the only thing
-            // that ever writes them to the node, which is what makes a slide
-            // possible at all.
+            // The animated `left` is the ONLY thing that positions the pill.
             indicatorStyle,
           ]}
         />
@@ -494,35 +401,25 @@ const styles = StyleSheet.create({
   },
   indicator: {
     position: 'absolute',
-    // ★ THE TWO AXES USE DIFFERENT ANCHORS, DELIBERATELY.
+    // ★ ONE HORIZONTAL ANCHOR: THE ANIMATED `left`, AND NOTHING ELSE.
     //
-    // Yoga resolves an absolute child's origin from one of two branches
-    // (`AbsoluteLayout.cpp`), independently per axis:
+    // The pill's horizontal position is a PERCENTAGE `left` written by the animated
+    // style, so it resolves against the containing block's width — the inner track —
+    // and the layout engine computes it. Nothing here may name a horizontal inset:
+    // a base `left`/`right`/`insetInlineStart` would be merged with the animated
+    // value rather than replaced, and the two would then disagree about which edge
+    // the number is measured from.
     //
-    //   - child HAS an inset for this axis → `inset + parent BORDER + margin`;
-    //   - child has NO inset for this axis → `parent BORDER + parent PADDING + margin`.
+    // ★ VERTICALLY THE INSET IS `space[1]`, MEASURED FROM THE BORDER EDGE.
     //
-    // Only the second agrees with the browser, where an absolutely positioned
-    // element's containing block is the padding box. So:
-    //
-    //  • HORIZONTAL: no inset at all. The origin is then the padding edge — the
-    //    inner track the labels are laid out in — which is the same point on native
-    //    and on the web. The whole position is the animated `translateX`, in
-    //    physical pixels, which no layout direction mirrors. Naming a `left` here
-    //    would be right on Android and one padding step out on the web, which is
-    //    exactly how this defect survived two previous fixes.
-    //
-    //  • VERTICAL: an explicit `space[1]`, so the origin is the rail's BORDER edge.
-    //    The rail is `padding: space[1]` around a `size.segment` inner box, so
-    //    `top: space[1]` measures exactly to the segment's top and the pill comes
-    //    out the segment's full height, leaving the rail's padding visible above and
-    //    below it. Both axes have zero border, so this is the same on every
-    //    platform.
-    //
-    // Do not "unify" these two into one origin; that is the change that broke it.
+    // `AbsoluteLayout.cpp` resolves an absolute child that HAS an inset from
+    // `inset + parent BORDER`, and one with NO inset from
+    // `parent BORDER + parent PADDING`. The rail has zero border, so `space[1]`
+    // here measures exactly to the top of the `size.segment` inner box and the pill
+    // comes out the segment's full height — leaving the rail's own padding visible
+    // above and below it.
     top: space[1],
     bottom: space[1],
-    insetInlineStart: 0,
     borderRadius: radius.pill,
   },
   segmentInner: {

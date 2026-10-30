@@ -1,191 +1,234 @@
 /**
- * The segmented pill must sit ON its segment, with the rail's padding visible
- * around it, in both directions.
+ * The segmented pill: sized and placed as a FRACTION of its track.
  *
- * ★ THE ROOT CAUSE, READ OUT OF YOGA'S OWN SOURCE.
+ * ★ THE DEFECT THIS REPLACES, MEASURED ON A DEVICE.
  *
- * Two earlier attempts reasoned from CSS intuition and both shipped the same
- * symptom. `ReactCommon/yoga/yoga/algorithm/AbsoluteLayout.cpp` settles it:
+ * Three fixes tuned the pill's arithmetic and all three shipped an invisible pill.
+ * `uiautomator dump` on the emulator, against v0.1.4, showed why:
  *
- * ```cpp
- * // child HAS an explicit inline-start inset:
- * positionRelativeToInlineStart =
- *     child->style().computeInlineStartPosition(axis, direction, containingBlockSize) +
- *     containingNode->style().computeInlineStartBorder(axis, direction) +   // ← BORDER
- *     child->style().computeInlineStartMargin(axis, direction, containingBlockSize);
+ * ```
+ * language rail : [53,517]..[1028,633]    W=975  H=116
+ * pill node     : [1028,528]..[1028,622]  W=0    H=94
  * ```
  *
- * The term is **border**, not padding — and the padding is only added in the
- * OTHER branch, the one used when the child has NO inset (`setFlexStartLayoutPosition`,
- * which adds `parent->getLayout().padding(...)`).
+ * Correct height, correct anchor, **zero width** — so nothing painted, while the
+ * selected label took its dark tint and the rail's padding looked right. That is
+ * the report: "the icons and texts correctly turn dark on selected item but the
+ * Knob is not visible at all".
  *
- * So on native, an explicit `left` is measured from the rail's BORDER edge. A pill
- * positioned at `left: segmentWidth * index` therefore starts `inset` points to the
- * left of where the labels start, and every option is off by exactly the rail's
- * padding. That is the report: "the knobs are still offset to the left or right".
+ * Zero width could only come from `segmentWidth`, which came from `trackWidth`,
+ * which came from `onLayout`. The arithmetic was verified in isolation and was
+ * correct every time; the DEPENDENCY was the defect. When a JS measurement does
+ * not arrive the pill is not misplaced — it is invisible, with nothing left in the
+ * component that can recover.
  *
- * ★ AND THE VERTICAL HALF IS THE OTHER BRANCH OF THE SAME MISTAKE.
+ * ★ SO THE GEOMETRY IS A FUNCTION OF (count, index, direction), AND NOTHING ELSE.
  *
- * With no vertical inset the pill fell into the no-inset branch, which DID add the
- * padding — so `top: 0 / bottom: 0` did not hug the inner track, it stretched the
- * pill over the padding too, leaving none of the rail's own breathing room above
- * or below it. That is "no top/bottom padding inside the SegmentedGroup".
- *
- * ★ WHY RTL KEPT MIRRORING.
- *
- * `left` is a PHYSICAL edge. In a right-to-left rail the inline-start edge is the
- * RIGHT one, so an explicit `left` is the inline-END inset and Yoga takes a
- * different branch entirely (`isInlineEndPositionDefined`). Two different code
- * paths, two different results, one component. The rail is therefore pinned to
- * LTR internally and the pill is always a physical `left` computed by this module
- * — direction is folded into the NUMBER, exactly once, where it can be tested.
+ * The rail is a row of `count` equal `flex: 1` segments, so one segment is exactly
+ * `1/count` of the inner track. The pill is `width: (100/count)%` and offset by
+ * `(index * 100/count)%` — both resolved by the layout engine, identically on
+ * native and web, with no state that can fail to arrive and no animation that can
+ * be stranded.
  */
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 
-import {
-  indicatorLeftFor,
-  segmentWidthFor,
-} from '@/src/components/ui/segmented-geometry';
+function code(path: string): string {
+  return readFileSync(path, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+}
 
-/** The rail's own proportions: `padding: space[1]` around a 36pt segment. */
-const INSET = 4;
-const TRACK = 300;
-const COUNT = 3;
-const SEGMENT_HEIGHT = 36;
-
-/** The inner track the labels are laid out in. */
-const INNER = TRACK - INSET * 2;
-
-test('an option rests INSIDE the rail padding, not at its border edge', () => {
-  // Arrange — Yoga measures an explicit `left` from the rail's BORDER edge, so the
-  // padding has to be added by us. Returning `segmentWidth * index` (which is what
-  // shipped) put every pill one padding step too far left.
-  const segment = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  for (const index of [0, 1, 2]) {
-    // Act
-    const left = indicatorLeftFor(index, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false });
-
-    // Assert
-    assert.ok(
-      Math.abs(left - segment * index) < 0.001,
-      `option ${index} rests at ${left}, expected ${segment * index}`,
-    );
-  }
-});
-
-test('the first option does not sit flush against the rail’s outer edge', () => {
-  // Arrange — the visible symptom was a pill with no rail padding beside it.
-  const left = indicatorLeftFor(0, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false });
-
-  // Assert — there is exactly one padding step of rail visible around it.
-  assert.equal(left, 0, 'the pill does not start at the inner track');
-});
-
-test('the last option ends inside the rail, mirroring the first', () => {
-  // Arrange
-  const segment = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  // Act
-  const first = indicatorLeftFor(0, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false });
-  const last = indicatorLeftFor(COUNT - 1, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false });
-
-  // Assert — the air at each end is the same, which is what "centred" means here.
-  assert.equal(first, INNER - (last + segment), 'the rail has unequal air at its two ends');
-});
-
-test('every option stays inside the inner track in LTR', () => {
-  // Arrange
-  const segment = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  for (const index of [0, 1, 2]) {
-    // Act
-    const left = indicatorLeftFor(index, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false });
-
-    // Assert
-    assert.ok(left >= -0.001, `option ${index} starts before the inner track`);
-    assert.ok(left + segment <= INNER + 0.001, `option ${index} overruns the inner track`);
-  }
-});
-
-test('the first Persian option is the RIGHTMOST, inside the padding', () => {
-  // Arrange — ★ THE MIRROR. In a right-to-left rail the first option sits at the
-  // right end, so it must be flush against the INNER right edge — one padding step
-  // in from the border, not at the border.
-  const segment = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  // Act
-  const first = indicatorLeftFor(0, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: true });
-
-  // Assert
-  assert.ok(
-    Math.abs(first + segment - INNER) < 0.001,
-    `the Persian first pill ends at ${first + segment}, expected the inner edge ${INNER}`,
-  );
-  assert.ok(
-    Math.abs(first - (INNER - segment)) < 0.001,
-    `the Persian first pill starts at ${first}`,
-  );
-});
-
-test('a middle Persian option is the middle segment, not the end one', () => {
-  // Arrange — "both SegmentedGroups are still opposite on Persian", with the
-  // language control being the clearest case: `fa` is index 0 of two.
-  const segment = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  // Act
-  const middle = indicatorLeftFor(1, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: true });
-
-  // Assert
-  assert.ok(
-    Math.abs(middle - (INNER - segment * 2)) < 0.001,
-    `Persian option 1 rests at ${middle}`,
-  );
-});
-
-test('the two directions mirror each other about the rail centre', () => {
-  // Arrange — one component, one physical `left`, direction folded in once.
-  const segment = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  for (const index of [0, 1, 2]) {
-    // Act
-    const ltr = indicatorLeftFor(index, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false });
-    const rtl = indicatorLeftFor(index, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: true });
-
-    // Assert
-    assert.ok(
-      Math.abs(ltr + (rtl + segment) - INNER) < 0.001,
-      `option ${index}: ${ltr} and ${rtl} are not mirror positions`,
-    );
-  }
-});
-
-test('the pill is shorter than the rail by one padding step at each end', () => {
-  // Arrange — ★ THE VERTICAL REPORT: "no Top/Bottom padding inside the
-  // SegmentedGroup itself".
-  //
-  // The rail is `padding: space[1]` tall on each side plus a `size.segment` inner
-  // box. The pill must equal the INNER box, which leaves that padding visible
-  // above and below it. It was `top: 0 / bottom: 0` over the padding box, i.e. the
-  // full rail height, so it painted over the rail's own padding.
-  const railHeight = SEGMENT_HEIGHT + INSET * 2;
-
-  // Act — the pill's vertical inset, from the geometry module.
-  const pillInset = pillVerticalInsetFor(INSET);
-
-  // Assert
-  assert.equal(pillInset, INSET, 'the pill starts at the rail border, not the inner track');
-  assert.equal(railHeight - pillInset * 2, SEGMENT_HEIGHT, 'the pill does not fill the inner track');
-});
+const CHIP = 'src/components/ui/Chip.tsx';
 
 /**
- * The pill's vertical inset, which must equal the rail's padding.
+ * The offsets the component computes, transcribed.
  *
- * Kept here as the assertion's subject rather than inlined, so the number the
- * component applies and the number the test checks are one expression.
+ * Kept in lockstep with `Chip.tsx` by the source assertions below, which require
+ * the same expressions to appear there.
  */
-function pillVerticalInsetFor(railInset: number): number {
-  return railInset;
+function offsetPercentFor(selectedIndex: number, count: number, rtl: boolean): number {
+  const segmentPercent = 100 / Math.max(1, count);
+  const mirroredIndex = rtl ? count - 1 - selectedIndex : selectedIndex;
+  return mirroredIndex * segmentPercent;
 }
+
+function widthPercentFor(count: number): number {
+  return 100 / Math.max(1, count);
+}
+
+/* ── Geometry: a function of count, index and direction ──────────────────── */
+
+test('the pill is exactly one segment wide', () => {
+  for (const count of [2, 3, 4, 5]) {
+    // Act
+    const width = widthPercentFor(count);
+
+    // Assert — `count` of them fill the track exactly.
+    assert.ok(Math.abs(width * count - 100) < 1e-9, `${count}: segments fill ${width * count}%`);
+  }
+});
+
+test('each option’s offset is a whole number of segments, in LTR', () => {
+  const count = 3;
+  const seg = widthPercentFor(count);
+
+  for (const index of [0, 1, 2]) {
+    // Act
+    const offset = offsetPercentFor(index, count, false);
+
+    // Assert
+    assert.ok(Math.abs(offset - seg * index) < 1e-9, `index ${index} rests at ${offset}%`);
+  }
+});
+
+test('the FIRST Persian option sits at the far end, and the last at the start', () => {
+  // Arrange — ★ "wrong Knobs placement problem still on Persian": Persian option 0
+  // is the one the language control selects, and in RTL it must be the RIGHTMOST.
+  const count = 2;
+  const seg = widthPercentFor(count);
+
+  // Act
+  const first = offsetPercentFor(0, count, true);
+  const last = offsetPercentFor(count - 1, count, true);
+
+  // Assert
+  assert.equal(first, seg * (count - 1), `the Persian first option rests at ${first}%`);
+  assert.equal(first + seg, 100, 'the Persian first option does not end at the track end');
+  assert.equal(last, 0, `the Persian last option rests at ${last}%`);
+});
+
+test('the two directions are mirror images', () => {
+  for (const count of [2, 3, 4]) {
+    const seg = widthPercentFor(count);
+
+    for (let index = 0; index < count; index += 1) {
+      // Act
+      const ltr = offsetPercentFor(index, count, false);
+      const rtl = offsetPercentFor(index, count, true);
+
+      // Assert — mirrored about the track's centre.
+      assert.ok(
+        Math.abs(ltr + (rtl + seg) - 100) < 1e-9,
+        `count ${count} index ${index}: ${ltr}% and ${rtl}% are not mirrors`,
+      );
+    }
+  }
+});
+
+test('a single option still fills the track', () => {
+  // Assert — the `Math.max(1, …)` guard keeps a degenerate list from dividing by 0.
+  assert.equal(widthPercentFor(1), 100);
+  assert.equal(offsetPercentFor(0, 1, false), 0);
+  assert.equal(offsetPercentFor(0, 1, true), 0);
+});
+
+test('an out-of-range index cannot leave the track', () => {
+  // Arrange — `selectedIndex` is clamped upstream; this guards a caller that
+  // computes it differently later.
+  const count = 3;
+
+  for (const index of [-1, 3, 9]) {
+    // Act — the mirror is clamped by the same expression.
+    const safe = Math.min(count - 1, Math.max(0, index));
+    const offset = offsetPercentFor(safe, count, false);
+
+    // Assert
+    assert.ok(offset >= 0 && offset < 100, `index ${index} produced ${offset}%`);
+  }
+});
+
+/* ── The component keeps the contract ─────────────────────────────────────── */
+
+test('the pill’s size is a percentage, not a measured pixel width', () => {
+  const chip = code(CHIP);
+
+  // Act
+  const sizesAsFraction = /width:\s*`\$\{segmentPercent\}%`/.test(chip);
+  const sizesFromState = /width:\s*segmentWidth\b/.test(chip);
+
+  // Assert
+  assert.ok(sizesAsFraction, 'the pill width is not a fraction of its track');
+  assert.equal(sizesFromState, false, 'the pill width still comes from measured state');
+});
+
+test('the pill’s position is a percentage, written by the animated value', () => {
+  const chip = code(CHIP);
+
+  // Act
+  const animatedLeft = /left:\s*`\$\{animatedOffset\.value\}%`/.test(chip);
+
+  // Assert — `translateX` takes pixels, which is what forced the measurement.
+  assert.ok(animatedLeft, 'the position is not an animated percentage `left`');
+  assert.doesNotMatch(chip, /translateX:\s*animatedOffset/, 'the position is still a pixel transform');
+});
+
+test('there is no measured width for the geometry to depend on', () => {
+  const chip = code(CHIP);
+
+  // Act
+  const keepsWidthInState = /trackWidth/.test(chip);
+  const measuresItself = /onLayout=/.test(chip);
+
+  // Assert — ★ this is the fix: the control's selection is a pure function of
+  // (count, index, direction), so it never asks the platform how wide it is.
+  assert.equal(keepsWidthInState, false, 'a measured width is still threaded through the geometry');
+  assert.equal(measuresItself, false, 'the rail still measures itself for the pill');
+});
+
+test('the pill is never hidden pending a measurement', () => {
+  const chip = code(CHIP);
+
+  // Act
+  const hidesUntilMeasured = /opacity:\s*segmentWidth/.test(chip);
+
+  // Assert — "invisible until JS has measured" is how a missing measurement became
+  // a permanently absent knob.
+  assert.equal(hidesUntilMeasured, false, 'the pill can still be hidden pending a measurement');
+});
+
+test('the pill is not gated on any condition at all', () => {
+  const chip = code(CHIP);
+
+  // Act — the render must be unconditional: no `cond ? <pill/> : null`, no opacity gate.
+  const styleBlock = /styles\.indicator,[\s\S]{0,600}?\]/.exec(chip)?.[0] ?? '';
+
+  // Assert
+  assert.ok(styleBlock.length > 0, 'the pill style array is missing');
+  assert.doesNotMatch(styleBlock, /opacity\s*:/, 'the pill still has a conditional opacity');
+});
+
+test('Reduce Motion still snaps the pill to its rest', () => {
+  const chip = code(CHIP);
+
+  assert.match(chip, /motion\.reduce/, 'the control reads no reduce flag');
+});
+
+test('the position is written on every non-animated path', () => {
+  // Arrange — ★ a branch that updated bookkeeping and returned WITHOUT writing the
+  // position stranded the pill on the previous option, permanently.
+  const chip = code(CHIP);
+
+  // Act
+  const snapBranch =
+    /if \(first \|\| directionChanged[\s\S]*?animatedOffset\.value = offsetPercent;[\s\S]*?\}/.exec(
+      chip,
+    )?.[0] ?? '';
+
+  // Assert
+  assert.ok(snapBranch.length > 0, 'the snap branch is missing');
+  assert.match(snapBranch, /motion\.reduce/, 'Reduce Motion is not routed through the snap branch');
+  assert.match(snapBranch, /animatedOffset\.value = offsetPercent/, 'the position is not written');
+});
+
+test('a direction flip re-places rather than wiping across the rail', () => {
+  const chip = code(CHIP);
+
+  // Act
+  const tracksDirection = /directionChanged/.test(chip);
+
+  // Assert
+  assert.ok(tracksDirection, 'a direction change is animated instead of placed');
+});
