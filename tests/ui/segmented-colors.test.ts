@@ -79,15 +79,15 @@ test('the indicator has an opaque fill', () => {
   );
 });
 
-test('the indicator never fades during the slide', () => {
-  // Arrange — the only opacity the pill may carry would be a fade, and any such
-  // value leaves two labels overlapping unreadably for the duration of the slide.
+test('the fill is never translucent', () => {
+  // Arrange — a translucent fill leaves the selected label half-legible against the
+  // rail. There is no slide to fade now, but the fill could still carry an opacity.
   const chip = code(CHIP);
 
-  // Act — isolate the pill's style array.
-  const styleBlock = /styles\.indicator,[\s\S]{0,600}?\]/.exec(chip)?.[0] ?? '';
+  // Act — the selected cell's fill expression.
+  const fill = /isSelected && \{ backgroundColor: t\.primary \}/.exec(chip)?.[0] ?? '';
 
   // Assert
-  assert.ok(styleBlock.length > 0, 'the pill style array is missing');
-  assert.doesNotMatch(styleBlock, /opacity\s*:/, 'the pill fades mid-slide');
+  assert.ok(fill.length > 0, 'the selected cell has no fill');
+  assert.doesNotMatch(fill, /opacity/, 'the fill carries an opacity');
 });

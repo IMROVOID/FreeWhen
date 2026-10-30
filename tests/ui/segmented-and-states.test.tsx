@@ -22,49 +22,55 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 
+const CHIP = 'src/components/ui/Chip.tsx';
+
 function code(path: string): string {
   return readFileSync(path, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
 }
 
-test('the segment indicator is animated, not a background swap', () => {
-  // Arrange
-  const chip = code('src/components/ui/Chip.tsx');
+test('the selected segment paints its own fill', () => {
+  // Arrange — ★ THE PILL IS GONE, AND THAT IS THE FIX.
+  //
+  // Five attempts placed a separate overlay on top of the flex row and every one
+  // shipped something wrong on the device: mirrored wrong in Persian, invisible
+  // (zero width) when a measurement did not arrive, and finally correct in width
+  // but 11px left of its option because a percentage `left` resolves against the
+  // rail's BORDER box while the labels live in its PADDING box.
+  //
+  // The fill is now the selected cell's own backgroundColor, so the layout engine
+  // places it exactly where it places the label.
+  const chip = code(CHIP);
 
-  // Act / Assert — an animated PERCENTAGE `left` driven by reanimated is what makes
-  // it slide. It is not a delta on top of a styled position: that pair cannot
-  // animate, because the rest moves in style on the same commit the transform
-  // starts moving from — the pill teleports and then settles.
-  assert.ok(/useAnimatedStyle/.test(chip), 'the segmented control has no animated style');
-  assert.ok(
-    /left:\s*`\$\{animatedOffset\.value\}%`/.test(chip),
-    'the indicator does not animate its position',
-  );
-  assert.ok(/withTiming|withSpring/.test(chip), 'the slide is not driven by reanimated');
+  // Act
+  const perCellFill = /isSelected && \{ backgroundColor: t\.primary \}/.test(chip);
+
+  // Assert
+  assert.ok(perCellFill, 'the selected segment does not paint its own fill');
 });
 
-test('the indicator is not the selected segment repainting itself', () => {
-  // Arrange
-  const chip = code('src/components/ui/Chip.tsx');
+test('there is no overlay to position', () => {
+  // Arrange — an overlay that has to REPRODUCE a flex layout will keep disagreeing
+  // with it. That is the structural fault behind every previous version.
+  const chip = code(CHIP);
 
-  // Act — the old ternary applied `backgroundColor: t.primary` to the selected
-  // segment's inner view.
-  const repaintsSegment = /isSelected && \{ backgroundColor: t\.primary \}/.test(chip);
-
-  // Assert — the fill belongs to the indicator; the label colour is the only
-  // per-segment selection style that should remain.
-  assert.equal(repaintsSegment, false, 'the selected segment still repaints its own background');
+  // Assert
+  assert.doesNotMatch(chip, /position:\s*'absolute'/, 'an absolutely positioned pill is back');
+  assert.doesNotMatch(chip, /translateX/, 'a pixel offset is back');
+  assert.doesNotMatch(chip, /useAnimatedStyle/, 'an animated position is back');
 });
 
-test('the indicator respects Reduce Motion', () => {
-  // Arrange
-  const chip = code('src/components/ui/Chip.tsx');
+test('the label colour is the only per-segment selection style left', () => {
+  // Arrange — the fill handles "which one is chosen"; the label only has to stay
+  // legible on it.
+  const chip = code(CHIP);
 
-  // Act / Assert — Style Guide §7.7: the pill jumps instead of sliding, and the
-  // control still works.
-  assert.ok(/useMotion/.test(chip), 'the segmented control ignores Reduce Motion');
-  assert.ok(/motion\.reduce/.test(chip), 'the control reads no reduce flag');
+  // Act
+  const tint = /tint\s*=\s*isSelected\s*\?\s*t\.onPrimary\s*:\s*t\.text/.test(chip);
+
+  // Assert
+  assert.ok(tint, 'the label does not invert on the selected fill');
 });
 
 test('a full-screen error state can fill and centre', () => {
