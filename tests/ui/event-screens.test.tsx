@@ -234,16 +234,35 @@ describe('a sheet that was never opened draws nothing', () => {
     // Arrange
     const sheet = code('src/components/ui/BottomSheet.tsx');
 
-    // Act / Assert — the open must come from `index`, not `snapToIndex`.
-    // `handleSnapToIndex` returns silently while the sheet's layout is still
-    // being measured, which is exactly the commit its open was requested in, so
-    // an imperative call is a no-op with no error and no retry. `index` is
-    // applied by the library's own effect once the layout is ready.
+    // Act / Assert — the open must come from `index` AND survive the measurement.
+    //
+    // ★ THIS TEST USED TO ASSERT THE OPPOSITE, AND THE OPPOSITE WAS THE BUG.
+    //
+    // It banned an imperative open on the grounds that "`index` is applied by the
+    // library's own effect once the layout is ready". Reading
+    // `@gorhom/bottom-sheet@5.2.14` shows that is not true: the effect's
+    // dependencies are `[_providedIndex, animateOnMount, didAnimateOnMount]` —
+    // the index VALUE and two mount flags, never layout readiness — and it calls
+    // `handleSnapToIndex`, which returns silently while
+    // `isLayoutCalculated.get()` is false. So the mount commit dropped the open
+    // and nothing ever retried it, the `Modal` stayed presented with its panel
+    // translated off-screen, and every overlay in the app swallowed input while
+    // painting nothing.
+    //
+    // `index` stays (it is the controlled value the library reads); the open is
+    // ALSO requested from the measuring parent's `onLayout`, which is the first
+    // moment the gate can pass. See `tests/ui/overlay-open.test.ts`.
     assert.match(sheet, /index=\{openIndex\}/, 'the sheet is not driven by its index');
     assert.match(sheet, /openIndex\s*=/, 'the open index is not derived');
-    assert.ok(
-      !/\.snapToIndex\(/.test(sheet),
-      'the sheet opens imperatively again, which silently does nothing before layout',
+    assert.match(
+      sheet,
+      /\.snapToIndex\(0\)/,
+      'the sheet never retries its open after the layout lands, so it stays closed',
+    );
+    assert.match(
+      sheet,
+      /onLayout=\{requestOpen\}/,
+      'the retry is not wired to the layout event, which is the only moment it can succeed',
     );
   });
 });

@@ -57,3 +57,30 @@ export function overlaySurface({ width }: OverlaySurfaceInput): OverlaySurfaceGe
     columnInset: Math.max(0, (width - FRAME_MAX_WIDTH) / 2),
   };
 }
+
+/**
+ * Converts a physical WINDOW point into the overlay surface's own coordinates.
+ *
+ * ★ THE PANEL IS PLACED IN WINDOW COORDINATES AND PAINTED IN COLUMN COORDINATES.
+ *
+ * A context menu's position comes from `measureInWindow` (or a DOM pointer's
+ * `clientX`/`clientY`), i.e. the viewport. But the panel is absolutely positioned
+ * inside `OverlaySurface`'s column, so its `left` resolves against the COLUMN's
+ * left edge. Below the tablet breakpoint those two origins coincide and the bug
+ * is invisible; at or above it the column is a centred 520px box, so a menu
+ * anchored at the finger on the right-hand side of a laptop window asked to be
+ * drawn at `left: 700` inside a box that is 520 wide starting at 190 — and the
+ * column clips (`overflow: 'hidden'`). The result is the full-bleed scrim over a
+ * dimmed page with no menu: the reported "the screen turns dark and the focus is
+ * taken by the menu but the menu itself doesn't appear".
+ *
+ * Mirrored horizontally when the column is centred, so this is exact in both
+ * cases rather than approximately right in one of them.
+ */
+export function toSurfacePoint(
+  point: { left: number; top: number },
+  geometry: OverlaySurfaceGeometry,
+): { left: number; top: number } {
+  // rtl-ok: a physical pixel coordinate from a physical window point; the column is centred.
+  return { left: point.left - geometry.columnInset, top: point.top };
+}

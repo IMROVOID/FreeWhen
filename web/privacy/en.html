@@ -13,10 +13,33 @@
 *{box-sizing:border-box}
 body{
   margin:0;padding:2rem 1.25rem 4rem;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Vazirmatn,Tahoma,sans-serif;
   font-size:16px;line-height:1.75;color:#15171c;background:#fbfbfc;
 }
-main{max-width:44rem;margin:0 auto}
+/* ★ THE TYPE STACK FOLLOWS THE DOCUMENT'S DIRECTION.
+
+   It used to be one stack for both languages, with Vazirmatn — a Persian face —
+   ahead of the generic fallback. On the ENGLISH page that meant every character
+   the system stack could not cover was drawn in a Persian-reading design, and the
+   notice read as a Persian document set in Latin. The Latin stack keeps Vazirmatn
+   at the END, after the Latin-metric faces, so a stray Persian word still renders
+   instead of falling through to a serif default. */
+html[dir="ltr"] body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,Vazirmatn,Tahoma,sans-serif;
+}
+html[dir="rtl"] body{
+  font-family:Vazirmatn,-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,sans-serif;
+}
+/* ★ NO BLOCK GUESSES ITS OWN PARAGRAPH DIRECTION.
+
+   dir is inherited, and the browser resolves per-run bidi from the first strong
+   character in each run — which is correct INSIDE a run and wrong for a whole
+   block. A table cell whose English text begins with a Persian venue name was
+   therefore laid out right-to-left on an English page: "some texts run the wrong
+   way". Stating the block direction here (and on every block the renderer emits)
+   pins the paragraph and leaves per-run bidi to the browser, which is the only
+   place it belongs. */
+main{max-width:44rem;margin:0 auto;text-align:start;unicode-bidi:isolate}
+h1,h2,h3,p,li,th,td,direction-block{unicode-bidi:isolate;text-align:start}
 h1{font-size:1.5rem;line-height:1.35;margin:0 0 1rem}
 h2{font-size:1.125rem;margin:2rem 0 .5rem}
 p,li{margin:0 0 .75rem}
@@ -37,88 +60,88 @@ a{color:#2f5fd0}
 </style>
 </head>
 <body>
-<main>
-<h1>Privacy notice — FreeWhen</h1>
-<p><strong>Applies from the first event you join.</strong> This notice is bundled with the app, so it opens without a network connection.</p>
+<main dir="ltr">
+<h1 dir="ltr">Privacy notice — FreeWhen</h1>
+<p dir="ltr"><strong>Applies from the first event you join.</strong> This notice is bundled with the app, so it opens without a network connection.</p>
 <hr />
-<h2>1. What we collect, and what we deliberately do not</h2>
-<p>We collect:</p>
-<ul>
-<li><strong>A display name.</strong> You choose it. It is visible to the people in your events.</li>
-<li><strong>An approximate starting area.</strong> Two decimal places — roughly a 1 km square. It is never a precise position.</li>
-<li><strong>Your transport modes, travel budget, and access needs</strong>, when you set them. These decide which venue is fair for the group.</li>
-<li><strong>Your votes, proposals, RSVPs, and comments</strong> inside an event.</li>
+<h2 dir="ltr">1. What we collect, and what we deliberately do not</h2>
+<p dir="ltr">We collect:</p>
+<ul dir="ltr">
+<li dir="ltr"><strong>A display name.</strong> You choose it. It is visible to the people in your events.</li>
+<li dir="ltr"><strong>An approximate starting area.</strong> Two decimal places — roughly a 1 km square. It is never a precise position.</li>
+<li dir="ltr"><strong>Your transport modes, travel budget, and access needs</strong>, when you set them. These decide which venue is fair for the group.</li>
+<li dir="ltr"><strong>Your votes, proposals, RSVPs, and comments</strong> inside an event.</li>
 </ul>
-<p>We deliberately do <strong>not</strong> collect: your precise GPS position, your contacts, your address book, your device identifiers for advertising, your background location, or your home address. There is no advertising or tracking SDK in this app.</p>
-<h2>2. Your location is approximate, on purpose</h2>
-<p>The device rounds your position to two decimal places <strong>before</strong> it leaves your phone. The precise reading is discarded on the device and is never sent to us, never stored, and never logged. The database itself cannot hold a third decimal place.</p>
-<p>If you decline the location permission, you can type your neighbourhood instead. <strong>Every feature still works</strong> — joining, proposing a place, voting, and seeing the decision. Declining location does not remove you from anything.</p>
-<h2>3. Who can see your starting area</h2>
-<p>Only the participants of that one event. Nobody else — not other events, not other groups, not us in any interface.</p>
-<p>You have two settings:</p>
-<ul>
-<li><strong>The participants of this event</strong> — they see your approximate area on the map.</li>
-<li><strong>Only for distance calculation</strong> — the area is used to work out a fair travel time for you, but the other participants see &quot;location not shared&quot;.</li>
+<p dir="ltr">We deliberately do <strong>not</strong> collect: your precise GPS position, your contacts, your address book, your device identifiers for advertising, your background location, or your home address. There is no advertising or tracking SDK in this app.</p>
+<h2 dir="ltr">2. Your location is approximate, on purpose</h2>
+<p dir="ltr">The device rounds your position to two decimal places <strong>before</strong> it leaves your phone. The precise reading is discarded on the device and is never sent to us, never stored, and never logged. The database itself cannot hold a third decimal place.</p>
+<p dir="ltr">If you decline the location permission, you can type your neighbourhood instead. <strong>Every feature still works</strong> — joining, proposing a place, voting, and seeing the decision. Declining location does not remove you from anything.</p>
+<h2 dir="ltr">3. Who can see your starting area</h2>
+<p dir="ltr">Only the participants of that one event. Nobody else — not other events, not other groups, not us in any interface.</p>
+<p dir="ltr">You have two settings:</p>
+<ul dir="ltr">
+<li dir="ltr"><strong>The participants of this event</strong> — they see your approximate area on the map.</li>
+<li dir="ltr"><strong>Only for distance calculation</strong> — the area is used to work out a fair travel time for you, but the other participants see &quot;location not shared&quot;.</li>
 </ul>
-<p>The second setting does <strong>not</strong> exempt you from the fairness calculation. Your real area still counts when the group's travel times are compared. It is hidden from people's eyes, not from the calculation — otherwise &quot;private&quot; would be a way to opt out of fairness, which would be unfair to everyone else.</p>
-<h2>4. How long it is kept</h2>
-<p>Your starting area is deleted <strong>one hour after the event's date window ends</strong>. After that the coordinates no longer exist in our database.</p>
-<p>What survives is the record of what the group decided — the venue, the votes and the outcome. That is a shared history, and it does not contain your location.</p>
-<p>Anonymous accounts with no activity are deleted after <strong>30 days</strong>.</p>
-<h2>5. Deleting your location</h2>
-<p>There is a one-tap control to delete your starting area at any time. Deleting it:</p>
-<ul>
-<li>removes the coordinates immediately and permanently;</li>
-<li>leaves you in the event — your votes, proposals and RSVP are untouched;</li>
-<li>makes the ranking say honestly that your travel time is no longer included.</li>
+<p dir="ltr">The second setting does <strong>not</strong> exempt you from the fairness calculation. Your real area still counts when the group's travel times are compared. It is hidden from people's eyes, not from the calculation — otherwise &quot;private&quot; would be a way to opt out of fairness, which would be unfair to everyone else.</p>
+<h2 dir="ltr">4. How long it is kept</h2>
+<p dir="ltr">Your starting area is deleted <strong>one hour after the event's date window ends</strong>. After that the coordinates no longer exist in our database.</p>
+<p dir="ltr">What survives is the record of what the group decided — the venue, the votes and the outcome. That is a shared history, and it does not contain your location.</p>
+<p dir="ltr">Anonymous accounts with no activity are deleted after <strong>30 days</strong>.</p>
+<h2 dir="ltr">5. Deleting your location</h2>
+<p dir="ltr">There is a one-tap control to delete your starting area at any time. Deleting it:</p>
+<ul dir="ltr">
+<li dir="ltr">removes the coordinates immediately and permanently;</li>
+<li dir="ltr">leaves you in the event — your votes, proposals and RSVP are untouched;</li>
+<li dir="ltr">makes the ranking say honestly that your travel time is no longer included.</li>
 </ul>
-<p>It does not remove you from the group and it does not cancel your votes.</p>
-<h2>6. Deleting your account</h2>
-<p>In the app: <strong>Settings → Delete my account</strong>. This removes your account, every event you organised, and all of your location rows. Events you merely joined survive, because other people's plans are not yours to delete. This action cannot be undone.</p>
-<h2>7. Third parties who receive your approximate area</h2>
-<p>We use three services, and we name them because sending your area to a company is a disclosure, not an implementation detail.</p>
-<table><thead><tr>
-<th>Recipient</th>
-<th>What it receives</th>
-<th>Why</th>
-<th>Their retention</th>
+<p dir="ltr">It does not remove you from the group and it does not cancel your votes.</p>
+<h2 dir="ltr">6. Deleting your account</h2>
+<p dir="ltr">In the app: <strong>Settings → Delete my account</strong>. This removes your account, every event you organised, and all of your location rows. Events you merely joined survive, because other people's plans are not yours to delete. This action cannot be undone.</p>
+<h2 dir="ltr">7. Third parties who receive your approximate area</h2>
+<p dir="ltr">We use three services, and we name them because sending your area to a company is a disclosure, not an implementation detail.</p>
+<table dir="ltr"><thead><tr>
+<th dir="ltr">Recipient</th>
+<th dir="ltr">What it receives</th>
+<th dir="ltr">Why</th>
+<th dir="ltr">Their retention</th>
 </tr></thead><tbody>
 <tr>
-<td><strong>Neshan</strong></td>
-<td>Your approximate starting area and the venue area, to calculate travel time. Data stays in Iran.</td>
-<td>Primary routing and search</td>
-<td><strong>Unverified</strong> — we could not confirm Neshan's retention period at a primary source. We state that plainly rather than invent an assurance.</td>
+<td dir="ltr"><strong>Neshan</strong></td>
+<td dir="ltr">Your approximate starting area and the venue area, to calculate travel time. Data stays in Iran.</td>
+<td dir="ltr">Primary routing and search</td>
+<td dir="ltr"><strong>Unverified</strong> — we could not confirm Neshan's retention period at a primary source. We state that plainly rather than invent an assurance.</td>
 </tr>
 <tr>
-<td><strong>OpenRouteService</strong></td>
-<td>The same rounded areas, only if Neshan is unavailable</td>
-<td>Fallback routing</td>
-<td><strong>Unverified</strong> — their terms are behind a consent wall we could not pass. The service is self-hostable, which would remove this disclosure entirely, and we intend to.</td>
+<td dir="ltr"><strong>OpenRouteService</strong></td>
+<td dir="ltr">The same rounded areas, only if Neshan is unavailable</td>
+<td dir="ltr">Fallback routing</td>
+<td dir="ltr"><strong>Unverified</strong> — their terms are behind a consent wall we could not pass. The service is self-hostable, which would remove this disclosure entirely, and we intend to.</td>
 </tr>
 <tr>
-<td><strong>Mapbox</strong></td>
-<td>The map viewport — centred on the event's area, never on one person — to draw the map tiles</td>
-<td>Map rendering</td>
-<td><strong>Unverified</strong> — their policy page is rendered by JavaScript and could not be read. Mapbox also collects unidentified usage telemetry by default; the attribution control carries its opt-out and stays visible.</td>
+<td dir="ltr"><strong>Mapbox</strong></td>
+<td dir="ltr">The map viewport — centred on the event's area, never on one person — to draw the map tiles</td>
+<td dir="ltr">Map rendering</td>
+<td dir="ltr"><strong>Unverified</strong> — their policy page is rendered by JavaScript and could not be read. Mapbox also collects unidentified usage telemetry by default; the attribution control carries its opt-out and stays visible.</td>
 </tr>
 </tbody></table>
-<p><strong>What they do not receive:</strong> your name, your identity, your precise position, or which specific person the area belongs to. They receive coordinates, not a person.</p>
-<p>No other third party receives anything. We do not sell data. There is no analytics provider, no crash-reporting vendor, and no advertising network.</p>
-<h2>8. The activity log</h2>
-<p>Each event has a log of what happened — *&quot;Bahar changed their vote from maybe to yes&quot;*, *&quot;the venue was confirmed&quot;*. It records <strong>actions, not locations</strong>. There is no coordinate in it, ever, and it is visible to the participants of the event.</p>
-<h2>9. What this notice does not promise</h2>
-<p>We are honest about the gaps rather than implying completeness:</p>
-<ul>
-<li><strong>No identity verification.</strong> An invite link is the only credential. Anyone holding the link can join.</li>
-<li><strong>No blocking or reporting</strong> between participants. There is no chat in this version; comments are attached to proposals and the organiser can delete them.</li>
-<li><strong>No screenshot protection.</strong> If someone screenshots the map, nothing stops them. This is technically unpreventable.</li>
-<li><strong>No age verification.</strong> The app is for adults; the store listing states 18+.</li>
-<li><strong>Organiser control is tied to the device.</strong> Losing the device loses organiser control.</li>
+<p dir="ltr"><strong>What they do not receive:</strong> your name, your identity, your precise position, or which specific person the area belongs to. They receive coordinates, not a person.</p>
+<p dir="ltr">No other third party receives anything. We do not sell data. There is no analytics provider, no crash-reporting vendor, and no advertising network.</p>
+<h2 dir="ltr">8. The activity log</h2>
+<p dir="ltr">Each event has a log of what happened — *&quot;Bahar changed their vote from maybe to yes&quot;*, *&quot;the venue was confirmed&quot;*. It records <strong>actions, not locations</strong>. There is no coordinate in it, ever, and it is visible to the participants of the event.</p>
+<h2 dir="ltr">9. What this notice does not promise</h2>
+<p dir="ltr">We are honest about the gaps rather than implying completeness:</p>
+<ul dir="ltr">
+<li dir="ltr"><strong>No identity verification.</strong> An invite link is the only credential. Anyone holding the link can join.</li>
+<li dir="ltr"><strong>No blocking or reporting</strong> between participants. There is no chat in this version; comments are attached to proposals and the organiser can delete them.</li>
+<li dir="ltr"><strong>No screenshot protection.</strong> If someone screenshots the map, nothing stops them. This is technically unpreventable.</li>
+<li dir="ltr"><strong>No age verification.</strong> The app is for adults; the store listing states 18+.</li>
+<li dir="ltr"><strong>Organiser control is tied to the device.</strong> Losing the device loses organiser control.</li>
 </ul>
-<h2>10. Your rights</h2>
-<p>You can see what we hold about you, correct it, delete your location, and delete your account — all inside the app. If you need something the app does not offer, contact the organiser of your event or the address in the store listing.</p>
+<h2 dir="ltr">10. Your rights</h2>
+<p dir="ltr">You can see what we hold about you, correct it, delete your location, and delete your account — all inside the app. If you need something the app does not offer, contact the organiser of your event or the address in the store listing.</p>
 <hr />
-<p>*This notice describes what the app actually does. It is not legal advice and has not been reviewed by a lawyer. For a legal question about your situation, consult a qualified advisor in your jurisdiction.*</p>
+<p dir="ltr">*This notice describes what the app actually does. It is not legal advice and has not been reviewed by a lawyer. For a legal question about your situation, consult a qualified advisor in your jurisdiction.*</p>
 </main>
 </body>
 </html>

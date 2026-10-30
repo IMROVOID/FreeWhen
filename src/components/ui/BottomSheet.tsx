@@ -6,6 +6,8 @@ import { dur } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 
+import { shouldOpenSheet, sheetIndexFor } from './sheet-open';
+
 export interface BottomSheetProps {
   children: React.ReactNode;
   /** Whether the sheet is presented. */
@@ -89,21 +91,53 @@ export function BottomSheet({
   visibleRef.current = visible;
 
   /**
-   * ★ THE OPEN IS DRIVEN BY `index`, NOT BY `snapToIndex`.
+   * ★ THE OPEN IS DRIVEN BY `index` AND RETRIED ON LAYOUT.
    *
-   * `handleSnapToIndex` returns silently when the sheet's own layout has not
-   * been calculated yet — `const isLayoutReady = isLayoutCalculated.get(); if
-   * (!isLayoutReady) return;` in the library. It was being called from an effect
-   * on the commit after mount, which is still before the container has measured
-   * itself, so every open was a no-op with no error and no retry. That is why
-   * the sheet mounted and never appeared.
+   * `handleSnapToIndex` returns silently when the sheet's own layout has not been
+   * calculated yet — `const isLayoutReady = isLayoutCalculated.get(); if
+   * (!isLayoutReady) return;` in the library — and the effect that reacts to the
+   * `index` prop does NOT depend on layout readiness, so the drop is permanent:
+   * the `index` value stays `0`, the mount flags stay put, and nothing re-runs
+   * when the measurement finally arrives.
    *
-   * `index` is the library's supported control: it is applied by an internal
-   * effect that re-runs when the layout becomes ready, so the open survives the
-   * measurement. `-1` is closed, `0` is the first snap point — or, under dynamic
-   * sizing, the measured content height.
+   * That is why every overlay in this app opened and painted nothing: the sheet's
+   * `Modal` is presented (a real window on Android), the panel inside it stays
+   * translated off-screen at `index −1`, and the window swallows every touch. The
+   * report is exact: "the input is swallowed by the overlay but the overlay itself
+   * is not visible".
+   *
+   * `index` therefore stays as the controlled value, and the open is ALSO asked
+   * for from the measuring parent's `onLayout` — the first moment the library's
+   * gate can pass. `shouldOpenSheet` keeps that retry idempotent, so the extra
+   * `onLayout` callbacks a keyboard inset or a font-scale change produces cannot
+   * re-animate a sheet the user has since dragged.
    */
-  const openIndex = visible && mounted ? 0 : -1;
+  const openIndex = sheetIndexFor({ visible, mounted });
+
+  /** Whether an open has already been delivered for this presentation. */
+  const openedRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible) openedRef.current = false;
+  }, [visible]);
+
+  const requestOpen = useCallback(() => {
+    if (!shouldOpenSheet({ wanted: visible, layoutReady: true, alreadyOpened: openedRef.current })) {
+      return;
+    }
+
+    // The library tolerates being asked when its own gate is still closed — the
+    // call returns — so the guard here is only about not repeating a SUCCESSFUL
+    // open. `snapToIndex` is the public path; `index` alone is not sufficient,
+    // see above.
+    openedRef.current = true;
+    sheetRef.current?.snapToIndex(0);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !mounted) return;
+    requestOpen();
+  }, [visible, mounted, requestOpen]);
 
   useEffect(() => {
     if (visible) {
@@ -189,8 +223,15 @@ export function BottomSheet({
           measures 0, the library's `isLayoutCalculated` never becomes true, and
           the panel is never shown: the modal opened, covered the page (Back
           dismissed it), and painted nothing.
-          This `flex: 1` view gives it a real height to measure against. */}
-      <View style={styles.modalRoot}>
+          This `flex: 1` view gives it a real height to measure against.
+
+          ★ AND ITS `onLayout` IS THE OPEN'S SECOND CHANCE.
+          This node is the sheet's measuring parent, so its layout event is
+          precisely the moment the library's `isLayoutCalculated` can become true
+          — which is the moment a previously-dropped `snapToIndex` would succeed.
+          Without this the open was attempted once, before measurement existed, and
+          never retried. */}
+      <View style={styles.modalRoot} onLayout={requestOpen}>
         <GorhomBottomSheet
           ref={sheetRef}
           index={openIndex}

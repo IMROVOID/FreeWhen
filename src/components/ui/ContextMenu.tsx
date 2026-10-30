@@ -28,6 +28,7 @@ import { StyleSheet, View } from 'react-native';
 import { Popover } from '@/src/components/ui/Popover';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
+import { overlaySurface } from '@/src/components/ui/overlay-surface';
 import { placeMenu, type MenuAnchor } from '@/src/features/events/services/menu-placement';
 import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import { radius, space } from '@/src/theme/tokens';
@@ -84,13 +85,29 @@ export function ContextMenu({
 
   const placed = lastAnchor.current;
 
+  /**
+   * ★ THE MENU IS PLACED IN THE COLUMN IT WILL BE PAINTED IN, NOT THE WINDOW.
+   *
+   * `anchor` is a WINDOW point (that is what a press reports), but the panel is
+   * drawn inside `OverlaySurface`'s column — and on a desktop the app is a centred
+   * 520px column inside a much wider window. Clamping the placement to the window
+   * width therefore still allows a menu that crosses the column's edge, where it
+   * is clipped: a dimmed page with no menu.
+   *
+   * `Popover` subtracts the same column inset when it applies the offset, so the
+   * anchor and the paint share ONE origin here.
+   */
+  const surface = overlaySurface({ width: viewport.width });
+  const surfaceAnchor =
+    placed === null ? null : { ...placed, x: placed.x - surface.columnInset };
+
   const placement =
-    placed === null
+    surfaceAnchor === null
       ? null
       : placeMenu({
-          anchor: placed,
+          anchor: surfaceAnchor,
           windowHeight: viewport.height,
-          windowWidth: viewport.width,
+          windowWidth: surface.columnWidth,
           menuHeight: MENU_ESTIMATED.height,
           menuWidth: MENU_ESTIMATED.width,
           rtl,
@@ -100,9 +117,14 @@ export function ContextMenu({
     <Popover
       visible={anchor !== null}
       onDismiss={onDismiss}
-      // top/left here are PHYSICAL window coordinates from the placement module,
-      // which works in the same space measureInWindow reports.
-      // rtl-ok: physical window coordinates
+      // ★ ALREADY IN SURFACE COORDINATES — see the placement above.
+      //
+      // `placeMenu` was run against the column's own origin and width, so these
+      // numbers need no further conversion. `Popover` would otherwise take the
+      // column inset off a second time and the menu would sit one frame-width
+      // left of the finger.
+      pointSpace="surface"
+      // rtl-ok: `placeMenu` already mirrored these from the press and the direction.
       position={placement === null ? null : { top: placement.top, left: placement.left }}
       accessibilityLabel={title}
       testID={testID}

@@ -381,8 +381,10 @@ test('the menu closes where it opened', () => {
   // Arrange — "it should pop out and close in same place as appears".
   const popover = code('src/components/ui/Popover.tsx');
 
-  // Act
-  const keepsPosition = /position === null\s*\?\s*styles\.unplaced\s*:\s*\{/.test(popover);
+  // Act — the placement is `placedPoint`, which is the caller's position mapped
+  // into the overlay column's coordinates. It must be tested for null and NOT
+  // reset to the unplaced parking spot while the exit runs.
+  const keepsPosition = /placedPoint === null\s*\?\s*styles\.unplaced\s*:\s*\{/.test(popover);
   const consistentScale = /0\.92 \+ progress\.value \* 0\.08/.test(popover);
 
   // Assert — the position is NOT reset when the exit runs, and the scale is one

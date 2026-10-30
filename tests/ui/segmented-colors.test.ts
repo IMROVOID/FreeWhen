@@ -165,27 +165,48 @@ test('the indicator is hidden until the track has measured, but still rendered',
  * fresh launch, while the labels laid out correctly.
  */
 /**
- * ★ RN MIRRORS A HORIZONTAL OFFSET IN A RIGHT-TO-LEFT PARENT.
+ * ★ THE PLACEMENT IS ONE DECISION, EMITTED AS A PAIR.
  *
  * `indicatorLeftFor` returns the pill's physical LEFT edge, which is what a
- * left-to-right layout wants. In a right-to-left layout React Native mirrors it,
- * so the same number lands 185.7 from the RIGHT instead — measured on the device
- * as the pill covering the OPPOSITE option from the selected one, while the
- * logged offset was correct.
+ * left-to-right layout wants. A right-to-left rail puts its first segment at its
+ * right end instead, so the pill has to be measured from the right edge there —
+ * 185.7 from the right rather than from the left, on the device the pill covered
+ * the OPPOSITE option from the selected one.
  *
- * The placement therefore converts to the equivalent distance from the right edge
- * and names that side explicitly, so the number and the edge always agree.
+ * This test used to assert the inline arithmetic that did the conversion in
+ * `Chip.tsx` (`right: trackWidth - (restingOffset + segmentWidth)`). That shape
+ * was itself the defect: it returned ONLY the `right` key over a base style that
+ * declared `left: 0`, React Native merged the two, and CSS gave `left`
+ * precedence — so the conversion never took effect and the pill anchored on the
+ * wrong edge in Persian. The conversion now lives in the geometry module, which
+ * emits BOTH keys (`left`/`right`, one of them `auto`) so the pair cannot
+ * disagree. `tests/ui/segmented-indicator.test.ts` pins the numbers.
  */
-test('the pill names the physical side it measures from, in both directions', () => {
+test('the pill names the physical side it measures from, in both directions', async () => {
   const chip = code('src/components/ui/Chip.tsx');
+  const geometry = code('src/components/ui/segmented-geometry.ts');
 
-  // Assert — RTL computes from the right edge, LTR from the left.
+  // Assert — the component asks the shared module for the pair...
   assert.match(
     chip,
-    /right:\s*trackWidth\s*-\s*\(\s*restingOffset\s*\+\s*segmentWidth\s*\)/,
-    'the RTL placement does not convert the left edge into a right-edge distance',
+    /indicatorPlacementFor\(/,
+    'the pill is placed by inline arithmetic instead of the shared geometry',
   );
-  assert.match(chip, /left:\s*restingOffset/, 'the LTR placement does not use the left edge');
+  // ...and never hand-rolls a second anchor of its own.
+  assert.doesNotMatch(
+    chip,
+    /right:\s*trackWidth\s*-/,
+    'Chip.tsx still computes the right-edge offset itself',
+  );
+
+  // Assert — the module converts the left edge into a right-edge distance and
+  // parks the unused side, in both branches.
+  const placement =
+    /export function indicatorPlacementFor\([\s\S]*?\n\}/.exec(geometry)?.[0] ?? '';
+  assert.ok(placement.length > 0, 'indicatorPlacementFor is missing');
+  assert.match(placement, /fromRight/, 'the RTL branch does not convert the left edge');
+  assert.match(placement, /left:\s*'auto'/, 'the RTL branch does not park the left side');
+  assert.match(placement, /right:\s*'auto'/, 'the LTR branch does not park the right side');
 });
 
 test('the rail measures from the layout event on native, not from a DOM read', () => {

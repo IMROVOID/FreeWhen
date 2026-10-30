@@ -2,6 +2,8 @@ import i18next, { type TFunction } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import { applyDirection } from '@/src/platform/direction';
+import { reloadForDirection } from '@/src/platform/direction-reload';
+import { isRtlLanguage } from '@/src/platform/layout-direction';
 import { DEFAULT_LANGUAGE, type Language } from './types';
 import fa from './fa.json';
 import en from './en.json';
@@ -70,6 +72,21 @@ export function initI18n(language: Language = DEFAULT_LANGUAGE): void {
  * Returns the language now active, so a caller cannot report a different one.
  */
 export function setLanguage(language: Language): Language {
+  /**
+   * ★ WHETHER THE READING DIRECTION IS ABOUT TO FLIP, DECIDED BEFORE THE SWAP.
+   *
+   * `I18nManager.forceRTL` only writes a preference the native window reads when
+   * it is created, so on Android the platform's own row order cannot change under
+   * a live surface — and `flexDirection: 'row'` is resolved by that platform, not
+   * by React. A string swap plus a React remount therefore left every row in the
+   * old order until the process was killed.
+   *
+   * Comparing the direction BEFORE and AFTER is what makes the window rebuild
+   * conditional: a switch between two locales that read the same way costs
+   * nothing, and a session that never changes direction never pays for it.
+   */
+  const flipped = isRtlLanguage(i18next.language) !== isRtlLanguage(language);
+
   if (!i18next.isInitialized) {
     initI18n(language);
   } else if (i18next.language !== language) {
@@ -77,6 +94,8 @@ export function setLanguage(language: Language): Language {
   }
 
   applyDirection(language);
+
+  if (flipped) reloadForDirection();
 
   return language;
 }

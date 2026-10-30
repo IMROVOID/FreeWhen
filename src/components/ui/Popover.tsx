@@ -43,14 +43,25 @@ import { useMotion } from '@/src/theme/useMotion';
 import { useTheme } from '@/src/theme/useTheme';
 
 import { OverlaySurface } from './OverlaySurface';
+import { overlaySurface, toSurfacePoint } from './overlay-surface';
 
 export interface PopoverProps {
   /** Whether the popover is wanted. */
   visible: boolean;
   /** Dismisses it. Called by the scrim, the back button, and Escape. */
   onDismiss: () => void;
-  /** The popover's viewport position, from the caller's own measurement. */
+  /** The popover's position. */
   position: { top: number; left: number } | null;
+  /**
+   * Which coordinate space `position` was measured in.
+   *
+   * `'window'` (the default) is what `measureInWindow` and a DOM pointer report,
+   * and it is converted into the overlay column's space here. A caller that has
+   * already placed the panel against the column — `ContextMenu`, whose placement
+   * clamps to the column's width — passes `'surface'` so the inset is not taken
+   * off twice.
+   */
+  pointSpace?: 'window' | 'surface';
   accessibilityLabel?: string;
   testID?: string;
   children: React.ReactNode;
@@ -60,6 +71,7 @@ export function Popover({
   visible,
   onDismiss,
   position,
+  pointSpace = 'window',
   accessibilityLabel,
   testID,
   children,
@@ -67,6 +79,30 @@ export function Popover({
   const { t } = useTheme();
   const motion = useMotion();
   const { width: viewportWidth } = useWindowDimensions();
+
+  /**
+   * ★ THE PANEL IS PLACED IN THE SURFACE'S COORDINATES, NOT THE WINDOW'S.
+   *
+   * `position` arrives in WINDOW coordinates, because that is what
+   * `measureInWindow` and a DOM pointer both report. The panel is an absolutely
+   * positioned child of `OverlaySurface`'s column, so its `left` resolves against
+   * the COLUMN's edge. Below the tablet breakpoint the two origins coincide; at or
+   * above it the column is a centred 520px box, so a menu anchored at the finger
+   * on the right of a laptop window asked to be drawn at `left: 700` inside a box
+   * 520 wide and was clipped away by the column's `overflow: 'hidden'` — a dimmed
+   * page with no menu, which is the report.
+   *
+   * A caller that has already placed its panel against the column says so with
+   * `pointSpace="surface"`, so the inset is never taken off twice.
+   */
+  const surface = overlaySurface({ width: viewportWidth });
+  const placedPoint =
+    position === null
+      ? null
+      : pointSpace === 'surface'
+        ? position
+        // rtl-ok: maps a physical window point into the centred overlay column.
+        : toSurfacePoint({ left: position.left, top: position.top }, surface);
 
   const [rendered, setRendered] = useState(visible);
 
@@ -204,12 +240,11 @@ export function Popover({
             style={[
               styles.panel,
               { backgroundColor: t.surface2 },
-              // rtl-ok: window coordinates from measureInWindow are PHYSICAL, so a
-              // physical offset is the only correct one — a logical start would
-              // mirror a rect that already did not.
-              position === null
+              // rtl-ok: PHYSICAL coordinates from `measuredSurfacePoint`, which
+              // already took the column's inset off a physical window point.
+              placedPoint === null
                 ? styles.unplaced
-                : { top: position.top, left: position.left }, // rtl-ok: physical window coords
+                : { top: placedPoint.top, left: placedPoint.left }, // rtl-ok: physical surface coords
               panelStyle,
             ]}
           >
@@ -230,6 +265,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     insetInlineStart: 0,
     insetInlineEnd: 0,
+    // ★ THE PANEL AND THE SCRIM NEED EXPLICIT LEVELS.
+    //
+    // Every `View` is `position: relative; zIndex: 0` in react-native-web's own
+    // base style, so all three children of this node sit at the SAME stacking
+    // level and paint in DOM source order. Source order alone is not a contract —
+    // it is one reorder away from the scrim painting over the panel, which is a
+    // dimmed, focus-trapped page with nothing in it. Naming the levels makes the
+    // intent explicit and independent of the order they are written in.
+    zIndex: 1,
   },
   scrim: {
     position: 'absolute',
@@ -237,9 +281,14 @@ const styles = StyleSheet.create({
     bottom: 0,
     insetInlineStart: 0,
     insetInlineEnd: 0,
+    zIndex: 0,
   },
   panel: {
     position: 'absolute',
+    // Above the scrim it is drawn on top of. A sibling `View` defaults to level 0,
+    // which is the SAME level as the scrim — so without this the menu's visibility
+    // depends on nothing at all.
+    zIndex: 1,
     borderRadius: radius.lg,
     // ★ NO BORDER.
     //

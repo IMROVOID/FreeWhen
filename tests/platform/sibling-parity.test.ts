@@ -34,6 +34,7 @@ import { test } from 'node:test';
 const PAIRS = [
   'src/features/settings/services/switch-language',
   'src/platform/direction',
+  'src/platform/direction-reload',
   'src/platform/environment',
   'src/platform/haptics',
   'src/i18n/store',

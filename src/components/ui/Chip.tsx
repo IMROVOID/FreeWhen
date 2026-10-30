@@ -9,7 +9,7 @@ import type { IconWeight } from 'phosphor-react-native';
 
 import { Text } from './Text';
 import { Pressy } from './Pressy';
-import { indicatorLeftFor, segmentWidthFor } from './segmented-geometry';
+import { indicatorLeftFor, indicatorPlacementFor, segmentWidthFor } from './segmented-geometry';
 import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import { dur, ease } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
@@ -220,48 +220,62 @@ export function SegmentedControl({
   const segmentWidth = segmentWidthFor({ trackWidth, inset: space[1], count: options.length });
 
   /**
-   * The pill's ABSOLUTE left edge, not a delta from a logical start edge.
+   * The pill's placement: ONE physical side, and the distance from it.
    *
-   * A signed translate from `insetInlineStart` disagreed with itself about which
-   * way "start" pointed once the document was `dir="rtl"`, which is how the
-   * selection ended up outside the rail. An absolute position has no such
-   * ambiguity — see `segmented-geometry.ts`.
+   * ★ NEVER BOTH SIDES, AND NEVER A SIDE CHOSEN INDEPENDENTLY OF THE VALUE.
+   *
+   * The pill has to rest at the edge of the segment that is selected, and a
+   * right-to-left rail puts its first segment at its RIGHT end. Two shapes were
+   * tried before this one and both shipped a wrong pill:
+   *
+   *  1. a logical `insetInlineStart` anchor plus a positive translate — the anchor
+   *     and the travel disagreed about which way "start" pointed, so in Persian the
+   *     pill walked off the rail;
+   *  2. a physical `left: 0` in the base style plus a `{ right }` override under
+   *     RTL — React Native merges those two objects, the node carried BOTH keys,
+   *     and CSS gives `left` precedence. The mirror was silently discarded and the
+   *     pill was laid out from the physical left on a right-to-left rail, which put
+   *     it over the OPPOSITE option: "Auto is selected but the knob is on Light".
+   *     Measured from the rendered markup as `right: -4px` with no `left` override.
+   *
+   * `indicatorPlacementFor` returns both keys every time, one of them `auto`, so
+   * the pair cannot disagree and nothing downstream has to know which way the
+   * layout reads beyond the number it is given.
    */
-
-  const motion = useMotion();
-
-  /** The in-flight travel, in pixels; 0 at rest. */
-  const slide = useSharedValue<number>(0);
-  /** Where the pill rested before this render, so the slide knows the delta. */
-  const previousRest = useRef<number>(space[1]);
-
-  /** The pill's physical left edge, as a pure function of state. */
-  const restingOffset = indicatorLeftFor(selectedIndex, {    trackWidth,
+  const indicatorPlacement = indicatorPlacementFor(selectedIndex, {
+    trackWidth,
     inset: space[1],
     count: options.length,
     rtl,
   });
 
+  const motion = useMotion();
+
+  /** The in-flight travel, in pixels; 0 at rest. */
+  const slide = useSharedValue<number>(0);
 
   /**
-   * ★ THE PILL IS PLACED BY A PHYSICAL SIDE, CHOSEN FROM THE RESOLVED DIRECTION.
+   * Where the pill rested before this render, as a PHYSICAL left edge.
    *
-   * `indicatorLeftFor` returns the pill's physical LEFT edge. Setting `left` to
-   * that value is correct only in a left-to-right layout: React Native mirrors a
-   * horizontal `left` offset when the parent reads right-to-left, so the same
-   * number placed the pill at 185.7 from the RIGHT instead of from the left —
-   * measured on the device as the pill sitting over the OPPOSITE option from the
-   * one selected, while the logged offset was correct.
+   * ★ ONE COORDINATE SPACE FOR THE REST AND THE TRAVEL.
    *
-   * Converting to the equivalent distance from the right edge under RTL, and
-   * setting `right`, removes the ambiguity: the number is the distance from the
-   * edge named on the same line.
+   * The slide is a `translateX` — a physical delta — so the difference it
+   * animates has to be a difference of physical positions. `indicatorLeftFor`
+   * answers exactly that in both directions (it already returns the LEFT edge for
+   * an RTL rail), so the delta needs no direction sign of its own. Multiplying it
+   * by a sign as well — which this used to do — double-counted the mirror: the
+   * rest landed correctly and the pill then started one whole segment-width from
+   * the wrong side and slid back into place, which on a slow device reads as the
+   * knob jumping from the neighbouring option.
    */
-  const indicatorPlacement = rtl
-    ? // rtl-ok: an explicit physical side, converted from the computed left edge
-      { right: trackWidth - (restingOffset + segmentWidth) }
-    : // rtl-ok: an explicit physical side, straight from the computed left edge
-      { left: restingOffset };
+  const restingLeft = indicatorLeftFor(selectedIndex, {
+    trackWidth,
+    inset: space[1],
+    count: options.length,
+    rtl,
+  });
+
+  const previousRest = useRef<number>(restingLeft);
 
   /**
    * ★ THE SLIDE IS A TRANSFORM ON TOP OF A CORRECT REST, NOT THE POSITION ITSELF.
@@ -276,8 +290,8 @@ export function SegmentedControl({
    * new one, so a working pill never depends on it. When motion is reduced the
    * slide collapses to nothing and the plain placement alone is correct.
    *
-   * The travelled distance is a delta measured along the physical x axis, so — as
-   * with `left` — its sign flips with the direction.
+   * The travelled distance is a delta measured along the physical x axis between
+   * two physical rests, so it carries no direction sign of its own.
    */
   const slideStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: slide.value }],
@@ -291,17 +305,17 @@ export function SegmentedControl({
         return;
       }
 
-      const delta = (target - previousRest.current) * (rtl ? -1 : 1);
+      const delta = target - previousRest.current;
       previousRest.current = target;
       slide.value = delta;
       slide.value = withTiming(0, { duration: dur.fast, easing: ease.out });
     },
-    [motion.reduce, rtl, slide],
+    [motion.reduce, slide],
   );
 
   useEffect(() => {
-    animateTo(restingOffset);
-  }, [animateTo, restingOffset]);
+    animateTo(restingLeft);
+  }, [animateTo, restingLeft]);
 
   const indicatorStyle = motion.reduce ? undefined : slideStyle;
 
@@ -407,13 +421,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: space[1],
     bottom: space[1],
-    // ★ ANCHORED AT PHYSICAL ZERO, NOT AT A LOGICAL INSET.
+    // ★ NO HORIZONTAL ANCHOR HERE, AND THAT IS THE FIX FOR THE RTL PILL.
     //
-    // The offset now carries the pill's absolute left edge, so the anchor has to
-    // be 0 for the two not to add up. `insetInlineStart` resolved against the
-    // document direction, which is what put the selection outside the rail in a
-    // right-to-left layout.
-    left: 0, // rtl-ok: the offset carries the position; this anchor is direction-free
+    // This used to declare `left: 0` "so the offset has an anchor". A `left`
+    // here is MERGED with the call site's override rather than replaced, and a
+    // node carrying both `left: 0` and `right: n` resolves by giving `left`
+    // precedence — so the right-to-left mirror was silently discarded and the
+    // pill was laid out from the wrong edge. `indicatorPlacementFor` now emits
+    // BOTH keys (`left`/`right`, one of them `auto`) together, so the anchor and
+    // the offset are always one decision.
     borderRadius: radius.pill,
   },
   segmentInner: {

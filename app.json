@@ -100,7 +100,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#120A07"
         }
-      ]
+      ],
+      "./plugins/with-direction-reload.js"
     ],
     "experiments": {
       "typedRoutes": false

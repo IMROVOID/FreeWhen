@@ -48,10 +48,22 @@ function inline(text: string): string {
  * bullet lists, pipe tables, horizontal rules. Anything unrecognised becomes a
  * paragraph rather than vanishing, so a stray character can never silently hide
  * a paragraph of a compliance document.
+ *
+ * ★ EVERY BLOCK CARRIES ITS DOCUMENT'S `dir`.
+ *
+ * `dir` is inherited, and the browser resolves bidi from the first strong
+ * character of each RUN — which is right inside a run and wrong for a whole
+ * block. A cell whose English text opens with a Persian venue or provider name
+ * therefore laid that paragraph out right-to-left on an English page, reported as
+ * "some of the English policy runs the wrong way". Each block states the
+ * direction it belongs to, so its alignment and its paragraph direction are the
+ * document's; per-run bidi is still the browser's job (see `unicode-bidi:
+ * isolate` in the page shell).
  */
-export function renderNotice(markdown: string): string {
+export function renderNotice(markdown: string, dir: 'ltr' | 'rtl' = 'ltr'): string {
   const out: string[] = [];
   const lines = markdown.split(/\r?\n/);
+  const d = `dir="${dir}"`;
 
   let index = 0;
   const isTableRow = (line: string) => /^\|.*\|$/.test(line.trim());
@@ -75,7 +87,7 @@ export function renderNotice(markdown: string): string {
     const heading = /^(#{1,3})\s+(.*)$/.exec(line);
     if (heading) {
       const level = (heading[1] ?? '#').length;
-      out.push(`<h${level}>${inline(heading[2] ?? '')}</h${level}>`);
+      out.push(`<h${level} ${d}>${inline(heading[2] ?? '')}</h${level}>`);
       index += 1;
       continue;
     }
@@ -91,12 +103,12 @@ export function renderNotice(markdown: string): string {
 
       const [header, ...body] = rows;
       if (header) {
-        out.push('<table><thead><tr>');
-        for (const cell of header) out.push(`<th>${inline(cell)}</th>`);
+        out.push(`<table ${d}><thead><tr>`);
+        for (const cell of header) out.push(`<th ${d}>${inline(cell)}</th>`);
         out.push('</tr></thead><tbody>');
         for (const row of body) {
           out.push('<tr>');
-          for (const cell of row) out.push(`<td>${inline(cell)}</td>`);
+          for (const cell of row) out.push(`<td ${d}>${inline(cell)}</td>`);
           out.push('</tr>');
         }
         out.push('</tbody></table>');
@@ -129,8 +141,8 @@ export function renderNotice(markdown: string): string {
       }
       if (current) items.push(current);
 
-      out.push('<ul>');
-      for (const item of items) out.push(`<li>${inline(item)}</li>`);
+      out.push(`<ul ${d}>`);
+      for (const item of items) out.push(`<li ${d}>${inline(item)}</li>`);
       out.push('</ul>');
       continue;
     }
@@ -143,7 +155,7 @@ export function renderNotice(markdown: string): string {
       paragraph.push(trimmed);
       index += 1;
     }
-    out.push(`<p>${inline(paragraph.join(' '))}</p>`);
+    out.push(`<p ${d}>${inline(paragraph.join(' '))}</p>`);
   }
 
   return out.join('\n');
@@ -168,10 +180,33 @@ function page(language: 'fa' | 'en', title: string, markdown: string): string {
 *{box-sizing:border-box}
 body{
   margin:0;padding:2rem 1.25rem 4rem;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Vazirmatn,Tahoma,sans-serif;
   font-size:16px;line-height:1.75;color:#15171c;background:#fbfbfc;
 }
-main{max-width:44rem;margin:0 auto}
+/* ★ THE TYPE STACK FOLLOWS THE DOCUMENT'S DIRECTION.
+
+   It used to be one stack for both languages, with Vazirmatn — a Persian face —
+   ahead of the generic fallback. On the ENGLISH page that meant every character
+   the system stack could not cover was drawn in a Persian-reading design, and the
+   notice read as a Persian document set in Latin. The Latin stack keeps Vazirmatn
+   at the END, after the Latin-metric faces, so a stray Persian word still renders
+   instead of falling through to a serif default. */
+html[dir="ltr"] body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,Vazirmatn,Tahoma,sans-serif;
+}
+html[dir="rtl"] body{
+  font-family:Vazirmatn,-apple-system,BlinkMacSystemFont,"Segoe UI",Tahoma,sans-serif;
+}
+/* ★ NO BLOCK GUESSES ITS OWN PARAGRAPH DIRECTION.
+
+   dir is inherited, and the browser resolves per-run bidi from the first strong
+   character in each run — which is correct INSIDE a run and wrong for a whole
+   block. A table cell whose English text begins with a Persian venue name was
+   therefore laid out right-to-left on an English page: "some texts run the wrong
+   way". Stating the block direction here (and on every block the renderer emits)
+   pins the paragraph and leaves per-run bidi to the browser, which is the only
+   place it belongs. */
+main{max-width:44rem;margin:0 auto;text-align:start;unicode-bidi:isolate}
+h1,h2,h3,p,li,th,td,direction-block{unicode-bidi:isolate;text-align:start}
 h1{font-size:1.5rem;line-height:1.35;margin:0 0 1rem}
 h2{font-size:1.125rem;margin:2rem 0 .5rem}
 p,li{margin:0 0 .75rem}
@@ -192,8 +227,8 @@ a{color:#2f5fd0}
 </style>
 </head>
 <body>
-<main>
-${renderNotice(markdown)}
+<main dir="${dir}">
+${renderNotice(markdown, dir)}
 </main>
 </body>
 </html>
