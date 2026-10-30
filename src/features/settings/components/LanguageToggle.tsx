@@ -53,7 +53,26 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
 
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [shown, setShown] = useState<Language>(current);
+
+  /**
+   * ★ THE CONTROL FOLLOWS THE LANGUAGE THAT IS ACTUALLY RENDERING.
+   *
+   * The selection used to be a private `useState` seeded from `current` once and
+   * written only by a successful `choose()` call. That is stale in two ways, and
+   * both were visible on the device:
+   *
+   *  1. `app/_layout.tsx` rebuilds the tree on a direction change, so this
+   *     instance re-seeds — but a switch WITHIN one direction (fa ↔ a future
+   *     second RTL locale) would not, and the pill would keep the old answer;
+   *  2. more importantly, this component's own state is not the source of truth
+   *     for what is on screen. `current` comes from `i18n.language` on every
+   *     render the catalogue changes, so deriving from it cannot disagree.
+   *
+   * Observed against the shipped build: after tapping فارسی the whole screen
+   * laid out right-to-left and the pill stayed under "English" — the control said
+   * the opposite of the interface.
+   */
+  const shown = current;
 
   const choose = useCallback(
     async (next: Language) => {
@@ -66,7 +85,6 @@ export function LanguageToggle({ current, flush, testID }: LanguageToggleProps) 
 
       setBusy(false);
 
-      if (result.changed) setShown(result.language);
       if (result.flushErrorKey) setFailed(true);
     },
     [shown, flush],

@@ -130,6 +130,141 @@ export function tileOffsetFor(lat: number, lng: number, zoom: number): { x: numb
 }
 
 /**
+ * The tile grid's placement and size for a measured frame.
+ *
+ * ★ THE GRID IS CENTRED ON THE FRAME, AND THAT IS A VISUAL FIX.
+ *
+ * The picker pins its layer at `left/top: -TILE_SIZE`, which is only right when
+ * the frame is exactly three tiles across — the shift assumes the centre tile's
+ * origin coincides with the frame's origin. The frame is `100%` wide and
+ * `MAP_HEIGHT` tall, so it almost never is, and the measured result was a 768 px
+ * grid inside a 480×538 frame (desktop) or 350×538 (phone): 294 px and 246 px of
+ * the frame had no tile at all, showing the placeholder in rectangles. That is
+ * the reported "the separate map segments are not aligned, not seamless".
+ *
+ * Two things make coverage a property rather than a hope:
+ *
+ *  1. the origin places the MIDDLE slot of the grid at the frame's middle, so the
+ *     drag translate (`-tileOffset`, which is bounded to ±half a tile) keeps the
+ *     frame covered instead of walking the picture off an edge;
+ *  2. the grid grows in rings until it is at least as large as the frame in both
+ *     axes, so a frame wider than one tile-span gets more columns rather than a
+ *     hole.
+ *
+ * A 3×3 grid on a 768×768 frame reproduces the old constant exactly, so the case
+ * that used to be right does not move.
+ */
+
+/** The grid's tile count, and its placement is `gridOriginFor`'s job. */
+export interface TileGrid {
+  /** How many tiles per side. Always odd, so there is a true middle slot. */
+  count: number;
+}
+
+/** The frame's measured size, or zeroes before its first layout pass. */
+export interface CanvasSize {
+  canvasWidth: number;
+  canvasHeight: number;
+}
+
+/** The largest sub-tile distance `tileOffsetFor` can produce, in pixels. */
+const MAX_SUB_TILE = MAP_TILE_SIZE / 2;
+
+/**
+ * The smallest odd tile count whose grid covers `size` with drag slack.
+ *
+ * ★ THE SLACK IS ADDED TO THE GRID, NOT TO THE DIVISION.
+ *
+ * Dividing first and rounding after is what produced a three-tile grid for a 538
+ * px frame: `538 + 256` divides to 3.1, "round up to odd" lands on 3, and a
+ * three-tile grid is exactly 768 — two hundred px short of covering 538 plus the
+ * half-tile the drag can travel in each direction. The requirement is on the
+ * EXTENT, so the count is solved from it and then made odd.
+ */
+function countFor(size: number): number {
+  const needed = size + MAX_SUB_TILE * 2;
+  let count = Math.max(1, Math.ceil(needed / MAP_TILE_SIZE));
+  if (count % 2 === 0) count += 1;
+  return Math.max(3, count);
+}
+
+/**
+ * The grid's tile count, large enough that the frame stays covered at ANY drag.
+ *
+ * ★ THE DRAG IS PART OF THE SIZE REQUIREMENT, AND THAT WAS THE HOLE.
+ *
+ * A grid exactly as wide as the frame covers it only at zero offset. The
+ * translate moves it by up to half a tile in each direction, so the grid has to
+ * exceed the frame by that much on both sides — otherwise coverage fails at the
+ * extremes, which is a seam that appears and disappears while dragging.
+ */
+export function gridSpanFor({ canvasWidth, canvasHeight }: CanvasSize): TileGrid {
+  const width = Number.isFinite(canvasWidth) && canvasWidth > 0 ? canvasWidth : MAP_TILE_SIZE * 3;
+  const height = Number.isFinite(canvasHeight) && canvasHeight > 0 ? canvasHeight : MAP_TILE_SIZE * 3;
+
+  return {
+    count: Math.max(countFor(width), countFor(height)),
+  };
+}
+
+/**
+ * The grid's origin, so its own centre sits on the frame's centre.
+ *
+ * ★ THE WHOLE GRID IS CENTRED, NOT JUST THE MIDDLE SLOT.
+ *
+ * The old constant (`-TILE_SIZE`) put the centre tile's origin on the frame's
+ * origin, which is right only when the frame is exactly one tile-span. Centring
+ * the grid means the centre tile is at the frame's centre and the surplus rings
+ * extend symmetrically past every edge, so a drag in either direction has slack
+ * to give instead of running out at an edge.
+ */
+export function gridOriginFor({ canvasWidth, canvasHeight }: CanvasSize): { left: number; top: number } {
+  const width = Number.isFinite(canvasWidth) && canvasWidth > 0 ? canvasWidth : MAP_TILE_SIZE * 3;
+  const height = Number.isFinite(canvasHeight) && canvasHeight > 0 ? canvasHeight : MAP_TILE_SIZE * 3;
+
+  const { count } = gridSpanFor({ canvasWidth: width, canvasHeight: height });
+  const extent = count * MAP_TILE_SIZE;
+
+  // A tile-grid offset in a pixel plane, not a text-direction inset: the grid is
+  // centred on the frame, so there is no reading edge to mirror.
+  return {
+    left: (width - extent) / 2, // rtl-ok: tile-grid offset, symmetric about the frame
+    top: (height - extent) / 2,
+  };
+}
+
+/** A rectangle, in the frame's coordinate space. */
+export interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Whether a set of tiles covers a rectangle completely.
+ *
+ * Used by the test as the property, rather than a magic expected offset: the rule
+ * is "no pixel of the frame shows background", which survives any future change
+ * to tile size, ring count or measured frame.
+ */
+export function tilesCover(frame: Rect, tiles: readonly Rect[]): boolean {
+  // Sample the frame on a grid finer than any gap that could hide between tiles.
+  const step = 4;
+
+  for (let y = frame.top; y <= frame.bottom; y += step) {
+    for (let x = frame.left; x <= frame.right; x += step) {
+      const covered = tiles.some(
+        (tile) => x >= tile.left && x <= tile.right && y >= tile.top && y <= tile.bottom,
+      );
+      if (!covered) return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * How far one CSS pixel of drag moves the centre, in degrees.
  *
  * Longitude is linear — the whole world is 360° across `2^zoom` tiles. Latitude

@@ -78,37 +78,129 @@ test('a mid-flight slide never shows a translucent indicator', () => {
   // fill would leave both half-legible for the duration of the animation.
   const chip = code('src/components/ui/Chip.tsx');
 
-  // Act
-  const indicator = /indicator:[\s\S]{0,200}?backgroundColor/.exec(chip)?.[0] ?? '';
-  const opacityOnIndicator = /indicator[\s\S]{0,300}?opacity:/.test(chip);
+  // Act — the only opacity the pill may carry is the binary measured/unmeasured
+  // switch; any interpolated value would fade it mid-slide.
+  const fades = /opacity:\s*(?:withTiming|interpolate|offset\.value|[a-zA-Z0-9_.]+\s*\*\s*0\.)/.test(
+    chip,
+  );
 
   // Assert
-  assert.ok(!opacityOnIndicator, 'the indicator fades, so two labels overlap unreadably');
+  assert.ok(!fades, 'the indicator fades, so two labels overlap unreadably');
   assert.ok(
     /backgroundColor:\s*t\.primary/.test(chip) || /backgroundColor:\s*t\.accent/.test(chip),
     'the indicator has no opaque fill',
   );
-  assert.equal(indicator.length >= 0, true);
+  // The one legitimate opacity is 0-or-1, never a fraction.
+  assert.match(
+    chip,
+    /opacity:\s*segmentWidth\s*>\s*0\s*\?\s*1\s*:\s*0/,
+    'the visibility gate is not a binary measured/unmeasured switch',
+  );
 });
 
-test('the control still slides, and still honours Reduce Motion', () => {
+test('the pill is placed from measured state, and the selection is always visible', () => {
   // Arrange
   const chip = code('src/components/ui/Chip.tsx');
 
-  // Act / Assert — the earlier guarantee must survive the colour change.
-  assert.ok(/useAnimatedStyle/.test(chip), 'the segmented control has no animated style');
-  assert.ok(/translateX/.test(chip), 'the indicator does not translate');
-  assert.ok(/withTiming|withSpring/.test(chip), 'the slide is not driven by reanimated');
-  assert.ok(/motion\.reduce/.test(chip), 'the control reads no reduce flag');
+  // Act / Assert
+  //
+  // ★ THE SLIDE WAS REMOVED, DELIBERATELY, AND THIS RECORDS WHY.
+  //
+  // The pill used to be positioned by a Reanimated `translateX`, which made its
+  // geometry depend on the UI-runtime mapper running. On the device the rail drew
+  // its track and both labels while the pill never appeared — the selection was
+  // simply invisible, in both languages. Restoring a correct, always-visible pill
+  // was worth more than the slide, so the position is now a plain style computed
+  // from the measured rail and the resolved direction.
+  //
+  // What must hold now: the REST is derived from state, so a pill is always
+  // correctly placed whether or not any animation runs; the slide may only ever
+  // add travel on top of that rest.
+  assert.ok(/indicatorLeftFor/.test(chip), 'the pill position is not computed from the geometry');
+  assert.ok(/indicatorPlacement/.test(chip), 'the computed placement never reaches the pill');
+  assert.ok(/indicatorStyle/.test(chip), 'the slide is no longer applied');
+  // The placement and the slide are separate entries, so the slide cannot move the
+  // pill away from a position that is already correct.
+  const styleArray = /styles\.indicator,[\s\S]{0,600}?\]/.exec(chip)?.[0] ?? '';
+  assert.ok(/indicatorPlacement/.test(styleArray), 'the placement is not in the pill style array');
+  assert.ok(/indicatorStyle/.test(styleArray), 'the slide is not in the pill style array');
 });
 
-test('the indicator is only drawn once the track has measured', () => {
+test('the indicator is hidden until the track has measured, but still rendered', () => {
   // Arrange
   const chip = code('src/components/ui/Chip.tsx');
 
-  // Act — a zero-width pill would draw a sliver at the leading edge.
-  const guarded = /segmentWidth\s*>\s*0\s*\?/.test(chip);
+  // Act — a zero-width pill would draw a sliver at the leading edge, so it must
+  // not be VISIBLE at zero width.
+  const hidden = /opacity:\s*segmentWidth\s*>\s*0\s*\?\s*1\s*:\s*0/.test(chip);
 
   // Assert
-  assert.ok(guarded, 'the indicator renders at zero width');
+  //
+  // ★ IT IS HIDDEN RATHER THAN NOT RENDERED, AND THAT DISTINCTION IS THE BUG.
+  //
+  // The pill used to be unmounted while unmeasured (`segmentWidth > 0 ? <pill/> :
+  // null`). A track whose measurement never arrived therefore had NO selection at
+  // all — while the rail's labels rendered normally, so it read as "the pill is
+  // missing" rather than "the pill is unmeasured". Hiding it keeps a zero-width
+  // pill from drawing a sliver without making its existence conditional.
+  assert.ok(hidden, 'a zero-width indicator would draw a sliver at the leading edge');
+  assert.doesNotMatch(
+    chip,
+    /segmentWidth\s*>\s*0\s*\?\s*\(?\s*<Animated\.View/,
+    'the indicator is unmounted while unmeasured, so an unmeasured track has no selection',
+  );
+});
+
+/**
+ * ★ THE NATIVE MEASUREMENT MUST COME FROM THE LAYOUT EVENT, NOT THE DOM.
+ *
+ * `onLayout` was wired to a handler that began by checking
+ * `typeof node.getBoundingClientRect === 'function'` and returned early when it
+ * was absent. On native that is ALWAYS absent — a view is a native peer, not a DOM
+ * element — so every layout event was received and discarded, `trackWidth` stayed
+ * at zero, and every segmented control in the app rendered its labels with no
+ * selection pill at all.
+ *
+ * Measured on the emulator: 0 pill pixels in both languages, before and after a
+ * fresh launch, while the labels laid out correctly.
+ */
+/**
+ * ★ RN MIRRORS A HORIZONTAL OFFSET IN A RIGHT-TO-LEFT PARENT.
+ *
+ * `indicatorLeftFor` returns the pill's physical LEFT edge, which is what a
+ * left-to-right layout wants. In a right-to-left layout React Native mirrors it,
+ * so the same number lands 185.7 from the RIGHT instead — measured on the device
+ * as the pill covering the OPPOSITE option from the selected one, while the
+ * logged offset was correct.
+ *
+ * The placement therefore converts to the equivalent distance from the right edge
+ * and names that side explicitly, so the number and the edge always agree.
+ */
+test('the pill names the physical side it measures from, in both directions', () => {
+  const chip = code('src/components/ui/Chip.tsx');
+
+  // Assert — RTL computes from the right edge, LTR from the left.
+  assert.match(
+    chip,
+    /right:\s*trackWidth\s*-\s*\(\s*restingOffset\s*\+\s*segmentWidth\s*\)/,
+    'the RTL placement does not convert the left edge into a right-edge distance',
+  );
+  assert.match(chip, /left:\s*restingOffset/, 'the LTR placement does not use the left edge');
+});
+
+test('the rail measures from the layout event on native, not from a DOM read', () => {
+  const chip = code('src/components/ui/Chip.tsx');
+
+  // Assert — `onLayout` reads its own event.
+  assert.match(
+    chip,
+    /onLayout=\{\(event\)\s*=>\s*recordWidth\(event\.nativeEvent\.layout\.width\)\}/,
+    'onLayout does not read the layout event it is given',
+  );
+  // ...and the DOM read is a SEPARATE handler, so it can never swallow the event.
+  assert.doesNotMatch(
+    chip,
+    /onLayout=\{measureFromNode\}/,
+    'onLayout is wired to the DOM-only reader, which returns early on native',
+  );
 });

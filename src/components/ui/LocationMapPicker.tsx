@@ -42,7 +42,7 @@
  * path in this product, so an unavailable provider says so and offers it.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -75,8 +75,11 @@ import {
 import { haptics } from '@/src/platform/haptics';
 import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import {
+  MAP_TILE_SIZE,
   centreTileFor,
   formatCoordinates,
+  gridOriginFor,
+  gridSpanFor,
   tileOffsetFor,
   translateCentre,
 } from '@/src/components/ui/map-pan';
@@ -94,7 +97,16 @@ export interface LocationMapPickerProps {
   testID?: string;
 }
 
-const TILE_SIZE = 256;
+/**
+ * One tile's edge, for the tile itself.
+ *
+ * ★ IT IS THE SAME NUMBER THE GEOMETRY MODULE USES, NOT A LOCAL COPY.
+ *
+ * A second 256 here would let the drawn tile and the computed grid disagree the
+ * day either is tuned, and the symptom would be seams — the defect this file has
+ * already paid for once.
+ */
+const TILE_SIZE = MAP_TILE_SIZE;
 const MAP_HEIGHT = 380;
 const DEBOUNCE_MS = 300;
 
@@ -312,7 +324,82 @@ export function LocationMapPicker({
   const tileOffset = useMemo(() => tileOffsetFor(lat, lng, zoom), [lat, lng, zoom]);
 
   const maxTile = 2 ** zoom - 1;
-  const tileOffsets = [-1, 0, 1];
+
+  /**
+   * The measured frame, so the grid can be centred on it and made large enough.
+   *
+   * Before the first layout pass this is zero, and `gridSpanFor` treats that as
+   * one tile-span — the previous behaviour — so the pre-measure frame does not
+   * collapse or jump.
+   */
+  const [canvas, setCanvas] = useState({ canvasWidth: 0, canvasHeight: 0 });
+
+  /**
+   * ★ THE MEASUREMENT IS TAKEN FROM THE REAL ELEMENT, NOT ONLY FROM `onLayout`.
+   *
+   * `onLayout` is the sanctioned RN path, but on the web build this canvas is a
+   * `height: 100%` box inside a frame whose height is being resolved by the sheet
+   * around it, so the callback either arrives with the pre-stretch size or not at
+   * all — measured: nine tiles for a frame that needed twenty-five, and an 18 px
+   * strip of background left along the bottom edge.
+   *
+   * The ref is used to re-read the box after mount and on every resize, so the
+   * grid can never be sized from a stale measurement. `onLayout` stays for
+   * native, where it is the only signal.
+   */
+  const canvasRef = useRef<ComponentRef<typeof View> | null>(null);
+
+  const measureCanvas = useCallback(() => {
+    const node = canvasRef.current as unknown as HTMLElement | null;
+    if (!node || typeof node.getBoundingClientRect !== 'function') return;
+
+    const rect = node.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    setCanvas((prev) =>
+      prev.canvasWidth === rect.width && prev.canvasHeight === rect.height
+        ? prev
+        : { canvasWidth: rect.width, canvasHeight: rect.height },
+    );
+  }, []);
+
+  /**
+   * Re-read the box after mount and whenever it changes size.
+   *
+   * A one-shot read is not enough: the sheet animates open, and on the web build
+   * the frame's height is settled by that animation. `ResizeObserver` is present
+   * wherever `getBoundingClientRect` is, so the web build gets every change and
+   * native simply relies on `onLayout` — the observer is guarded, not assumed.
+   */
+  useEffect(() => {
+    measureCanvas();
+
+    const node = canvasRef.current as unknown as HTMLElement | null;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(() => measureCanvas());
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, [measureCanvas]);
+
+  const grid = useMemo(
+    () =>
+      gridSpanFor({ canvasWidth: canvas.canvasWidth, canvasHeight: canvas.canvasHeight }),
+    [canvas.canvasWidth, canvas.canvasHeight],
+  );
+
+  const gridOrigin = useMemo(
+    () =>
+      gridOriginFor({ canvasWidth: canvas.canvasWidth, canvasHeight: canvas.canvasHeight }),
+    [canvas.canvasWidth, canvas.canvasHeight],
+  );
+
+  /** The columns of the grid, as offsets from the centre tile, centred on it. */
+  const tileOffsets = useMemo(() => {
+    const middle = Math.floor(grid.count / 2);
+    return Array.from({ length: grid.count }, (_, i) => i - middle);
+  }, [grid.count]);
 
   /**
    * ★ THE BASE AND ITS LABELS ARE TWO LAYERS.
@@ -341,17 +428,43 @@ export function LocationMapPicker({
       cartoKey ? `?key=${cartoKey}` : ''
     }`;
 
-  /** The 3x3 grid's columns and rows, wrapped over the antimeridian. */
+  /**
+   * ★ THE GRID'S COLUMNS AND ROWS COME FROM THE MEASURED FRAME.
+   *
+   * They used to be hardcoded to `[-1, 0, 1]` around the centre tile, i.e. always
+   * three tiles — 768 px — whatever the frame was. On a 480 px frame that left
+   * 294 px with no tile, and on 350 px, 246 px, so the placeholder showed through
+   * in rectangles and the boundary moved as the grid was dragged. `tileOffsets`
+   * is now sized by `gridSpanFor`, which accounts for the frame AND for the
+   * half-tile the drag can travel.
+   *
+   * Columns wrap over the antimeridian; rows clamp at the poles.
+   */
   const columns = tileOffsets.map((ox) => (centreTile.x + ox + 2 ** zoom) % 2 ** zoom);
   const rows = tileOffsets.map((oy) => Math.max(0, Math.min(maxTile, centreTile.y + oy)));
+
+  /**
+   * ★ THE GRID IS CENTRED ON THE FRAME, AND THE DRAG MOVES IT FROM THERE.
+   *
+   * The layer used to be pinned at a constant `-TILE_SIZE`, which only fits a
+   * frame that is exactly one tile-span. `gridOrigin` places the grid's own
+   * centre on the frame's centre; the translate then carries the sub-tile travel,
+   * so the picture follows the finger and the frame stays covered at both
+   * extremes instead of running off an edge.
+   */
+  const tileLayerPosition = useMemo(
+    () => ({
+      left: gridOrigin.left, // rtl-ok: a tile-grid offset, not a text-direction inset
+      top: gridOrigin.top,
+    }),
+    [gridOrigin.left, gridOrigin.top],
+  );
 
   /**
    * ★ THE GRID SLIDES UNDER THE PIN; THE PIN DOES NOT MOVE.
    *
    * The pin stays at the frame's centre and the centre coordinate is what a drag
-   * changes, so the tiles have to carry the travel — `-offset` puts the centre
-   * tile's exact origin under the centre point, which is what makes the picture
-   * follow the finger instead of jumping a tile at a time.
+   * changes, so the tiles have to carry the travel.
    */
   const tileLayerTranslate = {
     transform: [{ translateX: -tileOffset.x }, { translateY: -tileOffset.y }],
@@ -363,7 +476,10 @@ export function LocationMapPicker({
     /** Only the base layer reports failure: a missing label tile is cosmetic. */
     reportFailure = false,
   ) => (
-    <View style={[styles.tileLayer, tileLayerTranslate]} key={keyPrefix}>
+    <View
+      style={[styles.tileLayer, tileLayerPosition, tileLayerTranslate]}
+      key={keyPrefix}
+    >
       {rows.map((ty, rowIndex) => (
         <View key={`${keyPrefix}-row-${rowIndex}`} style={styles.tileRow}>
           {columns.map((tx) => (
@@ -389,7 +505,12 @@ export function LocationMapPicker({
     <View style={styles.container} testID={testID}>
       {/* Map View Frame */}
       <View style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
-        <View style={styles.tileCanvas} {...panResponder.panHandlers}>
+        <View
+          ref={canvasRef}
+          style={styles.tileCanvas}
+          {...panResponder.panHandlers}
+          onLayout={measureCanvas}
+        >
           {renderGrid(baseStyle, 'base', true)}
 
           {/*
@@ -593,28 +714,31 @@ const styles = StyleSheet.create({
    *
    * A centred grid fights the translate: `justifyContent: 'center'` re-centres
    * the rows on every render, so the sub-tile offset was absorbed by the layout
-   * and the picture did not move. Pinned to the corner, the translate is the only
-   * thing positioning the layer.
+   * and the picture did not move. Pinned by explicit insets, the translate is the
+   * only thing positioning the layer.
    *
-   * The grid is 3x3 tiles with the centre tile in the middle, so shifting it back
-   * by one tile puts the centre tile's origin on the frame's origin — then the
-   * offset translate brings the exact centre under the crosshair.
+   * ★ THE INSETS THEMSELVES ARE COMPUTED, NOT CONSTANTS.
+   *
+   * They used to be `-TILE_SIZE`, which is right only when the frame is exactly
+   * one tile-span. `gridOriginFor` centres the grid on the frame's measured size,
+   * so the frame is covered edge to edge at any width or height and at any drag —
+   * the seam that appeared wherever the fixed 768 px grid ended.
    */
   tileLayer: {
     position: 'absolute',
-    top: -TILE_SIZE,
-    // ★ A PHYSICAL `left`, NOT `start`.
+    // A PHYSICAL `left`/`top`, applied at the call site.
     //
     // `start` compiles to `inset-inline-start`, which react-native-web resolves against
     // the DOCUMENT direction. `app/+html.tsx` puts `dir` on `<html>`, so in Persian this
-    // inset the 3x3 grid 256px from the RIGHT edge instead of the left — carrying the
-    // whole picture out of the frame. Every tile request still succeeded and CARTO still
+    // inset the grid 256px from the RIGHT edge instead of the left — carrying the whole
+    // picture out of the frame. Every tile request still succeeded and CARTO still
     // answered `200 image/png`, which is why a blank map looked like "the tiles did not
     // load" rather than "the tiles are somewhere else".
     //
-    // The shift is a statement about a 256px image grid, not about reading direction, so
-    // it has to be physical.
-    left: -TILE_SIZE, // rtl-ok: a tile-grid offset, not a text-direction inset
+    // The shift is a statement about a pixel grid, not about reading direction, so it
+    // has to be physical. `left`/`top` arrive from `gridOriginFor`.
+    left: 0, // rtl-ok: replaced by the computed grid origin at the call site
+    top: 0, // rtl-ok: replaced by the computed grid origin at the call site
   },
   /** The labels ride the same geometry as the base; they must not drift from it. */
   labelLayer: {

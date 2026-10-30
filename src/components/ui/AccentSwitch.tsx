@@ -73,8 +73,18 @@ const KNOB_INSET = (TRACK_HEIGHT - KNOB_SIZE) / 2;
 /**
  * How far the knob travels between its two rests.
  *
- * The track has no border, so the whole width is usable: from `KNOB_INSET` off
- * the leading edge to `KNOB_INSET` off the trailing one.
+ * ★ THE OFF REST'S MARGIN IS NOT PART OF THE TRAVEL — IT IS ALREADY SPENT.
+ *
+ * The knob is laid out with `marginInlineStart: KNOB_INSET`, and that margin is
+ * inside the track, so the OFF rest occupies `[inset, inset + knob]`. The ON rest
+ * must occupy `[width − inset − knob, width − inset]`. The distance between the
+ * two is therefore `width − knob − 2·inset`: the track, less the knob, less the
+ * air the knob keeps at BOTH ends.
+ *
+ * Measured on the emulator (1080px wide, 52dp track ≈ 137px), OFF had 0px of air
+ * at its trailing edge while ON had 22px at its leading one — so the travel is
+ * the suspect, and its correctness is asserted in `tests/ui/switch-knob.test.tsx`
+ * (`airAtStart === airAtEnd`, `inset + travel + knob === width − inset`).
  */
 const KNOB_TRAVEL = TRACK_WIDTH - KNOB_SIZE - KNOB_INSET * 2;
 
@@ -109,52 +119,63 @@ export function AccentSwitch({
   const motion = useMotion();
   const rtl = useLayoutDirection();
 
-  // Positive travel is towards the physical right; in a right-to-left layout
-  // "on" is the other end, so the sign flips.
-  const travel = rtl ? -KNOB_TRAVEL : KNOB_TRAVEL;
+  /**
+   * ★ ONE ANCHOR ON THE PHYSICAL LEFT, AND THE SIGN CARRIED BY THE VALUE.
+   *
+   * 0 = off, 1 = on. The knob is absolutely positioned at `left: KNOB_INSET`, and
+   * its position is `progress * KNOB_TRAVEL`. In a right-to-left layout "on" is
+   * the OTHER end of the track, which is the same distance in the negative
+   * direction — so the direction is folded into a signed distance that lives on
+   * the UI runtime and is written from JS.
+   *
+   * Two earlier shapes were wrong by exactly `KNOB_INSET`, measured on the device
+   * as a knob clipped flush into the track's edge:
+   *
+   *  - a physical `margin` for the OFF rest plus a `transform` for the travel —
+   *    two layout systems describing one position;
+   *  - a `right`/`left` anchor CHOSEN BY DIRECTION plus a direction-signed
+   *    transform — the anchor and the sign then flipped in different spaces, so
+   *    one of the two directions walked the knob off the track.
+   *
+   * Anchoring always on the left and letting one signed number carry the rest
+   * removes both: there is a single origin, and the direction appears once.
+   */
+
+  // The direction is folded in here rather than inside the worklet, because `rtl`
+  // is React state and a worklet's closure is not re-read when it changes.
+  const signedTravel = rtl ? -KNOB_TRAVEL : KNOB_TRAVEL;
 
   /**
-   * ★ THE OFF REST IS A PHYSICAL MARGIN, BECAUSE A LOGICAL ONE IS DROPPED.
+   * ★ THE REST IS A PLAIN STYLE; THE SPRING IS ADDITIVE.
    *
-   * `marginInlineStart` is the correct spelling for this inset — the OFF rest is
-   * the leading edge in both directions. But `Pressy` sorts a style into a layout
-   * object and a visual one with a whitelist of layout keys, and that whitelist is
-   * physical: `marginLeft`/`marginRight` are on it and `marginInlineStart` is not.
-   * The inset therefore travelled to the INNER pressable, whose width is the whole
-   * track, so it did nothing — and the knob sat hard against the track's edge with
-   * its declared air missing: "the circle is too much to the right with no spacing
-   * between it and the switch edge".
+   * The knob's position was reached ONLY through a Reanimated shared value driven
+   * by `withSpring`, so it depended on the UI runtime actually ticking. Measured
+   * on the device with the state confirmed correct in the logs (`value=false,
+   * rtl=false, signed=20`): the OFF knob rendered at the ON rest, i.e. the spring
+   * never settled back to zero and the plain truth was never applied.
    *
-   * It looked like a web-only, OFF-only bug: the ON rest is reached by the travel,
-   * which lands the knob inside the track regardless, and the asymmetry read as
-   * "the OFF state is wrong". Native lost the inset the same way — the whitelist is
-   * platform-independent — it is simply less obvious there.
-   *
-   * One physical margin, chosen from the resolved direction, so nothing is lost
-   * between the two nodes.
+   * A switch that shows the wrong state is a correctness bug; the spring is a
+   * nicety. So `restingTravel` is applied as a plain style every render, and the
+   * spring only carries the travel between rests.
    */
-  // The side is chosen EXPLICITLY from the resolved direction, so there is nothing
-  // for a logical property to mirror — and `marginInlineStart` was the key `Pressy`
-  // dropped, which is the defect this fixes.
-  // rtl-ok: physical on purpose; the direction is resolved above
-  const startInset = rtl ? { marginRight: KNOB_INSET } : { marginLeft: KNOB_INSET };
+  const restingTravel = value ? signedTravel : 0;
 
-  // 0 = off, 1 = on. One value drives the knob and the track's colour progress,
-  // so the two cannot disagree mid-flight.
-  const progress = useSharedValue(value ? 1 : 0);
+  const knobOffset = useSharedValue<number>(0);
 
   useEffect(() => {
-    progress.value = withSpring(value ? 1 : 0, spring.snappy);
-  }, [progress, value]);
+    knobOffset.value = motion.reduce
+      ? 0
+      : withSpring(0, spring.snappy);
+  }, [knobOffset, motion.reduce, restingTravel]);
 
-  const knobStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: progress.value * travel }],
+  const slideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: knobOffset.value }],
   }));
 
-  // Under Reduce Motion the knob is placed rather than animated (§7.7).
-  const restingKnob = motion.reduce
-    ? { transform: [{ translateX: value ? travel : 0 }] }
-    : undefined;
+  const knobStyle = [
+    { transform: [{ translateX: restingTravel }] },
+    motion.reduce ? undefined : slideStyle,
+  ];
 
   /**
    * ★ THE HINT NEEDS A SECOND CHANNEL ON WEB, AND `aria-description` IS NOT IT.
@@ -188,13 +209,36 @@ export function AccentSwitch({
           },
         ]}
       >
+        {/*
+          ★ THE KNOB IS ABSOLUTELY POSITIONED FROM THE TRACK'S LEADING EDGE.
+
+          It used to be a normal flex child resting on a margin, then moved by
+          `translateX`. A margin and a translate on the same node are two
+          different layout systems describing one position: the margin is spent
+          inside the parent's `justifyContent: 'center'` box and the translate is
+          applied after — so the two rests did not mirror each other, and on a
+          real device the OFF knob came to rest hard against the track's edge
+          (measured at 1080px: ON had 22px of air, OFF had 0).
+
+          Anchored at the leading edge with an explicit translate, the position is
+          one number: `KNOB_INSET` at OFF, `KNOB_INSET + KNOB_TRAVEL` at ON. The
+          air is then the same at both ends by arithmetic rather than by luck, in
+          both directions.
+        */}
         <Animated.View
           style={[
             styles.knob,
-            startInset,
-            { backgroundColor: value ? theme.onPrimary : theme.surface1 },
-            restingKnob,
-            motion.reduce ? undefined : knobStyle,
+            {
+              backgroundColor: value ? theme.onPrimary : theme.surface1,
+              // rtl-ok: a physical side chosen from the resolved direction, so the
+              // OFF rest is the READING edge in both layouts. The transform below
+              // is measured from THIS edge, and its sign is derived from the same
+              // side — the two cannot disagree.
+              ...(rtl
+                ? { right: KNOB_INSET } // rtl-ok: pixel position in a 52pt track
+                : { left: KNOB_INSET }), // rtl-ok: pixel position in a 52pt track
+            },
+            knobStyle,
           ]}
         />
       </View>
@@ -212,16 +256,27 @@ const styles = StyleSheet.create({
     width: TRACK_WIDTH,
     height: TRACK_HEIGHT,
     borderRadius: radius.pill,
-    justifyContent: 'center',
+    // The knob is anchored to this box, so it must be the containing block.
+    position: 'relative',
     overflow: 'hidden',
   },
   knob: {
+    position: 'absolute',
+    // ★ BOTH SIDES ARE DECLARED, AND THAT IS NOT REDUNDANT.
+    //
+    // An absolutely-positioned node with only \	op\ set resolves horizontally to
+    // its STATIC position — the content-box origin, i.e. 0. Measured on the
+    // device: the ON knob rendered as a half circle sliced off at the track's left
+    // edge, which is exactly "left: 0" plus a negative translate, clipped by the
+    // track's "overflow: hidden". Declaring "left" here makes the base position
+    // explicit, and the call site overrides whichever side the direction needs.
+    left: KNOB_INSET, // rtl-ok: base pixel anchor; the call site overrides the side
+    top: KNOB_INSET,
     width: KNOB_SIZE,
     height: KNOB_SIZE,
     borderRadius: radius.pill,
-    // The leading-edge inset is applied PHYSICALLY at the call site (see
-    // `startInset`) — a logical key here was discarded by `Pressy`'s layout
-    // whitelist, which is what put the OFF knob against the track's edge.
+    // The leading-edge inset is applied PHYSICALLY at the call site, together with
+    // the transform — one node, one positioning system. See the note there.
   },
 });
 

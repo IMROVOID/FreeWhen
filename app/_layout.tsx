@@ -24,6 +24,7 @@ import { NicknameGate } from '@/src/features/profile/components/NicknameGate';
 import { initI18n } from '@/src/i18n';
 import { applyDirection } from '@/src/platform/direction';
 import { useLayoutDirection } from '@/src/platform/use-layout-direction';
+import { SPLASH_MIN_VISIBLE_MS } from '@/src/platform/splash-hold';
 import { useStackTransition } from '@/src/platform/stack-transition';
 import { isWeb } from '@/src/platform/environment';
 import { vazirmatnFdFonts, vazirmatnFonts } from '@/src/theme/font-assets';
@@ -32,6 +33,16 @@ import { useTheme } from '@/src/theme/useTheme';
 // Hold the splash until the fonts have loaded. A Persian screen rendered in
 // a fallback font reflows visibly when Vazirmatn arrives.
 void SplashScreen.preventAutoHideAsync();
+
+/**
+ * ★ WHEN THE SPLASH MAY GO, MEASURED FROM PROCESS START.
+ *
+ * Hiding as soon as the fonts resolved made the splash a two-frame flash on a
+ * warm start, which reads as "there is no splash screen" — and was reported as
+ * exactly that. The stamp is taken at MODULE SCOPE so the minimum covers the real
+ * launch rather than starting the clock once the JS thread is already up.
+ */
+const splashHeldUntil = Date.now() + SPLASH_MIN_VISIBLE_MS;
 
 /**
  * The language is resolved and the direction applied at MODULE SCOPE, before
@@ -80,14 +91,23 @@ export default function RootLayout() {
   });
 
   /**
-   * ★ THE NAVIGATOR IS REBUILT WHEN THE DIRECTION CHANGES.
+   * ★ THE WHOLE APP IS REBUILT WHEN THE DIRECTION CHANGES — NOT JUST THE
+   *   NAVIGATOR.
    *
-   * Native views are measured once, for the direction they were laid out in, so
-   * a language switch used to need an OS restart. `I18nManager` still cannot
-   * reflow a mounted tree — but it does not have to: keying the `Stack` on the
-   * direction remounts the navigator's subtree, which lays it out from scratch
-   * under the new direction. That is what makes the switch live without asking
-   * the user to reopen the app.
+   * Native views are measured once, for the direction they were laid out in, and
+   * nothing in React Native re-measures a live tree when the reading direction
+   * flips. `I18nManager.forceRTL` only takes effect on a fresh launch. So a switch
+   * to English used to swap every string and leave every layout mirrored — titles
+   * right-aligned, back chevrons pointing the RTL way, the language rail's
+   * `fa` still on the right — until the app was restarted. That is exactly the
+   * report: "the App is still RTL when I switch to English".
+   *
+   * The key used to be on `<Stack>`, which rebuilds the NAVIGATOR while the views
+   * that host it — `GestureHandlerRootView`, `SafeAreaProvider`, `AppFrame` — and
+   * every screen already mounted keep the measurements they were given under the
+   * old direction. The key therefore belongs on the ROOT: a keyed remount is
+   * React Native's supported way to rebuild a view tree, and it is what a restart
+   * does, minus the process.
    *
    * The key is the DIRECTION rather than the language so a future third LTR
    * locale does not pay for a remount it does not need.
@@ -96,10 +116,17 @@ export default function RootLayout() {
 
   useEffect(() => {
     // Hide the splash only once the fonts are ready — or once the load has
-    // failed, so a missing font never leaves the app on the splash screen.
-    if (fontsLoaded || fontError) {
+    // failed, so a missing font never leaves the app on the splash screen — and
+    // never before the minimum hold, which is what makes the brand frame visible
+    // rather than a flicker.
+    if (!fontsLoaded && !fontError) return;
+
+    const remaining = Math.max(0, splashHeldUntil - Date.now());
+    const timer = setTimeout(() => {
       void SplashScreen.hideAsync();
-    }
+    }, remaining);
+
+    return () => clearTimeout(timer);
   }, [fontsLoaded, fontError]);
 
   /**
@@ -121,7 +148,7 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.bg }}>
+    <GestureHandlerRootView key={directionKey} style={{ flex: 1, backgroundColor: t.bg }}>
       <SafeAreaProvider>
         <StatusBar style={name === 'dark' ? 'light' : 'dark'} />
         {/* ★ THE DESKTOP FRAME IS A WEB-ONLY SHELL.
@@ -131,7 +158,6 @@ export default function RootLayout() {
             1440px wide. */}
         <AppFrame>
           <Stack
-            key={directionKey}
             screenOptions={{
               headerShown: false,
               // ★ A NAVIGATION SLIDES.

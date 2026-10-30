@@ -56,21 +56,36 @@ test('the tile layer is anchored with a physical left, not a logical start', () 
   assert.ok(/left\s*:/.test(layer), 'the tile layer has no physical left anchor');
 });
 
-test('the grid is shifted back by exactly one tile on both axes', () => {
-  // Arrange — the 3x3 grid puts the centre tile in the middle, so the shift that lands
-  // its origin on the frame's origin is one tile, and the same on both axes.
+test('the grid is positioned from the frame, not from a constant tile shift', () => {
+  // Arrange
+  //
+  // ★ THE ONE-TILE SHIFT WAS ONLY CORRECT FOR A FRAME THREE TILES WIDE, AND THE
+  //   FRAME IS NOT.
+  //
+  // The layer used to be pinned at `-TILE_SIZE` on both axes. Measured in a
+  // browser, that left the right 294 px of a 480 px frame with no tile, and 246 px
+  // of a 350 px one: the "not seamless" seam. `gridOriginFor` computes the offset
+  // from the frame's measured size instead, which reproduces `-TILE_SIZE` exactly
+  // for a 768 px frame and covers every other size.
+  //
+  // The invariant asserted here is the one that matters and that survives any
+  // future tuning of tile size or ring count: the position comes from the grid's
+  // geometry, and it is applied physically.
   const picker = code(PICKER);
 
   // Act
-  const layer = /tileLayer:\s*\{([\s\S]{0,240}?)\},/.exec(picker)?.[1] ?? '';
-  const top = /top:\s*(-?)(TILE_SIZE|MAP_TILE_SIZE)/.exec(layer);
-  const left = /left:\s*(-?)(TILE_SIZE|MAP_TILE_SIZE)/.exec(layer);
+  const usesGeometry = /gridOriginFor/.test(picker);
+  const positionsPhysically = /left:\s*gridOrigin\.left/.test(picker) ||
+    /gridOrigin\.left/.test(picker);
 
   // Assert
-  assert.ok(top, 'the vertical shift is not a whole tile');
-  assert.ok(left, 'the horizontal shift is not a whole tile');
-  assert.equal(top[1], '-', 'the vertical shift should be negative');
-  assert.equal(left[1], '-', 'the horizontal shift should be negative');
+  assert.ok(usesGeometry, 'the tile layer does not position itself from the measured frame');
+  assert.ok(positionsPhysically, 'the computed origin never reaches the layer');
+  assert.doesNotMatch(
+    picker,
+    /top:\s*-TILE_SIZE/,
+    'the layer is still pinned at a constant offset, which only fits a 3-tile frame',
+  );
 });
 
 test('every other map inset is direction-independent too', () => {

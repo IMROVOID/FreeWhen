@@ -55,6 +55,42 @@ export interface PullToSyncProps {
   testID?: string;
 }
 
+/**
+ * ★ THE INTERPOLATION STOPS ARE MODULE SCOPE, AND THAT IS A CRASH FIX.
+ *
+ * They used to be built inside the worklet:
+ *
+ *   const inputRange = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * MAX_PULL);
+ *   const outputRange = inputRange.map((value) => cornerRadiusFor(value));
+ *
+ * An animated-style body runs on Reanimated's UI runtime. `Array.from` and
+ * `Array.prototype.map` there must dispatch to their callbacks, and those
+ * callbacks were defined on the JS runtime — "remote functions". Worklets 0.13
+ * refuses to call one synchronously and ABORTS THE PROCESS:
+ *
+ *   com.facebook.jni.CppException: [Worklets] Tried to synchronously call a
+ *   Remote Function. Called "anonymous" on the UI Runtime.
+ *     at map (native)
+ *     at PullToSyncTsx1
+ *     at styleUpdater (reanimated's useAnimatedStyleCommon)
+ *
+ * Reproduced on the emulator against the shipped release: opening ANY event
+ * terminated the app. Only this screen mounts `PullToSync`, which is why the rest
+ * of the app looked healthy — and the web build has no UI runtime, so it was
+ * never affected.
+ *
+ * Built once, at module scope, and captured into the worklet's closure BY VALUE.
+ * The worklet then only reads shared values and plain arrays.
+ */
+const PULL_STEPS = 32;
+
+const PULL_INPUT_RANGE: number[] = Array.from(
+  { length: PULL_STEPS + 1 },
+  (_, i) => (i / PULL_STEPS) * MAX_PULL,
+);
+
+const PULL_OUTPUT_RANGE: number[] = PULL_INPUT_RANGE.map((value) => cornerRadiusFor(value));
+
 export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: PullToSyncProps) {
   const { t } = useTheme();
 
@@ -112,20 +148,11 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
    * `interpolate` over the value's whole range keeps the mapping in one place (the
    * geometry module) while the animation stays on the native thread.
    */
-  const pageStyle = useAnimatedStyle(() => {
-    // Mirror the displacement→radius curve at a fixed sample rate. `interpolate`
-    // needs static stops, and `MAX_PULL` is the largest displacement the gesture can
-    // produce, so the two curves agree everywhere the page can actually be.
-    const steps = 32;
-    const inputRange = Array.from({ length: steps + 1 }, (_, i) => (i / steps) * MAX_PULL);
-    const outputRange = inputRange.map((value) => cornerRadiusFor(value));
-
-    return {
-      transform: [{ translateY: translateY.value }],
-      borderTopLeftRadius: interpolate(translateY.value, inputRange, outputRange, 'clamp'),
-      borderTopRightRadius: interpolate(translateY.value, inputRange, outputRange, 'clamp'),
-    };
-  });
+  const pageStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+    borderTopLeftRadius: interpolate(translateY.value, PULL_INPUT_RANGE, PULL_OUTPUT_RANGE, 'clamp'),
+    borderTopRightRadius: interpolate(translateY.value, PULL_INPUT_RANGE, PULL_OUTPUT_RANGE, 'clamp'),
+  }));
 
   const bandStyle = useAnimatedStyle(() => ({
     opacity: refreshing ? 1 : Math.min(1, Math.max(0, translateY.value) / BAND_HEIGHT),

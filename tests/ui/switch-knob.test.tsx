@@ -53,6 +53,10 @@ test('the track has no border, so nothing is measured inside one', () => {
 
 test('the knob rests the same distance from each outer edge', () => {
   // Arrange — no border, so the outer edge IS the content edge.
+  //
+  // The OFF rest is the margin (`inset`); the ON rest is that margin plus the
+  // travel. Air at the trailing edge is therefore whatever the track has left
+  // after the knob.
   const airAtStart = inset;
   const airAtEnd = width - (inset + travel + knob);
 
@@ -61,6 +65,7 @@ test('the knob rests the same distance from each outer edge', () => {
 });
 
 test('the travel spans the track less the knob and both air gaps', () => {
+  // The knob keeps `inset` of air at BOTH ends, and both are inside the track.
   assert.equal(travel, width - knob - inset * 2, `travel ${travel} does not span the track's width`);
 });
 
@@ -83,35 +88,41 @@ test('the component derives its travel and margin from the metrics', () => {
 
   // Act
   const derived = /KNOB_TRAVEL\s*=\s*TRACK_WIDTH\s*-\s*KNOB_SIZE\s*-\s*KNOB_INSET\s*\*\s*2/.test(source);
-  const margin = /margin(Left|Right):\s*KNOB_INSET/.test(source);
+  const anchored = /KNOB_INSET\b/.test(source);
 
   // Assert
-  assert.ok(derived, 'the travel does not account for the inset at both ends');
-  assert.ok(margin, 'the knob does not rest at the declared inset');
+  assert.ok(derived, 'the travel must leave air at BOTH ends of the track');
+  assert.ok(anchored, 'the knob does not rest at the declared inset');
 });
 
-test('the knob inset is a PHYSICAL margin, because a logical one is dropped', () => {
-  // Arrange — the reported defect. `Pressy` splits a style into a layout object
-  // and a visual one with a whitelist of layout keys, and that whitelist is
-  // physical: `marginLeft`/`marginRight` are on it, `marginInlineStart` is not. The
-  // inset therefore travelled to the inner pressable, whose width is the whole
-  // track, and did nothing — so the OFF knob sat hard against the track's edge.
+test('the knob inset is PHYSICAL, and applied as an anchor rather than a margin', () => {
+  // Arrange — the reported defect, and the second one found on the device.
+  //
+  // `Pressy` splits a style into a layout object and a visual one with a whitelist
+  // of physical keys, so `marginInlineStart` was discarded and the OFF knob lost
+  // its air. Fixing that with a physical MARGIN was not enough: a margin and a
+  // transform on one node are two positioning systems, and measured on the
+  // emulator the rests stopped being mirror images (ON 22px of air, OFF 0px).
+  //
+  // The knob is now anchored from the leading edge — one `left`/`right` chosen
+  // from the resolved direction — and moved by the transform alone.
   const source = code('src/components/ui/AccentSwitch.tsx');
 
   // Act
   const knob = /knob:\s*\{([^}]*)\}/.exec(source)?.[1] ?? '';
-  const applied = /startInset/.test(source);
-  const branches = /rtl\s*\?\s*\{\s*marginRight:\s*KNOB_INSET\s*\}\s*:\s*\{\s*marginLeft:\s*KNOB_INSET\s*\}/.test(
-    source,
-  );
+  const anchored = /\{\s*right:\s*KNOB_INSET\s*\}/.test(source) &&
+    /\{\s*left:\s*KNOB_INSET\s*\}/.test(source);
 
   // Assert
   assert.ok(
     !/marginInlineStart/.test(knob),
     'the knob inset is declared with a logical key, which `Pressy` discards',
   );
-  assert.ok(applied, 'the knob does not apply the computed inset');
-  assert.ok(branches, 'the inset does not resolve to a physical side for the resolved direction');
+  assert.ok(anchored, 'the knob does not anchor itself on a physical side');
+  assert.ok(
+    !/margin(Left|Right):\s*KNOB_INSET/.test(source),
+    'the knob is positioned by both a margin and a transform',
+  );
 });
 
 test('`Pressy` still hoists the physical keys and only the physical ones', () => {
