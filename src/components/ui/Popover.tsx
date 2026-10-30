@@ -96,13 +96,26 @@ export function Popover({
    * `pointSpace="surface"`, so the inset is never taken off twice.
    */
   const surface = overlaySurface({ width: viewportWidth });
-  const placedPoint =
-    position === null
-      ? null
-      : pointSpace === 'surface'
+
+  /**
+   * The point the panel is drawn at, remembered so the EXIT can run.
+   *
+   * `position` is a prop and is recomputed every render, so a caller that nulls it
+   * on dismiss (`ContextMenu` does exactly that when `anchor` goes null) would make
+   * the panel vanish to nowhere mid-close. This ref keeps the last real point, so a
+   * menu that HAS been placed still animates away from where it appeared.
+   */
+  const lastPoint = useRef<{ top: number; left: number } | null>(null);
+
+  if (position !== null) {
+    lastPoint.current =
+      pointSpace === 'surface'
         ? position
-        // rtl-ok: maps a physical window point into the centred overlay column.
-        : toSurfacePoint({ left: position.left, top: position.top }, surface);
+        : // rtl-ok: maps a physical window point into the centred overlay column.
+          toSurfacePoint({ left: position.left, top: position.top }, surface);
+  }
+
+  const placedPoint = lastPoint.current;
 
   const [rendered, setRendered] = useState(visible);
 
@@ -217,6 +230,22 @@ export function Popover({
   // is on `rendered`, NOT on `visible`: keying it on `visible` is the bug above.
   if (!rendered) return null;
 
+  /**
+   * ★ A MENU WITH NOWHERE TO GO MUST NOT PRESENT AT ALL.
+   *
+   * `placedPoint` is `null` only before the caller has EVER supplied a position —
+   * once it has one, `lastPoint` keeps it. The panel used to render at `opacity: 0`
+   * in the corner while the scrim and the `Modal` stayed fully interactive: an
+   * invisible layer holding the focus and swallowing every touch. That is the
+   * report — "it just swallows the Focus/Control".
+   *
+   * Rendering nothing is the honest answer: there is no menu until there is a point
+   * to show it at, and a menu that cannot be placed must not block the page. The
+   * exit path is unaffected, because `lastPoint` survives a close — so a menu that
+   * has been placed still animates away from where it appeared.
+   */
+  if (placedPoint === null) return null;
+
   return (
     <Modal transparent visible animationType="none" onRequestClose={onDismiss}>
       {/* ★ THE OVERLAY LIVES IN THE APP'S COLUMN, NOT THE WINDOW.
@@ -240,11 +269,10 @@ export function Popover({
             style={[
               styles.panel,
               { backgroundColor: t.surface2 },
-              // rtl-ok: PHYSICAL coordinates from `measuredSurfacePoint`, which
-              // already took the column's inset off a physical window point.
-              placedPoint === null
-                ? styles.unplaced
-                : { top: placedPoint.top, left: placedPoint.left }, // rtl-ok: physical surface coords
+              // rtl-ok: PHYSICAL coordinates from `toSurfacePoint`, which already
+              // took the column's inset off a physical window point. The `null`
+              // case cannot reach here — the component returns above.
+              { top: placedPoint.top, left: placedPoint.left }, // rtl-ok: physical surface coords
               panelStyle,
             ]}
           >
@@ -306,13 +334,5 @@ const styles = StyleSheet.create({
     // exit appears to slide towards the viewport's corner — the reported "it
     // moves to the top right before disappearing".
     ...({ transformOrigin: 'top left' } as object),
-  },
-  unplaced: {
-    // rtl-ok: an off-canvas parking spot, not a layout position.
-    // Hidden until the caller has measured itself. Painting at 0,0 would flash the
-    // menu in the corner for a frame.
-    opacity: 0,
-    top: 0,
-    left: 0, // rtl-ok: off-canvas parking, not a layout position
   },
 });

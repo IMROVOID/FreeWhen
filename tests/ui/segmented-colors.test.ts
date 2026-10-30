@@ -203,20 +203,21 @@ test('the pill names the physical side it measures from, in both directions', as
     /right:\s*trackWidth\s*-/,
     'Chip.tsx still computes the right-edge offset itself',
   );
-  assert.doesNotMatch(
-    chip,
-    /indicatorPlacementFor/,
-    'Chip.tsx writes a second, side-swapping anchor that can disagree with its `left`',
-  );
 
-  // Assert — the module still offers the converted pair for callers that need a
-  // named side, and it parks the unused one in both branches.
-  const placement =
-    /export function indicatorPlacementFor\([\s\S]*?\n\}/.exec(geometry)?.[0] ?? '';
-  assert.ok(placement.length > 0, 'indicatorPlacementFor is missing');
-  assert.match(placement, /fromRight/, 'the RTL branch does not convert the left edge');
-  assert.match(placement, /left:\s*'auto'/, 'the RTL branch does not park the left side');
-  assert.match(placement, /right:\s*'auto'/, 'the LTR branch does not park the right side');
+  // Assert — no side-swapping second anchor exists to disagree with `left`. The
+  // module used to export `indicatorPlacementFor`, which returned `{ left, right }`
+  // with one parked; that pair is exactly the shape that half-applied a mirror, so
+  // it is gone and the direction is folded into `indicatorLeftFor`'s number once.
+  assert.doesNotMatch(
+    geometry,
+    /export function indicatorPlacementFor/,
+    'a second, side-swapping placement is exported again',
+  );
+  assert.match(
+    geometry,
+    /return rtl \? inner - segmentWidth - travel : travel;/,
+    'the geometry does not fold the direction into the offset it returns',
+  );
 });
 
 test('the rail measures from the layout event on native, not from a DOM read', () => {

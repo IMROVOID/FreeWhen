@@ -32,12 +32,16 @@ test('the segment indicator is animated, not a background swap', () => {
   // Arrange
   const chip = code('src/components/ui/Chip.tsx');
 
-  // Act / Assert — an animated `left` driven by reanimated is what makes it
-  // slide. Not a `translateX` on top of a styled position: that pair cannot
-  // animate, because the rest moves in style on the same commit the transform
-  // starts moving from — the pill teleports and then settles from an overshoot.
+  // Act / Assert — an animated `translateX` driven by reanimated is what makes it
+  // slide, and a transform is the only horizontal position that no layout
+  // direction mirrors. It is not a delta on top of a styled `left`: that pair
+  // cannot animate, because the rest moves in style on the same commit the
+  // transform starts moving from — the pill teleports and then settles.
   assert.ok(/useAnimatedStyle/.test(chip), 'the segmented control has no animated style');
-  assert.ok(/left:\s*animatedLeft\.value/.test(chip), 'the indicator does not animate its position');
+  assert.ok(
+    /translateX:\s*animatedOffset\.value/.test(chip),
+    'the indicator does not animate its position',
+  );
   assert.ok(/withTiming|withSpring/.test(chip), 'the slide is not driven by reanimated');
 });
 

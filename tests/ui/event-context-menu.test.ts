@@ -381,14 +381,23 @@ test('the menu closes where it opened', () => {
   // Arrange — "it should pop out and close in same place as appears".
   const popover = code('src/components/ui/Popover.tsx');
 
-  // Act — the placement is `placedPoint`, which is the caller's position mapped
-  // into the overlay column's coordinates. It must be tested for null and NOT
-  // reset to the unplaced parking spot while the exit runs.
-  const keepsPosition = /placedPoint === null\s*\?\s*styles\.unplaced\s*:\s*\{/.test(popover);
+  // Act — the placement is `placedPoint`, the caller's position mapped into the
+  // overlay column's coordinates.
+  //
+  // ★ IT USED TO BE A `null ? unplaced : {…}` TERNARY. That shape is gone, and the
+  // guarantee is now stronger rather than weaker: an unplaced panel returns `null`
+  // entirely (an invisible panel must never present and trap the focus), so the
+  // only branch that paints is a real position. The position is not reset during
+  // the exit, because `placedPoint` keeps its last non-null value through a close.
+  const positionsFromPlacedPoint = /top:\s*placedPoint\.top,\s*left:\s*placedPoint\.left/.test(
+    popover,
+  );
+  const noParkingSpot = !/styles\.unplaced/.test(popover);
   const consistentScale = /0\.92 \+ progress\.value \* 0\.08/.test(popover);
 
-  // Assert — the position is NOT reset when the exit runs, and the scale is one
+  // Assert — the panel paints only at its real position, and the scale is one
   // expression for both directions, so open and close are mirror images.
-  assert.ok(keepsPosition, 'the panel drops its position while closing');
+  assert.ok(positionsFromPlacedPoint, 'the panel does not draw at its placed point');
+  assert.ok(noParkingSpot, 'an unplaced panel can still render, hidden, over a live scrim');
   assert.ok(consistentScale, 'the entrance and the exit use different scale curves');
 });

@@ -1,34 +1,43 @@
 /**
  * The segmented control's indicator geometry.
  *
- * ★ THE INDICATOR IS PLACED BY A PHYSICAL OFFSET, COMPUTED IN ONE PLACE.
+ * ★ THE PILL IS PLACED BY PHYSICAL PIXELS, NEVER BY A LAYOUT INSET.
  *
- * The pill used to be anchored with `insetInlineStart` and then translated by
- * `segmentWidth * index`. Two things were wrong at once:
+ * Three insets were tried and every one of them changed meaning under a
+ * right-to-left rail:
  *
- *  1. `insetInlineStart` compiles to `inset-inline-start` under react-native-web,
- *     which resolves against the DOCUMENT direction. `app/+html.tsx` puts
- *     `dir="rtl"` on `<html>`, so in Persian this anchored the pill to the rail's
- *     RIGHT edge.
- *  2. The translate stayed positive regardless of direction.
+ *  - `insetInlineStart` resolves against the DOCUMENT direction, so on the web
+ *    build (`dir="rtl"` on `<html>`) it anchored the pill to the wrong edge;
+ *  - an explicit `left` is the inline-END inset in an RTL parent, which makes Yoga
+ *    take a different branch than it does for English;
+ *  - forcing the rail itself to `direction: 'ltr'` fixed that branch but also laid
+ *    the LABELS out left-to-right — putting `fa` on the wrong side — and it is a
+ *    native-only knob (react-native-web derives direction from the `dir` PROP,
+ *    and rejects `direction` as a style).
  *
- * The anchor and the offset disagreed about which way "start" pointed, so the pill
- * walked out of the track — the Settings theme control with its selection hanging
- * off the end of the rail.
+ * A `transform: translateX` is the one horizontal position that no direction
+ * mirrors, and it is identical on native and web. So the pill anchors at its
+ * parent's origin and the numbers here are the whole distance from it.
  *
- * ★ SO THE OFFSET IS AN ABSOLUTE `left`, NOT A DELTA FROM A LOGICAL EDGE.
+ * ★ AND THE ORIGIN IS THE PADDING EDGE, WHICH IS WHY THE PILL DECLARES NO INSET.
  *
- * A signed translate from a fixed physical anchor cannot express both directions
- * without the anchor itself moving. Returning the pill's actual left edge removes
- * the ambiguity: the component applies it as a transform from `left: 0`, and no
- * inline property is involved.
+ * `ReactCommon/yoga/yoga/algorithm/AbsoluteLayout.cpp` resolves an absolute child's
+ * origin from two different branches:
+ *
+ *  - child HAS an explicit inset → `inset + parent BORDER + margin`;
+ *  - child has NO inset         → `parent BORDER + parent PADDING + margin`.
+ *
+ * Only the second agrees with the browser, where an absolutely positioned element's
+ * containing block is the padding box. The pill therefore declares no horizontal
+ * inset, and every value below is measured from the rail's PADDING edge — i.e. from
+ * the inner track, which is exactly what the labels are laid out in.
  *
  * Pure, so the arithmetic is tested without a gesture or a DOM — see
- * `tests/ui/segmented-indicator.test.ts`.
+ * `tests/ui/segmented-inside-rail.test.ts`.
  */
 
 export interface IndicatorGeometryOptions {
-  /** The rail's measured width, including its own inner padding on both sides. */
+  /** The rail's measured width, INCLUDING its own padding (Yoga's border box). */
   trackWidth: number;
   /** The padding the rail applies at each end. */
   inset: number;
@@ -47,25 +56,26 @@ export function segmentWidthFor({ trackWidth, inset, count }: Omit<IndicatorGeom
 }
 
 /**
- * The indicator's left edge, as a distance from the rail's PADDING box origin.
+ * The indicator's offset from the inner track's leading edge, in pixels.
  *
- * ★ THE FIRST OPTION IS AT THE PHYSICAL LEFT IN LTR AND THE PHYSICAL RIGHT IN RTL.
+ * ★ MEASURED FROM THE PADDING EDGE, WHICH IS WHERE THE PILL ANCHORS.
  *
- * A right-to-left rail lays its first segment against its right edge, which is why
- * the offset subtracts rather than adds there. Clamping the index means a caller
- * that computes it differently later cannot walk the pill out of the track.
+ * The pill declares no horizontal inset, so its origin is the rail's padding edge
+ * — the inner track the labels are laid out in. `0` is therefore the first
+ * segment's leading edge, and no `inset` is added here.
  *
- * ★ THE ORIGIN IS THE RAIL'S PADDING BOX, WHICH IS WHERE AN ABSOLUTE `left` IS
- *   MEASURED FROM.
+ * ★ THE FIRST OPTION IS AT THE LEADING END OF THE READING DIRECTION.
  *
- * `inset` is the rail's own horizontal padding, and the rail is `position:
- * relative`, so an absolutely-positioned child's `left: 0` sits at the rail's
- * padding edge — NOT at its border edge. The padding is therefore already spent
- * by the box model and must not be added again: the first segment's left edge is
- * `0`, and every other value is a distance from there. Adding `inset` here (as
- * this function used to) shifted the whole rail one padding step inward and left
- * a matching gap at the far end — the reported "the pill has an extra offset and
- * the group has no padding on the sides".
+ * Left-to-right: the first segment starts at the inner track's left edge, so the
+ * pill's left is `0`.
+ *
+ * Right-to-left: the rail lays its children out right-to-left, so the first
+ * segment sits at the inner track's RIGHT edge and the pill's left is
+ * `(trackWidth - 2·inset) - segmentWidth` — the mirror, folded in here so the
+ * caller never applies a sign.
+ *
+ * Clamping the index means a caller that computes it differently later cannot walk
+ * the pill out of the track.
  */
 export function indicatorLeftFor(index: number, options: IndicatorGeometryOptions): number {
   const { trackWidth, inset, count, rtl } = options;
@@ -73,7 +83,7 @@ export function indicatorLeftFor(index: number, options: IndicatorGeometryOption
 
   // Before the rail has measured there is no track to place against. The call
   // site renders the pill at `opacity: 0` in that state, so the value only has to
-  // be a safe, non-negative number inside the rail.
+  // be a safe number inside the rail.
   if (segmentWidth <= 0) return 0;
 
   const raw = Number.isFinite(index) ? Math.trunc(index) : 0;
@@ -83,41 +93,4 @@ export function indicatorLeftFor(index: number, options: IndicatorGeometryOption
   const inner = trackWidth - inset * 2;
 
   return rtl ? inner - segmentWidth - travel : travel;
-}
-
-/**
- * The side the pill is positioned from, and its distance, as ONE style object.
- *
- * ★ THE PILL IS ALWAYS ANCHORED ON A SINGLE PHYSICAL SIDE.
- *
- * Returning `{ right }` under RTL looked equivalent and was not: the base style
- * already declares `left: 0` so the absolute node has a defined anchor, and React
- * Native MERGES the call-site object over it. The node then carried both `left: 0`
- * and `right: n`, and CSS resolves the pair by giving `left` precedence — the
- * mirror was silently discarded, the pill was laid out from the physical left on
- * a right-to-left rail, and the offset (computed for the right edge) put it over
- * the opposite option. That is the reported "Auto is selected but the knob is on
- * Light".
- *
- * So the placement is a pair that can never disagree with itself: both keys are
- * always emitted, one of them is `auto`, and the other is the distance from the
- * edge it names. The returned object is spread onto the node directly.
- */
-export function indicatorPlacementFor(
-  index: number,
-  options: IndicatorGeometryOptions,
-): { left: number | 'auto'; right: number | 'auto' } {
-  const { trackWidth, inset, count, rtl } = options;
-
-  const left = indicatorLeftFor(index, options);
-
-  if (rtl) {
-    const segmentWidth = segmentWidthFor({ trackWidth, inset, count });
-    const fromRight = segmentWidth > 0 ? trackWidth - inset * 2 - left - segmentWidth : 0;
-    // rtl-ok: both keys are emitted so the mirror cannot half-apply.
-    return { left: 'auto', right: fromRight };
-  }
-
-  // rtl-ok: a PHYSICAL side pair; see the RTL branch above.
-  return { left, right: 'auto' };
 }

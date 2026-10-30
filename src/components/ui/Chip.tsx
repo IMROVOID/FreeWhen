@@ -275,21 +275,32 @@ export function SegmentedControl({
   });
 
   /**
-   * The animated value carries the PHYSICAL LEFT EDGE, in both directions.
+   * The animated value carries the pill's OFFSET FROM ITS OWN BASE, in pixels.
    *
-   * ★ ONE COORDINATE SPACE, AND IT IS ALWAYS `left`.
+   * ★ A TRANSFORM IS THE ONLY DIRECTION-INDEPENDENT HORIZONTAL POSITION IN RN.
    *
-   * `indicatorLeftFor` already answers "where is the pill's left edge" for an RTL
-   * rail too — a right-to-left rail puts its first segment at its right end, and
-   * the function returns the corresponding left coordinate. So the animated value,
-   * the style key and the interpolation are all in the same space and no direction
-   * sign appears anywhere.
+   * Everything else that could place the pill horizontally is mirrored by the
+   * layout direction, and each was tried and failed:
    *
-   * Writing the RTL distance-from-the-right into `left` (an earlier attempt in
-   * this very change) would have put the Persian pill at the FAR LEFT for option 0
-   * — re-introducing the reported "Language knob sits on English, not Persian".
+   *  - `insetInlineStart` resolves against the DOCUMENT direction, so on web the
+   *    `dir="rtl"` on `<html>` anchored it to the wrong edge;
+   *  - an explicit physical `left` is the inline-END inset in an RTL parent, so
+   *    Yoga takes a different branch there (`AbsoluteLayout.cpp`:
+   *    `isInlineEndPositionDefined` rather than `isInlineStartPositionDefined`) and
+   *    the same number lands somewhere else — the Persian pill on the opposite
+   *    option;
+   *  - pinning the rail to `direction: 'ltr'` fixes that branch but ALSO lays the
+   *    labels out left-to-right, putting `fa` on the left of `en` in Persian — and
+   *    it is a native-only knob (`react-native-web` derives direction from the
+   *    `dir` PROP, not from a `direction` style), so the two platforms would drift.
+   *
+   * `transform: [{ translateX }]` is measured in physical pixels along the x axis
+   * and is NOT mirrored by any of this. So the base is a zero-width, absolutely
+   * positioned node at the rail's leading corner, and this value is the whole
+   * distance from there to the selected segment — direction already folded in by
+   * `indicatorLeftFor`.
    */
-  const animatedLeft = useSharedValue<number>(restLeft);
+  const animatedOffset = useSharedValue<number>(restLeft);
 
   /**
    * The option the last placement was made for.
@@ -345,7 +356,7 @@ export function SegmentedControl({
      *
      * ★ AND THE POSITION IS ALWAYS WRITTEN.
      *
-     * Leaving the assignment out of a branch stranded the pill: `animatedLeft`
+     * Leaving the assignment out of a branch stranded the pill: `animatedOffset`
      * kept the previous option and the "nothing to do" return below then pinned it
      * there permanently. Assigning in every branch is what keeps a sweep of these
      * cases correct.
@@ -359,22 +370,25 @@ export function SegmentedControl({
       placedWidth.current = trackWidth;
       placedIndex.current = selectedIndex;
       placedRtl.current = rtl;
-      animatedLeft.value = restLeft;
+      animatedOffset.value = restLeft;
       return;
     }
 
     placedIndex.current = selectedIndex;
-    animatedLeft.value = withTiming(restLeft, {
+    animatedOffset.value = withTiming(restLeft, {
       duration: dur.fast,
       easing: ease.out,
     });
-  }, [measured, restLeft, selectedIndex, rtl, motion.reduce, trackWidth, animatedLeft]);
+  }, [measured, restLeft, selectedIndex, rtl, motion.reduce, trackWidth, animatedOffset]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
-    // rtl-ok: the physical LEFT edge, in both directions. `indicatorLeftFor`
-    // already mirrored the coordinate for an RTL rail, so this side never flips.
-    left: animatedLeft.value, // rtl-ok: physical left edge, resolved by the geometry
-    right: 'auto', // rtl-ok: the unused side is parked; left carries the position
+    // ★ A TRANSFORM, WHICH NO LAYOUT DIRECTION MIRRORS.
+    //
+    // `translateX` is physical pixels along the x axis on both platforms, so the
+    // number from the geometry means the same thing in every language. Every
+    // alternative — a logical inset, an explicit `left`, or forcing the rail to
+    // LTR — was tried and each changed meaning under RTL (see the note above).
+    transform: [{ translateX: animatedOffset.value }],
   }));
 
   return (
@@ -480,20 +494,35 @@ const styles = StyleSheet.create({
   },
   indicator: {
     position: 'absolute',
-    // ★ ZERO INSETS, BECAUSE THE CONTAINING BLOCK IS ALREADY THE PADDING BOX.
+    // ★ THE TWO AXES USE DIFFERENT ANCHORS, DELIBERATELY.
     //
-    // The rail is `position: relative` with `padding: space[1]`, so an
-    // absolutely-positioned child is laid out against the rail's PADDING box —
-    // which is already inset by `space[1]` on every side. `top: space[1]` and
-    // `bottom: space[1]` here inset it a SECOND time: measured on the theme rail
-    // (padding 4, segment 36) the pill was 28pt tall inside a 36pt segment and sat
-    // 8pt from the rail's top edge. That is the reported "the knob is offset / has
-    // too much padding, needs to be closer to the edge".
+    // Yoga resolves an absolute child's origin from one of two branches
+    // (`AbsoluteLayout.cpp`), independently per axis:
     //
-    // Zero puts the pill exactly on the track the labels are laid out in, which is
-    // the whole point of the control.
-    top: 0,
-    bottom: 0,
+    //   - child HAS an inset for this axis → `inset + parent BORDER + margin`;
+    //   - child has NO inset for this axis → `parent BORDER + parent PADDING + margin`.
+    //
+    // Only the second agrees with the browser, where an absolutely positioned
+    // element's containing block is the padding box. So:
+    //
+    //  • HORIZONTAL: no inset at all. The origin is then the padding edge — the
+    //    inner track the labels are laid out in — which is the same point on native
+    //    and on the web. The whole position is the animated `translateX`, in
+    //    physical pixels, which no layout direction mirrors. Naming a `left` here
+    //    would be right on Android and one padding step out on the web, which is
+    //    exactly how this defect survived two previous fixes.
+    //
+    //  • VERTICAL: an explicit `space[1]`, so the origin is the rail's BORDER edge.
+    //    The rail is `padding: space[1]` around a `size.segment` inner box, so
+    //    `top: space[1]` measures exactly to the segment's top and the pill comes
+    //    out the segment's full height, leaving the rail's padding visible above and
+    //    below it. Both axes have zero border, so this is the same on every
+    //    platform.
+    //
+    // Do not "unify" these two into one origin; that is the change that broke it.
+    top: space[1],
+    bottom: space[1],
+    insetInlineStart: 0,
     borderRadius: radius.pill,
   },
   segmentInner: {

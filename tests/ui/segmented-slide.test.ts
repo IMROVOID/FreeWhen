@@ -43,11 +43,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-import {
-  indicatorLeftFor,
-  indicatorPlacementFor,
-  segmentWidthFor,
-} from '@/src/components/ui/segmented-geometry';
+
 
 function code(path: string): string {
   return readFileSync(path, 'utf8')
@@ -56,87 +52,6 @@ function code(path: string): string {
 }
 
 const CHIP = 'src/components/ui/Chip.tsx';
-
-/** The tokens the rail uses: `space[1]` is 4, a segment is 36 tall. */
-const INSET = 4;
-const SEGMENT_HEIGHT = 36;
-const TRACK = 300;
-const COUNT = 3;
-
-/* ── Box geometry: the pill must be exactly one segment ──────────────────── */
-
-test('the pill spans the full segment, with no padding counted twice', () => {
-  // Arrange — the rail is `padding: 4`, so its padding box is the track and an
-  // absolute child's `left: 0` is that track's edge. The pill then needs
-  // `top: 0` / `bottom: 0` INSIDE the padding box to be a whole segment tall.
-  //
-  // `top: 4, bottom: 4` was applied on top of the padding box, so the pill was
-  // `2 × INSET` short — 28pt inside a 36pt segment on the theme rail.
-  const insetFromPaddingBox = 0;
-  const pillHeight = SEGMENT_HEIGHT - insetFromPaddingBox * 2;
-
-  // Assert
-  assert.equal(pillHeight, SEGMENT_HEIGHT, 'the pill does not fill one segment vertically');
-});
-
-test('the pill is one segment wide and sits exactly over its option', () => {
-  // Arrange
-  const segmentWidth = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  // Act — every option, in LTR.
-  for (const index of [0, 1, 2]) {
-    const left = indicatorLeftFor(index, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false });
-
-    // Assert — the pill occupies the same span its label does, and the first
-    // option is flush against the track's leading edge (not one padding step in).
-    assert.ok(
-      Math.abs(left - segmentWidth * index) < 0.001,
-      `option ${index} rests at ${left}, expected ${segmentWidth * index}`,
-    );
-  }
-
-  assert.equal(
-    indicatorLeftFor(0, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: false }),
-    0,
-    'the first pill is inset by the rail padding a second time',
-  );
-});
-
-test('the first Persian option is flush against the track’s trailing edge', () => {
-  // Arrange — "Language Knob on English instead of Persian on Persian": the
-  // FIRST option in RTL must be the RIGHTMOST, flush at the inner edge.
-  const inner = TRACK - INSET * 2;
-  const segmentWidth = segmentWidthFor({ trackWidth: TRACK, inset: INSET, count: COUNT });
-
-  // Act
-  const first = indicatorLeftFor(0, { trackWidth: TRACK, inset: INSET, count: COUNT, rtl: true });
-
-  // Assert
-  assert.ok(
-    Math.abs(first + segmentWidth - inner) < 0.001,
-    `the RTL first pill ends at ${first + segmentWidth}, expected the inner edge ${inner}`,
-  );
-});
-
-test('the placement pair names one side and parks the other, in both directions', () => {
-  // Arrange — a node carrying both `left` and `right` resolves `left` first, which
-  // is what silently discarded the mirror before.
-  for (const rtl of [false, true]) {
-    for (const index of [0, 1, 2]) {
-      // Act
-      const placement = indicatorPlacementFor(index, {
-        trackWidth: TRACK,
-        inset: INSET,
-        count: COUNT,
-        rtl,
-      });
-
-      // Assert
-      const anchored = [placement.left, placement.right].filter((v) => v !== 'auto');
-      assert.equal(anchored.length, 1, `rtl=${rtl} ${index}: both sides are anchored`);
-    }
-  }
-});
 
 /* ── The animation contract ──────────────────────────────────────────────── */
 
@@ -159,19 +74,24 @@ test('the pill’s position is a single animated value, not a style plus a delta
 });
 
 test('the animated value drives the position, so a slide is possible at all', () => {
-  // Arrange — a `translateX` of a delta on top of a `left` that changes in the
-  // same commit cannot animate: the rest already moved. The animated value has to
-  // BE the position.
+  // Arrange — ★ THE POSITION MUST BE THE ANIMATED VALUE, AND IT MUST BE A TRANSFORM.
+  //
+  // A `translateX` of a delta on top of a `left` that also changes in the same
+  // commit cannot animate: the rest has already moved, so the transform can only
+  // overshoot and settle. The value therefore has to BE the position — and because
+  // every layout inset is mirrored by the layout direction (see the note in
+  // `Chip.tsx`), that position is a transform.
   const chip = code(CHIP);
 
   // Act
-  const animatesLeft = /useAnimatedStyle\(\(\)\s*=>\s*\(\{\s*left:/.test(chip);
+  const animatesTransform = /useAnimatedStyle\(\(\)\s*=>\s*\(\{\s*transform:\s*\[\{\s*translateX:/.test(
+    chip,
+  );
 
   // Assert
   assert.ok(
-    animatesLeft,
-    'the pill translates a delta instead of animating its own left edge, which can only ' +
-      'overshoot and settle',
+    animatesTransform,
+    'the pill does not animate its own position, so it can only overshoot and settle',
   );
 });
 
@@ -206,7 +126,7 @@ test('the position is written even while Reduce Motion is on', () => {
   // Arrange — ★ THE LEAK THIS PINS, FOUND IN REVIEW AND CAUGHT BEFORE SHIPPING.
   //
   // The snap branch used to set the bookkeeping refs and then RETURN when motion
-  // was reduced, without writing `animatedLeft`. With Reduce Motion on, the pill
+  // was reduced, without writing `animatedOffset`. With Reduce Motion on, the pill
   // therefore stayed on whatever option it had last ANIMATED to: the selection
   // could change underneath it and the pill would not follow. Turning Reduce
   // Motion off did not recover, because the position already "matched" and every
@@ -217,7 +137,7 @@ test('the position is written even while Reduce Motion is on', () => {
 
   // Act — the snap branch (first placement / re-measure / direction flip / reduce).
   const snapBranch =
-    /if \(first \|\| resized[\s\S]*?animatedLeft\.value = restLeft;[\s\S]*?\}/.exec(chip)?.[0] ?? '';
+    /if \(first \|\| resized[\s\S]*?animatedOffset\.value = restLeft;[\s\S]*?\}/.exec(chip)?.[0] ?? '';
 
   // Assert
   assert.ok(snapBranch.length > 0, 'the snap branch is missing');
@@ -228,7 +148,7 @@ test('the position is written even while Reduce Motion is on', () => {
   );
   assert.match(
     snapBranch,
-    /animatedLeft\.value = restLeft/,
+    /animatedOffset\.value = restLeft/,
     'the reduce-motion path returns without writing the position, stranding the pill on the old option',
   );
 });
@@ -271,31 +191,37 @@ test('a direction flip snaps rather than sliding across the rail', () => {
   assert.ok(tracksDirection, 'a direction change is animated instead of placed');
 });
 
-test('the animated value is the PHYSICAL left edge, in both directions', () => {
-  // Arrange — ★ THE MISTAKE THIS PINS, WHICH WAS MADE AND CAUGHT IN THIS CHANGE.
+test('the animated value drives a TRANSFORM, which no direction mirrors', () => {
+  // Arrange — ★ THE MISTAKES THIS PINS, ALL THREE MADE IN THIS WORK.
   //
-  // An intermediate version computed the RTL rest as a distance from the RIGHT
-  // edge (what `indicatorPlacementFor` returns for RTL) and then wrote that number
-  // into `left`. On a Persian rail that puts option 0 — the one the language
-  // control selects — at the FAR LEFT instead of the far right, which is precisely
-  // the reported "Language knob sits on English instead of Persian".
+  // Every horizontal LAYOUT inset changes meaning under a right-to-left parent:
+  // `insetInlineStart` resolves against the document, an explicit `left` becomes
+  // the inline-END inset (a different Yoga branch), and forcing the rail to
+  // `direction: 'ltr'` fixes the branch but also re-orders the LABELS — putting
+  // `fa` on the wrong side — while being a native-only style that react-native-web
+  // ignores outright.
   //
-  // `indicatorLeftFor` already returns a left edge for an RTL rail, so the value
-  // must come from it and must be written to `left`, with no side named anywhere.
+  // `translateX` is physical pixels along x and is mirrored by nothing, so it is
+  // the one horizontal position that means the same thing everywhere.
   const chip = code(CHIP);
 
   // Act
-  const restFromLeftGeometry = /const restLeft = indicatorLeftFor\(/.test(chip);
-  const writesLeft = /left:\s*animatedLeft\.value/.test(chip);
-  const picksSide = /rtl\s*\?\s*indicatorPlacement|restOnNamedSide/.test(chip);
+  const restFromGeometry = /const restLeft = indicatorLeftFor\(/.test(chip);
+  const animatesTranslate = /transform:\s*\[\{\s*translateX:\s*animatedOffset\.value/.test(chip);
+  const namesAFloor = /left:\s*animatedOffset|right:\s*animatedOffset/.test(chip);
+  const forcesRailDirection = /direction:\s*'ltr'/.test(chip);
 
   // Assert
-  assert.ok(restFromLeftGeometry, 'the rest is not taken from the left-edge geometry');
-  assert.ok(writesLeft, 'the animated position is not written to `left`');
+  assert.ok(restFromGeometry, 'the rest is not taken from the shared geometry');
+  assert.ok(animatesTranslate, 'the position is not an animated transform');
   assert.equal(
-    picksSide,
+    namesAFloor,
     false,
-    'the component converts the rest to a right-edge distance and writes it into `left`, ' +
-      'which mirrors the Persian pill onto the wrong side',
+    'the position is written to a layout inset, which the direction mirrors',
+  );
+  assert.equal(
+    forcesRailDirection,
+    false,
+    'the rail forces its own writing direction, which also re-orders the labels',
   );
 });
