@@ -91,6 +91,15 @@
         {
           "locationWhenInUsePermission": "FreeWhen uses your approximate location only to estimate travel distance for the participants of an event you joined."
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#120A07"
+        }
       ]
     ],
     "experiments": {

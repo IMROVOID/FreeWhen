@@ -180,29 +180,61 @@ test('the splash logo is not the opaque white square that shipped', () => {
   }
 });
 
-test('the launch window is the splash colour, so no frame is white', () => {
+/**
+ * ★ THE SPLASH CONFIG MUST BE THE ONE `expo prebuild` READS, NOT A HAND EDIT.
+ *
+ * `scripts/build/build-apk.sh` runs `expo prebuild` on every build, and it
+ * REGENERATES `android/`. Files edited by hand under `android/app/src/main/res`
+ * are therefore discarded before Gradle sees them — which is exactly how v0.1.3
+ * and the first v0.1.4 draft shipped a WHITE launch window with an opaque logo
+ * while the committed resources looked correct:
+ *
+ *   <color name="splashscreen_background">#FFFFFF</color>
+ *   <item name="android:windowBackground">@drawable/splashscreen_logo</item>
+ *
+ * The colour comes from the `expo-splash-screen` CONFIG PLUGIN. Without that
+ * plugin in `app.json`, prebuild ignores `splash.backgroundColor` entirely and
+ * falls back to white. So the configuration is what is asserted here; the
+ * generated output is only a consequence.
+ */
+test('the splash colour comes from the expo-splash-screen plugin, not a hand edit', () => {
   // Arrange
-  const styles = readFileSync('android/app/src/main/res/values/styles.xml', 'utf8');
-  const app = readFileSync('app.json', 'utf8');
+  const app = JSON.parse(readFileSync('app.json', 'utf8')) as {
+    expo: { plugins?: unknown[]; splash?: { backgroundColor?: string } };
+  };
 
-  // Act — the configured background, and the colour the splash layer-list paints.
-  const configured = /"splash"\s*:\s*\{[^}]*"backgroundColor"\s*:\s*"(#[0-9A-Fa-f]{6})"/.exec(app);
-  const colors = readFileSync('android/app/src/main/res/values/colors.xml', 'utf8');
+  // Act — the plugin entry, and its options.
+  const plugins = app.expo.plugins ?? [];
+  const entry = plugins.find(
+    (p) => Array.isArray(p) && p[0] === 'expo-splash-screen',
+  ) as [string, Record<string, unknown>] | undefined;
 
-  // Assert — the theme's window background is the splash colour, not a drawable
-  // that could carry its own (white) fill.
-  assert.ok(configured, 'app.json declares no splash background colour');
-  assert.match(
-    styles,
-    /Theme\.App\.SplashScreen/,
-    'the splash theme is gone; the launch window would use the app theme',
+  // Assert — the plugin is what sets `splashscreen_background`, so its absence is
+  // the bug, whatever the legacy `splash` key happens to say.
+  assert.ok(
+    entry,
+    'expo-splash-screen is not in app.json plugins, so prebuild writes a WHITE splash ' +
+      'background regardless of splash.backgroundColor',
   );
-  assert.match(
-    styles,
-    /splashscreen_background|splash_background|windowSplashScreenBackground/,
-    'the splash theme does not paint the splash colour',
-  );
-  assert.match(colors, /splash_background|splashscreen_background/, 'no splash colour resource');
+  assert.equal(entry[1].backgroundColor, '#120A07', 'the plugin does not set the brand colour');
+  assert.equal(entry[1].image, './assets/images/splash.png', 'the plugin points at another image');
+});
+
+test('the splash art is a transparent mark, so the window colour shows through', () => {
+  // Arrange — prebuild derives `splashscreen_logo.png` from this file. A
+  // full-bleed opaque image becomes an opaque logo, which covers the window and
+  // renders as "there is no splash" on a dark background.
+  const { data, width } = decodePng('assets/images/splash.png');
+
+  const cornerAlpha = data[3] ?? 0;
+  let opaque = 0;
+  for (let i = 3; i < data.length; i += 4) if ((data[i] ?? 0) > 32) opaque += 1;
+  const coverage = opaque / (width * width);
+
+  // Assert
+  assert.equal(cornerAlpha, 0, 'the splash source is opaque at its corner, so the logo is a rectangle');
+  assert.ok(coverage > 0.02, 'the splash source draws nothing');
+  assert.ok(coverage < 0.9, `the splash source is ${(coverage * 100).toFixed(0)}% fill, not a mark`);
 });
 
 test('the app holds the splash long enough to be seen', () => {
