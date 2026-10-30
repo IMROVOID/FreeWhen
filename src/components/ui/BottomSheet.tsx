@@ -8,6 +8,24 @@ import { useTheme } from '@/src/theme/useTheme';
 
 import { shouldOpenSheet, sheetIndexFor } from './sheet-open';
 
+/**
+ * How often the open is re-asked while the library has not acknowledged it.
+ *
+ * One frame at 60Hz is ~16ms; 32ms gives the container's measurement and the
+ * library's `isLayoutCalculated` derivation a frame to agree without feeling slow.
+ */
+const SHEET_OPEN_RETRY_MS = 32;
+
+/**
+ * How many re-asks before giving up.
+ *
+ * ~8 × 32ms ≈ 250ms, comfortably longer than the two-frame race this covers while
+ * staying far short of a user's tolerance for an unresponsive tap. The interval is
+ * cleared the moment the library acknowledges, so this ceiling is only reached if
+ * the sheet genuinely cannot open.
+ */
+const SHEET_OPEN_ATTEMPTS = 8;
+
 export interface BottomSheetProps {
   children: React.ReactNode;
   /** Whether the sheet is presented. */
@@ -91,7 +109,7 @@ export function BottomSheet({
   visibleRef.current = visible;
 
   /**
-   * ★ THE OPEN IS DRIVEN BY `index` AND RETRIED ON LAYOUT.
+   * ★ THE OPEN IS DRIVEN BY `index` AND RETRIED UNTIL THE LIBRARY ACKNOWLEDGES.
    *
    * `handleSnapToIndex` returns silently when the sheet's own layout has not been
    * calculated yet — `const isLayoutReady = isLayoutCalculated.get(); if
@@ -103,22 +121,42 @@ export function BottomSheet({
    * That is why every overlay in this app opened and painted nothing: the sheet's
    * `Modal` is presented (a real window on Android), the panel inside it stays
    * translated off-screen at `index −1`, and the window swallows every touch. The
-   * report is exact: "the input is swallowed by the overlay but the overlay itself
-   * is not visible".
+   * report is exact: "the overlays still don't open on App/Mobile, it just swallows
+   * the Focus/Control".
    *
-   * `index` therefore stays as the controlled value, and the open is ALSO asked
-   * for from the measuring parent's `onLayout` — the first moment the library's
-   * gate can pass. `shouldOpenSheet` keeps that retry idempotent, so the extra
-   * `onLayout` callbacks a keyboard inset or a font-scale change produces cannot
-   * re-animate a sheet the user has since dragged.
+   * ★ AND AN ATTEMPT IS NOT A SUCCESS.
+   *
+   * The first version of this retry set the "opened" flag BEFORE calling
+   * `snapToIndex`, so the mount-time attempt — which the library silently ignores,
+   * because its gate is still closed — consumed the retry. When `onLayout` then
+   * fired, the guard rejected it and the sheet never opened at all. The flag is
+   * therefore set ONLY by the library's own acknowledgement (`onChange`), and the
+   * attempt itself is free to repeat.
    */
   const openIndex = sheetIndexFor({ visible, mounted });
 
-  /** Whether an open has already been delivered for this presentation. */
+  /**
+   * Whether the library has confirmed that the sheet actually opened.
+   *
+   * Written by `onChange` — the library's signal that it settled at an index — and
+   * cleared when the caller closes the sheet, so the next presentation opens again.
+   */
   const openedRef = useRef(false);
 
+  /**
+   * Whether the library has settled ANYWHERE for this presentation, including a
+   * position the user chose by dragging.
+   *
+   * Distinct from `openedRef` because a settle at a negative index is not an open —
+   * but it IS the user taking control, so it must end the retry just the same.
+   */
+  const settledRef = useRef(false);
+
   useEffect(() => {
-    if (!visible) openedRef.current = false;
+    if (!visible) {
+      openedRef.current = false;
+      settledRef.current = false;
+    }
   }, [visible]);
 
   const requestOpen = useCallback(() => {
@@ -126,17 +164,67 @@ export function BottomSheet({
       return;
     }
 
-    // The library tolerates being asked when its own gate is still closed — the
-    // call returns — so the guard here is only about not repeating a SUCCESSFUL
-    // open. `snapToIndex` is the public path; `index` alone is not sufficient,
-    // see above.
-    openedRef.current = true;
+    // Deliberately NO state update here. The library ignores a call whose layout
+    // gate is still closed, so this may be a no-op — and treating a no-op as
+    // success is what killed the retry before.
     sheetRef.current?.snapToIndex(0);
   }, [visible]);
+
+  /**
+   * The library reported a settle: stop asking it to open.
+   *
+   * ★ ANY SETTLED INDEX ENDS THE RETRY, INCLUDING ONE THE USER CHOSE.
+   *
+   * A drag that comes to rest anywhere — at a snap point, mid-flight, or back at
+   * closed — is the user having taken control. Continuing to call `snapToIndex(0)`
+   * for the rest of the retry budget would fight that gesture. The retry exists to
+   * survive a *gated* call the library silently ignored, not to override a
+   * decision the user made.
+   *
+   * An actual open is additionally recorded, so `requestOpen` becomes a no-op for
+   * the rest of this presentation.
+   */
+  const handleChange = useCallback((index: number) => {
+    if (index >= 0) openedRef.current = true;
+    settledRef.current = true;
+  }, []);
 
   useEffect(() => {
     if (!visible || !mounted) return;
     requestOpen();
+  }, [visible, mounted, requestOpen]);
+
+  /**
+   * ★ A BOUNDED RETRY, BECAUSE `onLayout` IS NOT ALWAYS LATE ENOUGH.
+   *
+   * `onLayout` on the measuring parent is the first moment the library's gate
+   * *can* pass, but it is not guaranteed to be the moment it *has* passed: on
+   * Android the container's measurement and the library's own
+   * `isLayoutCalculated` are separate derivations of the same frame, and the
+   * second can still be `false` when the first arrives. One retry attempts that
+   * race and loses it silently.
+   *
+   * So the open is re-asked on a short interval until the library acknowledges
+   * (or the budget runs out). Each attempt is free — the library ignores a call it
+   * is not ready for — and `openedRef` stops the interval the moment it settles, so
+   * the happy path pays a single extra call at most.
+   */
+  useEffect(() => {
+    if (!visible || !mounted) return;
+
+    let attempts = 0;
+    const timer = setInterval(() => {
+      attempts += 1;
+
+      if (openedRef.current || settledRef.current || attempts > SHEET_OPEN_ATTEMPTS) {
+        clearInterval(timer);
+        return;
+      }
+
+      requestOpen();
+    }, SHEET_OPEN_RETRY_MS);
+
+    return () => clearInterval(timer);
   }, [visible, mounted, requestOpen]);
 
   useEffect(() => {
@@ -241,6 +329,9 @@ export function BottomSheet({
           enablePanDownToClose={dismissible}
           enableDynamicSizing={isDynamic}
           onClose={handleClose}
+          // ★ THE ACKNOWLEDGEMENT. This is the only thing that marks the open as
+          // done, so a call the library silently ignored cannot consume the retry.
+          onChange={handleChange}
           backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
           handleComponent={Grabber}
           accessibilityLabel={testID}

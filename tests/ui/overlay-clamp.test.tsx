@@ -103,6 +103,44 @@ test('the overlay uses the frame’s own constants', () => {
 
 /* ── The surfaces that use it ─────────────────────────────────────────────── */
 
+/**
+ * ★ AN UNPLACED MENU MUST NOT PRESENT.
+ *
+ * `placedPoint` is `null` until the caller has measured the row the menu belongs
+ * to. The panel used to render anyway — at `opacity: 0` in the viewport's corner —
+ * while its scrim and its `Modal` stayed fully interactive. That is an invisible
+ * layer holding the focus and swallowing every touch: "it just swallows the
+ * Focus/Control".
+ */
+test('a menu with no position renders nothing at all', () => {
+  // Arrange
+  const popover = code('src/components/ui/Popover.tsx');
+
+  // Act
+  const returnsEarly = /if \(placedPoint === null\) return null;/.test(popover);
+  const noParkingSpot = !/styles\.unplaced/.test(popover);
+
+  // Assert
+  assert.ok(returnsEarly, 'an unplaced menu still mounts a scrim that traps the focus');
+  assert.ok(noParkingSpot, 'a hidden parking spot can still be painted over a live scrim');
+});
+
+test('a placed menu keeps its point through the close', () => {
+  // Arrange — ★ FOUND IN REVIEW. `position` is a PROP and is recomputed every
+  // render, so a caller that nulls it on dismiss (`ContextMenu` does, when the
+  // anchor goes null) would make the panel jump to nowhere mid-exit — unless the
+  // last real point is remembered.
+  const popover = code('src/components/ui/Popover.tsx');
+
+  // Act
+  const remembers = /lastPoint\s*=\s*useRef</.test(popover);
+  const writesIt = /if \(position !== null\)\s*\{[\s\S]*?lastPoint\.current\s*=/.test(popover);
+
+  // Assert
+  assert.ok(remembers, 'the placed point is not remembered across renders');
+  assert.ok(writesIt, 'the remembered point is never updated');
+});
+
 test('both overlay surfaces render inside the clamp', () => {
   // Arrange — one sheet, one menu. A third overlay that forgot this would be
   // desktop-wide again.

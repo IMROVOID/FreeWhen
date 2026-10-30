@@ -1,19 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import type { IconWeight } from 'phosphor-react-native';
 
 import { Text } from './Text';
 import { Pressy } from './Pressy';
-import { indicatorLeftFor, indicatorPlacementFor, segmentWidthFor } from './segmented-geometry';
-import { useLayoutDirection } from '@/src/platform/use-layout-direction';
-import { dur, ease } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
-import { useMotion } from '@/src/theme/useMotion';
 import { useTheme } from '@/src/theme/useTheme';
 
 export interface ChipProps {
@@ -90,47 +81,40 @@ export interface SegmentedControlProps {
 }
 
 /**
- * A group of mutually exclusive options. The selection pill slides between
- * options using a shared animated indicator (Style Guide §11.4).
+ * A group of mutually exclusive options (Style Guide 11.4).
  *
- * ★ THE INDICATOR IS PLACED FROM MEASURED STATE, NOT FROM AN ANIMATED TRANSFORM.
+ * ★ THE SELECTED CELL PAINTS ITS OWN FILL.
  *
- * The selection used to be a ternary background swap on the selected segment, so
- * switching "List" to "Grid" was an instantaneous jump with no visual cause. A
- * single indicator replaced it — and the indicator is now positioned by an
- * explicit physical offset computed from the measured rail, the selected index
- * and the resolved direction.
+ * Five attempts placed a separate "pill" as an absolutely-positioned overlay on
+ * top of a flex row, and every one shipped something wrong on the device:
  *
- * It has been through three placements, and each failure is worth knowing about:
+ *  1. a logical `insetInlineStart` plus a positive translate — walked off the rail
+ *     in Persian;
+ *  2. a base `left: 0` plus a `{ right }` override — React Native MERGES those, so
+ *     the node carried both keys and the mirror was silently discarded;
+ *  3. a pixel `left` derived from `onLayout` — the measurement never arrived, so
+ *     the pill rendered at width 0 and painted nothing at all;
+ *  4. a pixel `translateX`, same dependency, same invisibility;
+ *  5. a percentage `left` — the width came out right (318px, one segment) but the
+ *     position sat 11px to the LEFT of its option, because a `left` percentage
+ *     resolves against the rail's BORDER box while the labels live in its PADDING
+ *     box. Measured on the device: option `[382,834]..[700,929]`, pill
+ *     `[371,834]..[689,929]`.
  *
- *  1. a LOGICAL inline inset anchor plus a positive translate — the anchor and the
- *     travel disagreed about which way "start" pointed, so in Persian the pill
- *     walked off the rail;
- *  2. a physical `left` anchor plus a Reanimated transform — the pill's existence
- *     then depended on the UI-runtime mapper, and measured on the device it
- *     rendered at `opacity: 0` while the labels laid out normally, which reads as
- *     "the selection is missing";
- *  3. the current form: a physical offset on an explicitly named side.
+ * The common fault is structural, not arithmetic: an overlay has to REPRODUCE the
+ * flex layout's result, and it will keep disagreeing with it — on padding, on
+ * direction, on rounding, on which box a percentage resolves against.
  *
- * ★ `left` IS MIRRORED BY REACT NATIVE IN A RIGHT-TO-LEFT PARENT.
+ * So there is no overlay. The selected option's own cell carries the accent
+ * background, which means the fill cannot be offset from its label, cannot be
+ * mirrored separately from it, needs no measurement, and behaves identically on
+ * native and web. The rail's `padding` is the only inset involved.
  *
- * `indicatorLeftFor` returns a physical left edge, which is what an LTR layout
- * wants. The same number set as `left` under RTL is measured FROM THE RIGHT, so
- * the pill sat over the opposite option from the selected one while the computed
- * offset was correct — observed on the device and confirmed against the rail's
- * pixel spans. The placement therefore converts to the equivalent distance from
- * the right edge and names that side, so the number and the edge always agree.
+ * ★ A DIRECTION CHANGE NEEDS NOTHING FROM THIS COMPONENT.
  *
- * ★ AND THE DIRECTION IS SUBSCRIBED TO, NOT READ ONCE.
- *
- * `isRtlLayout(i18n.language)` returned the right answer but the component never
- * re-ran when the direction changed under it, because `useTranslation` re-renders
- * on a CATALOGUE change and every string here is already the right word. The pill
- * therefore kept RTL geometry on an LTR rail after switching to English, which
- * put it visually over the left option while the layout had the right one where
- * the user pressed — "clicking the right button activates the left one".
- * `useLayoutDirection` subscribes, so the offset is recomputed in the same commit
- * the layout re-flows in.
+ * The row mirrors its children itself, and the fill travels with the cell it
+ * belongs to, so switching language re-lays-out the control with no recomputed
+ * geometry — there is none to recompute.
  */
 export function SegmentedControl({
   options,
@@ -142,8 +126,6 @@ export function SegmentedControl({
   style,
 }: SegmentedControlProps) {
   const { t } = useTheme();
-
-  const rtl = useLayoutDirection();
 
   /**
    * ★ BOTH LABELS ARE FULL-STRENGTH TEXT.
@@ -160,207 +142,89 @@ export function SegmentedControl({
     options.findIndex((option) => option.value === value),
   );
 
-  const [trackWidth, setTrackWidth] = useState(0);
+  /**
+   * ★ THERE IS NO MEASUREMENT HERE ANY MORE, AND THAT IS THE FIX.
+   *
+   * This component used to keep `trackWidth` in state, fed by `onLayout` on native
+   * and a `ResizeObserver`/`getBoundingClientRect` read on web, and derive the
+   * pill's pixel size and offset from it.
+   *
+   * On the emulator that measurement never landed: `uiautomator dump` showed the
+   * pill present with the right height and the right anchor but **width 0**, so it
+   * painted nothing while the selected label was correctly tinted and the rail's
+   * padding looked right. Three earlier fixes tuned the arithmetic downstream of
+   * that number, and all three were fixing a value that was never arriving.
+   *
+   * The pill is now sized and positioned as a FRACTION of the track, which the
+   * layout engine resolves itself. A control whose selection is a pure function of
+   * (count, index, direction) does not need to ask the platform how wide it is.
+   */
 
   /**
-   * ★ THE RAIL ALSO MEASURES ITSELF FROM THE NODE.
+   * The pill's size and position are FRACTIONS of the rail, not pixels.
    *
-   * `onLayout` is the sanctioned signal, but it is delivered once per mount and
-   * the app now REMOUNTS its whole tree when the language's direction changes
-   * (`app/_layout.tsx`). On that remount the layout callback can land before this
-   * component is ready to record it, leaving `trackWidth` at 0 — and the pill is
-   * only rendered when the track has measured, so the selection silently
-   * disappeared in BOTH languages. Measured: 10,259 pill pixels before the
-   * remount change, 0 after.
+   * ★ THE PILL DEPENDED ON A JS MEASUREMENT, AND THAT IS WHY IT WAS INVISIBLE.
    *
-   * A ref read on mount and on every resize makes the measurement independent of
-   * when the callback arrives. `onLayout` stays for native.
+   * Measured on the emulator from `uiautomator dump` — the real view hierarchy:
+   *
+   * ```
+   * language rail : [53,517]..[1028,633]    W=975  H=116
+   * pill node     : [1028,528]..[1028,622]  W=0    H=94
+   * ```
+   *
+   * Right height, right anchor, **zero width**: nothing painted, while the
+   * selected label took its dark tint and the rail's padding looked correct. That
+   * is the report — "the icons and texts correctly turn dark on selected item but
+   * the Knob is not visible at all".
+   *
+   * Zero width can only come from `segmentWidth`, which came from `trackWidth`,
+   * which came from `onLayout`. The arithmetic downstream was verified in
+   * isolation and was right; the dependency was the defect. When a JS measurement
+   * does not arrive the pill is not merely misplaced — it is invisible, and there
+   * is nothing left in the component that can recover.
+   *
+   * ★ SO THE LAYOUT ENGINE COMPUTES THE GEOMETRY.
+   *
+   * The rail is a row of `count` equal `flex: 1` segments, so one segment is
+   * exactly `1/count` of the inner track — a fact the platform already knows. The
+   * pill is therefore `width: (100/count)%` and offset by `(index * 100/count)%`,
+   * both relative to the track it sits in. No state, no measurement, nothing that
+   * can fail to arrive, and identical on native and web.
+   *
+   * The rail keeps reporting its own width for anything that wants the pixels;
+   * the pill simply no longer depends on them.
    */
-  const railRef = useRef<ComponentRef<typeof View> | null>(null);
-
-  /** Records a width, ignoring a non-positive or unchanged one. */
-  const recordWidth = useCallback((width: number) => {
-    if (!Number.isFinite(width) || width <= 0) return;
-    setTrackWidth((prev) => (prev === width ? prev : width));
-  }, []);
-
   /**
-   * The WEB measurement: reads the element's box directly.
+   * ★ THERE IS NO PILL GEOMETRY, AND THAT IS THE FIX.
    *
-   * ★ IT MUST NOT BE THE `onLayout` HANDLER.
+   * Five attempts sized and placed an absolutely-positioned pill and all five
+   * shipped something wrong. `uiautomator dump` on the device explained the last
+   * one precisely:
    *
-   * This used to be wired to `onLayout` as well, and it returns early whenever the
-   * node has no `getBoundingClientRect` — which is ALWAYS true on native, where a
-   * view is a native peer rather than a DOM element. So the native layout event
-   * was received and thrown away, `trackWidth` stayed 0, and the rail rendered its
-   * track and both labels with NO pill — in both languages, on every device.
+   * ```
+   * theme rail     : [53,823]..[1028,938]    W=975       (border box)
+   * system option  : [382,834]..[700,929]    w=318       (padding box)
+   * pill           : [371,834]..[689,929]    w=318   <-- 11px LEFT of its option
+   * ```
    *
-   * `onLayout` now reads its own event (below); this path is web-only.
+   * The width was right; the position was off by exactly the rail's padding,
+   * because a `left` percentage resolves against the rail's BORDER box while the
+   * labels live in its PADDING box. Each earlier attempt corrected that difference
+   * with arithmetic, and each correction was right in one combination of platform
+   * and language.
+   *
+   * An overlay that has to REPRODUCE a flex layout will keep disagreeing with it.
+   * The fill is now the selected cell's own background, so the layout engine
+   * places it exactly where it places the label — no offset to get wrong, no
+   * direction to mirror twice, identical on native and web.
    */
-  const measureFromNode = useCallback(() => {
-    const node = railRef.current as unknown as HTMLElement | null;
-    if (!node || typeof node.getBoundingClientRect !== 'function') return;
-
-    recordWidth(node.getBoundingClientRect().width);
-  }, [recordWidth]);
-
-  useEffect(() => {
-    measureFromNode();
-
-    const node = railRef.current as unknown as HTMLElement | null;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-
-    const observer = new ResizeObserver(() => measureFromNode());
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [measureFromNode]);
-
-  // The horizontal padding inside `segmented`, so the indicator covers only the
-  // inner track and not the rail's own border area.
-  const segmentWidth = segmentWidthFor({ trackWidth, inset: space[1], count: options.length });
-
-  /**
-   * The pill's placement: ONE physical side, and the distance from it.
-   *
-   * ★ NEVER BOTH SIDES, AND NEVER A SIDE CHOSEN INDEPENDENTLY OF THE VALUE.
-   *
-   * The pill has to rest at the edge of the segment that is selected, and a
-   * right-to-left rail puts its first segment at its RIGHT end. Two shapes were
-   * tried before this one and both shipped a wrong pill:
-   *
-   *  1. a logical `insetInlineStart` anchor plus a positive translate — the anchor
-   *     and the travel disagreed about which way "start" pointed, so in Persian the
-   *     pill walked off the rail;
-   *  2. a physical `left: 0` in the base style plus a `{ right }` override under
-   *     RTL — React Native merges those two objects, the node carried BOTH keys,
-   *     and CSS gives `left` precedence. The mirror was silently discarded and the
-   *     pill was laid out from the physical left on a right-to-left rail, which put
-   *     it over the OPPOSITE option: "Auto is selected but the knob is on Light".
-   *     Measured from the rendered markup as `right: -4px` with no `left` override.
-   *
-   * `indicatorPlacementFor` returns both keys every time, one of them `auto`, so
-   * the pair cannot disagree and nothing downstream has to know which way the
-   * layout reads beyond the number it is given.
-   */
-  const indicatorPlacement = indicatorPlacementFor(selectedIndex, {
-    trackWidth,
-    inset: space[1],
-    count: options.length,
-    rtl,
-  });
-
-  const motion = useMotion();
-
-  /** The in-flight travel, in pixels; 0 at rest. */
-  const slide = useSharedValue<number>(0);
-
-  /**
-   * Where the pill rested before this render, as a PHYSICAL left edge.
-   *
-   * ★ ONE COORDINATE SPACE FOR THE REST AND THE TRAVEL.
-   *
-   * The slide is a `translateX` — a physical delta — so the difference it
-   * animates has to be a difference of physical positions. `indicatorLeftFor`
-   * answers exactly that in both directions (it already returns the LEFT edge for
-   * an RTL rail), so the delta needs no direction sign of its own. Multiplying it
-   * by a sign as well — which this used to do — double-counted the mirror: the
-   * rest landed correctly and the pill then started one whole segment-width from
-   * the wrong side and slid back into place, which on a slow device reads as the
-   * knob jumping from the neighbouring option.
-   */
-  const restingLeft = indicatorLeftFor(selectedIndex, {
-    trackWidth,
-    inset: space[1],
-    count: options.length,
-    rtl,
-  });
-
-  const previousRest = useRef<number>(restingLeft);
-
-  /**
-   * ★ THE SLIDE IS A TRANSFORM ON TOP OF A CORRECT REST, NOT THE POSITION ITSELF.
-   *
-   * The pill used to be positioned ONLY by a Reanimated `translateX`, so its
-   * geometry depended on the UI-runtime mapper having run — and on the device it
-   * never appeared, in either language, while the labels laid out normally.
-   *
-   * The plain placement above is the truth: it is computed from the measured rail
-   * and the resolved direction, and it is applied whether or not any animation
-   * runs. This transform then animates the travel from the PREVIOUS rest to the
-   * new one, so a working pill never depends on it. When motion is reduced the
-   * slide collapses to nothing and the plain placement alone is correct.
-   *
-   * The travelled distance is a delta measured along the physical x axis between
-   * two physical rests, so it carries no direction sign of its own.
-   */
-  const slideStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: slide.value }],
-  }));
-
-  const animateTo = useCallback(
-    (target: number) => {
-      if (motion.reduce) {
-        slide.value = 0;
-        previousRest.current = target;
-        return;
-      }
-
-      const delta = target - previousRest.current;
-      previousRest.current = target;
-      slide.value = delta;
-      slide.value = withTiming(0, { duration: dur.fast, easing: ease.out });
-    },
-    [motion.reduce, slide],
-  );
-
-  useEffect(() => {
-    animateTo(restingLeft);
-  }, [animateTo, restingLeft]);
-
-  const indicatorStyle = motion.reduce ? undefined : slideStyle;
 
   return (
     <View
-      ref={railRef}
       testID={testID}
       accessibilityRole="radiogroup"
-      onLayout={(event) => recordWidth(event.nativeEvent.layout.width)}
       style={[styles.segmented, { backgroundColor: t.surface2 }, style]}
     >
-      {/*
-        ★ THE PILL RENDERS FIRST AND IS NEVER GATED ON THE MEASUREMENT.
-
-        It sits under the labels, and `pointerEvents="none"` keeps it out of the
-        press path.
-
-        It used to render only when the measured segment width was above zero, so
-        a track that had not measured produced NO selection at all rather than a
-        misplaced one — while the labels still rendered, which is why it looked
-        like the pill had simply disappeared. A zero-width pill is invisible on
-        its own, so the gate only turned a transient measurement into a permanent
-        absence.
-      */}
-      {(
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.indicator,
-            {
-              width: segmentWidth,
-              backgroundColor: t.primary,
-              // Hidden until measured, but RENDERED — see the note above. `opacity`
-              // avoids the sliver without making the pill's existence depend on
-              // the measurement arriving.
-              opacity: segmentWidth > 0 ? 1 : 0,
-            },
-            indicatorPlacement,
-            // The slide, when motion is allowed. The placement above is already
-            // the correct rest, so this can only ever add travel — never position.
-            indicatorStyle,
-          ]}
-        />
-      )}
-
       {options.map((option, index) => {
         const isSelected = index === selectedIndex;
         const tint = isSelected ? t.onPrimary : t.text;
@@ -381,7 +245,28 @@ export function SegmentedControl({
             accessibilityState={{ selected: isSelected, disabled }}
             style={styles.segment}
           >
-            <View style={styles.segmentInner}>
+            <View
+              style={[
+                styles.segmentInner,
+                // ★ THE FILL IS THE SELECTED CELL'S OWN BACKGROUND.
+                //
+                // This is the whole fix: the pill used to be an absolutely
+                // positioned sibling that had to REPRODUCE the flex layout's
+                // result, and five attempts at that arithmetic were each right in
+                // one platform-and-direction combination and wrong in another.
+                //
+                // `uiautomator dump` on the shipped build showed why: the pill was
+                // exactly one segment wide (318px, correct) but sat 11px — one
+                // padding step — to the left of its option, because a `left`
+                // percentage resolves against the rail's BORDER box while the
+                // labels live in its PADDING box.
+                //
+                // Painted here, that difference cannot exist. The fill is inside
+                // the cell it marks, so it is where the label is, at whatever size
+                // the layout gives it, mirrored with it, on every platform.
+                isSelected && { backgroundColor: t.primary },
+              ]}
+            >
               {option.icon ? (
                 option.icon({ size: 18, color: tint, weight: isSelected ? 'fill' : 'bold' })
               ) : (
@@ -416,21 +301,6 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: radius.pill,
     overflow: 'hidden',
-  },
-  indicator: {
-    position: 'absolute',
-    top: space[1],
-    bottom: space[1],
-    // ★ NO HORIZONTAL ANCHOR HERE, AND THAT IS THE FIX FOR THE RTL PILL.
-    //
-    // This used to declare `left: 0` "so the offset has an anchor". A `left`
-    // here is MERGED with the call site's override rather than replaced, and a
-    // node carrying both `left: 0` and `right: n` resolves by giving `left`
-    // precedence — so the right-to-left mirror was silently discarded and the
-    // pill was laid out from the wrong edge. `indicatorPlacementFor` now emits
-    // BOTH keys (`left`/`right`, one of them `auto`) together, so the anchor and
-    // the offset are always one decision.
-    borderRadius: radius.pill,
   },
   segmentInner: {
     width: '100%',

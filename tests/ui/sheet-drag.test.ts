@@ -234,8 +234,15 @@ test('every geometry consumer subscribes instead of reading once', () => {
   // The event menu is now a thin action list over the shared surface, so the
   // direction that mirrors its horizontal placement is read there — and the
   // messages menu subscribes through the same file rather than a second copy.
+  //
+  // ★ AND `Chip.tsx` IS NO LONGER ON THIS LIST, DELIBERATELY.
+  //
+  // It used to be here because it computed a mirrored pixel offset and had to
+  // recompute it when the direction changed. The segmented control now paints the
+  // selected cell's own background and lets the ROW mirror its children, so it has
+  // no direction-dependent geometry left to subscribe to. `tests/ui/
+  // segmented-flex-pill.test.ts` owns that contract.
   for (const path of [
-    'src/components/ui/Chip.tsx',
     'src/components/ui/AccentSwitch.tsx',
     'src/components/ui/ContextMenu.tsx',
   ]) {
