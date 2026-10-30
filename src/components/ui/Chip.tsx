@@ -9,7 +9,7 @@ import type { IconWeight } from 'phosphor-react-native';
 
 import { Text } from './Text';
 import { Pressy } from './Pressy';
-import { indicatorLeftFor, indicatorPlacementFor, segmentWidthFor } from './segmented-geometry';
+import { indicatorLeftFor, segmentWidthFor } from './segmented-geometry';
 import { useLayoutDirection } from '@/src/platform/use-layout-direction';
 import { dur, ease } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
@@ -220,104 +220,162 @@ export function SegmentedControl({
   const segmentWidth = segmentWidthFor({ trackWidth, inset: space[1], count: options.length });
 
   /**
-   * The pill's placement: ONE physical side, and the distance from it.
+   * ★ THE PILL IS ALWAYS PLACED FROM ITS PHYSICAL LEFT EDGE.
    *
-   * ★ NEVER BOTH SIDES, AND NEVER A SIDE CHOSEN INDEPENDENTLY OF THE VALUE.
-   *
-   * The pill has to rest at the edge of the segment that is selected, and a
-   * right-to-left rail puts its first segment at its RIGHT end. Two shapes were
-   * tried before this one and both shipped a wrong pill:
+   * Three shapes were tried and the first two shipped a wrong pill:
    *
    *  1. a logical `insetInlineStart` anchor plus a positive translate — the anchor
    *     and the travel disagreed about which way "start" pointed, so in Persian the
    *     pill walked off the rail;
-   *  2. a physical `left: 0` in the base style plus a `{ right }` override under
-   *     RTL — React Native merges those two objects, the node carried BOTH keys,
-   *     and CSS gives `left` precedence. The mirror was silently discarded and the
-   *     pill was laid out from the physical left on a right-to-left rail, which put
-   *     it over the OPPOSITE option: "Auto is selected but the knob is on Light".
-   *     Measured from the rendered markup as `right: -4px` with no `left` override.
+   *  2. a base `left: 0` plus a `{ right }` override under RTL — React Native
+   *     MERGES those, the node carried BOTH keys, and CSS resolves that pair by
+   *     giving `left` precedence, so the mirror was silently discarded. Measured
+   *     from the rendered markup as `right: -4px` with no `left` override, and
+   *     visible as "Auto is selected but the knob is on Light";
+   *  3. the current one — a single physical `left`, in both directions.
    *
-   * `indicatorPlacementFor` returns both keys every time, one of them `auto`, so
-   * the pair cannot disagree and nothing downstream has to know which way the
-   * layout reads beyond the number it is given.
+   * `indicatorLeftFor` already answers "left edge" for an RTL rail (it knows the
+   * first segment sits at the right end), so nothing here needs to name a side or
+   * carry a direction sign. `indicatorPlacementFor` remains in the geometry module
+   * for callers that need the pair, but this component does not: one side that is
+   * always right cannot disagree with itself.
    */
-  const indicatorPlacement = indicatorPlacementFor(selectedIndex, {
-    trackWidth,
-    inset: space[1],
-    count: options.length,
-    rtl,
-  });
 
   const motion = useMotion();
 
-  /** The in-flight travel, in pixels; 0 at rest. */
-  const slide = useSharedValue<number>(0);
-
   /**
-   * Where the pill rested before this render, as a PHYSICAL left edge.
+   * The pill's left edge, IN THE SIDE THE PLACEMENT NAMES, as one animated value.
    *
-   * ★ ONE COORDINATE SPACE FOR THE REST AND THE TRAVEL.
+   * ★ THE ANIMATED VALUE HAS TO *BE* THE POSITION.
    *
-   * The slide is a `translateX` — a physical delta — so the difference it
-   * animates has to be a difference of physical positions. `indicatorLeftFor`
-   * answers exactly that in both directions (it already returns the LEFT edge for
-   * an RTL rail), so the delta needs no direction sign of its own. Multiplying it
-   * by a sign as well — which this used to do — double-counted the mirror: the
-   * rest landed correctly and the pill then started one whole segment-width from
-   * the wrong side and slid back into place, which on a slow device reads as the
-   * knob jumping from the neighbouring option.
+   * The previous shape kept `left` static (the correct rest, applied in style) and
+   * animated a `translateX` delta on top of it:
+   *
+   * ```js
+   * slide.value = delta;                    // ①
+   * slide.value = withTiming(0, { … });     // ②
+   * ```
+   *
+   * Two assignments to one shared value in the same synchronous block. ② replaced
+   * ① before any frame could render, so nothing ever travelled FROM the old
+   * option: `left` had already moved to the new rest and the transform animated
+   * from an overshoot of `delta` back to `0`. Visibly that is a jump to the new
+   * option followed by a wobble toward the old one — "it just teleports and shakes
+   * when changing the value".
+   *
+   * A translation cannot animate a position that is also being rewritten in style
+   * on the same commit. So the position itself is the animated value, and the
+   * transform is gone entirely.
    */
-  const restingLeft = indicatorLeftFor(selectedIndex, {
+  const restLeft = indicatorLeftFor(selectedIndex, {
     trackWidth,
     inset: space[1],
     count: options.length,
     rtl,
   });
 
-  const previousRest = useRef<number>(restingLeft);
+  /**
+   * The animated value carries the PHYSICAL LEFT EDGE, in both directions.
+   *
+   * ★ ONE COORDINATE SPACE, AND IT IS ALWAYS `left`.
+   *
+   * `indicatorLeftFor` already answers "where is the pill's left edge" for an RTL
+   * rail too — a right-to-left rail puts its first segment at its right end, and
+   * the function returns the corresponding left coordinate. So the animated value,
+   * the style key and the interpolation are all in the same space and no direction
+   * sign appears anywhere.
+   *
+   * Writing the RTL distance-from-the-right into `left` (an earlier attempt in
+   * this very change) would have put the Persian pill at the FAR LEFT for option 0
+   * — re-introducing the reported "Language knob sits on English, not Persian".
+   */
+  const animatedLeft = useSharedValue<number>(restLeft);
 
   /**
-   * ★ THE SLIDE IS A TRANSFORM ON TOP OF A CORRECT REST, NOT THE POSITION ITSELF.
+   * The option the last placement was made for.
    *
-   * The pill used to be positioned ONLY by a Reanimated `translateX`, so its
-   * geometry depended on the UI-runtime mapper having run — and on the device it
-   * never appeared, in either language, while the labels laid out normally.
+   * ★ THE PILL SLIDES ON A SELECTION, NOT ON A RE-MEASURE.
    *
-   * The plain placement above is the truth: it is computed from the measured rail
-   * and the resolved direction, and it is applied whether or not any animation
-   * runs. This transform then animates the travel from the PREVIOUS rest to the
-   * new one, so a working pill never depends on it. When motion is reduced the
-   * slide collapses to nothing and the plain placement alone is correct.
+   * `restLeft` moves for two reasons: the selected option changed (a gesture — the
+   * pill should travel), or the rail was re-measured by a rotation, a font-scale
+   * change or a split-screen reflow (not a gesture — the pill should be re-placed).
+   * Comparing the RESULTING PIXEL cannot tell them apart, so this compares the
+   * option instead.
    *
-   * The travelled distance is a delta measured along the physical x axis between
-   * two physical rests, so it carries no direction sign of its own.
+   * `null` until the first placement, so the first measurement snaps.
    */
-  const slideStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: slide.value }],
-  }));
+  const placedIndex = useRef<number | null>(null);
 
-  const animateTo = useCallback(
-    (target: number) => {
-      if (motion.reduce) {
-        slide.value = 0;
-        previousRest.current = target;
-        return;
-      }
+  /** The direction the last placement was made in, so a flip snaps. */
+  const placedRtl = useRef<boolean>(rtl);
 
-      const delta = target - previousRest.current;
-      previousRest.current = target;
-      slide.value = delta;
-      slide.value = withTiming(0, { duration: dur.fast, easing: ease.out });
-    },
-    [motion.reduce, slide],
-  );
+  /**
+   * The rail width the last placement was made against.
+   *
+   * ★ A RE-MEASURE IS NOT A GESTURE, AND THE PIXEL CANNOT TELL THEM APART.
+   *
+   * `restLeft` changes for two reasons: the selected option changed (the pill
+   * should travel to it), or the rail was re-measured by a rotation, a font-scale
+   * change or a split-screen reflow (the same option now sits at a different pixel,
+   * and the pill should be re-PLACED). Comparing the resulting pixel conflates
+   * them — and once a selection has been placed, a later resize looks identical to
+   * another selection change.
+   *
+   * So the slide is decided by the WIDTH, which only a re-measure moves.
+   */
+  const placedWidth = useRef<number | null>(null);
+
+  const measured = trackWidth > 0;
 
   useEffect(() => {
-    animateTo(restingLeft);
-  }, [animateTo, restingLeft]);
+    if (!measured) return;
 
-  const indicatorStyle = motion.reduce ? undefined : slideStyle;
+    /**
+     * ★ THE PILL ANIMATES ONLY WHEN THE USER PICKED AN OPTION.
+     *
+     * Everything else is placed outright:
+     *
+     *  - the FIRST placement, because the rail's first measurement is a
+     *    correction and animating it slides the pill in from the leading edge on
+     *    every mount;
+     *  - a RESIZE, because the option did not change and the rail was re-measured;
+     *  - a DIRECTION FLIP, because the rail was re-laid-out around the mirrored
+     *    coordinate and travelling from the old one would wipe across it;
+     *  - Reduce Motion, because the transitions are gone (Style Guide §7.7).
+     *
+     * ★ AND THE POSITION IS ALWAYS WRITTEN.
+     *
+     * Leaving the assignment out of a branch stranded the pill: `animatedLeft`
+     * kept the previous option and the "nothing to do" return below then pinned it
+     * there permanently. Assigning in every branch is what keeps a sweep of these
+     * cases correct.
+     */
+    const first = placedWidth.current === null;
+    const resized = placedWidth.current !== trackWidth;
+    const directionChanged = rtl !== placedRtl.current;
+    const selectionChanged = selectedIndex !== placedIndex.current;
+
+    if (first || resized || directionChanged || motion.reduce || !selectionChanged) {
+      placedWidth.current = trackWidth;
+      placedIndex.current = selectedIndex;
+      placedRtl.current = rtl;
+      animatedLeft.value = restLeft;
+      return;
+    }
+
+    placedIndex.current = selectedIndex;
+    animatedLeft.value = withTiming(restLeft, {
+      duration: dur.fast,
+      easing: ease.out,
+    });
+  }, [measured, restLeft, selectedIndex, rtl, motion.reduce, trackWidth, animatedLeft]);
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    // rtl-ok: the physical LEFT edge, in both directions. `indicatorLeftFor`
+    // already mirrored the coordinate for an RTL rail, so this side never flips.
+    left: animatedLeft.value, // rtl-ok: physical left edge, resolved by the geometry
+    right: 'auto', // rtl-ok: the unused side is parked; left carries the position
+  }));
 
   return (
     <View
@@ -353,9 +411,12 @@ export function SegmentedControl({
               // the measurement arriving.
               opacity: segmentWidth > 0 ? 1 : 0,
             },
-            indicatorPlacement,
-            // The slide, when motion is allowed. The placement above is already
-            // the correct rest, so this can only ever add travel — never position.
+            // The animated value carries the position on the side the direction
+            // resolved to, so this replaces — not supplements — the placement
+            // numbers. `indicatorPlacement` is still what decides WHICH side and
+            // what the resting numbers are; the style below is the only thing
+            // that ever writes them to the node, which is what makes a slide
+            // possible at all.
             indicatorStyle,
           ]}
         />
@@ -419,17 +480,20 @@ const styles = StyleSheet.create({
   },
   indicator: {
     position: 'absolute',
-    top: space[1],
-    bottom: space[1],
-    // ★ NO HORIZONTAL ANCHOR HERE, AND THAT IS THE FIX FOR THE RTL PILL.
+    // ★ ZERO INSETS, BECAUSE THE CONTAINING BLOCK IS ALREADY THE PADDING BOX.
     //
-    // This used to declare `left: 0` "so the offset has an anchor". A `left`
-    // here is MERGED with the call site's override rather than replaced, and a
-    // node carrying both `left: 0` and `right: n` resolves by giving `left`
-    // precedence — so the right-to-left mirror was silently discarded and the
-    // pill was laid out from the wrong edge. `indicatorPlacementFor` now emits
-    // BOTH keys (`left`/`right`, one of them `auto`) together, so the anchor and
-    // the offset are always one decision.
+    // The rail is `position: relative` with `padding: space[1]`, so an
+    // absolutely-positioned child is laid out against the rail's PADDING box —
+    // which is already inset by `space[1]` on every side. `top: space[1]` and
+    // `bottom: space[1]` here inset it a SECOND time: measured on the theme rail
+    // (padding 4, segment 36) the pill was 28pt tall inside a 36pt segment and sat
+    // 8pt from the rail's top edge. That is the reported "the knob is offset / has
+    // too much padding, needs to be closer to the edge".
+    //
+    // Zero puts the pill exactly on the track the labels are laid out in, which is
+    // the whole point of the control.
+    top: 0,
+    bottom: 0,
     borderRadius: radius.pill,
   },
   segmentInner: {

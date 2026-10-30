@@ -345,8 +345,8 @@ test('the indicator is anchored physically, so no inline-prop can flip it', () =
     'the indicator or rail still uses a logical inline inset',
   );
   assert.ok(
-    /indicatorPlacementFor/.test(chip),
-    'the control does not use the shared placement, so the two paths can drift',
+    /indicatorLeftFor\(/.test(chip),
+    'the control does not use the shared geometry, so the two paths can drift',
   );
 });
 
@@ -365,16 +365,21 @@ test('the base indicator style declares no horizontal anchor of its own', () => 
   assert.doesNotMatch(indicator, /(^|\s)right:\s*\d/, 'the base style declares `right`');
 });
 
-test('the slide is a delta between two physical rests, with no extra sign', () => {
-  // Arrange — the rest is a physical LEFT edge in both directions
-  // (`indicatorLeftFor` returns the left edge for an RTL rail too), so applying a
-  // direction sign to the delta double-counted the mirror.
+test('the slide interpolates the position itself, with no extra direction sign', () => {
+  // Arrange — ★ THE DELTA IS GONE ENTIRELY, AND THAT IS THE FIX.
+  //
+  // The pill used to animate a `translateX` delta on top of a `left` that was
+  // rewritten in style on the same commit. Two assignments to the shared value in
+  // one block meant the travel was discarded before a frame rendered, so the pill
+  // teleported and then settled from an overshoot. The position is the animated
+  // value now, so there is no delta and no sign to get wrong.
   const chip = code('src/components/ui/Chip.tsx');
 
   // Act
-  const delta = /const delta = ([^;]+);/.exec(chip)?.[1] ?? '';
+  const animatesPosition = /animatedLeft\.value\s*=\s*withTiming\(/.test(chip);
+  const hasDelta = /const delta\s*=/.test(chip);
 
   // Assert
-  assert.ok(delta.length > 0, 'the slide delta is missing');
-  assert.doesNotMatch(delta, /rtl/, `the slide delta still carries a direction sign: ${delta}`);
+  assert.ok(animatesPosition, 'the position is never interpolated, so the pill cannot slide');
+  assert.equal(hasDelta, false, 'a transform delta is still applied on top of a styled position');
 });

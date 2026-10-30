@@ -104,26 +104,29 @@ test('the pill is placed from measured state, and the selection is always visibl
 
   // Act / Assert
   //
-  // ★ THE SLIDE WAS REMOVED, DELIBERATELY, AND THIS RECORDS WHY.
+  // ★ THE POSITION IS THE ANIMATED VALUE NOW, AND THE STYLE IS ITS ONLY WRITER.
   //
-  // The pill used to be positioned by a Reanimated `translateX`, which made its
-  // geometry depend on the UI-runtime mapper running. On the device the rail drew
-  // its track and both labels while the pill never appeared — the selection was
-  // simply invisible, in both languages. Restoring a correct, always-visible pill
-  // was worth more than the slide, so the position is now a plain style computed
-  // from the measured rail and the resolved direction.
+  // The pill was once positioned by a Reanimated `translateX` alone, so its
+  // geometry depended on the UI-runtime mapper and on the device it never
+  // appeared. It was then made a plain style with a translate ON TOP — which
+  // produced the opposite failure: `left` moved to the new rest in style while a
+  // delta of the same magnitude was assigned to the transform in the same block
+  // and immediately overwritten, so the pill teleported and then wobbled.
   //
-  // What must hold now: the REST is derived from state, so a pill is always
-  // correctly placed whether or not any animation runs; the slide may only ever
-  // add travel on top of that rest.
+  // Both are answered by one rule: a single animated value carries the position,
+  // and nothing else writes it. The geometry module decides the resting numbers.
   assert.ok(/indicatorLeftFor/.test(chip), 'the pill position is not computed from the geometry');
-  assert.ok(/indicatorPlacement/.test(chip), 'the computed placement never reaches the pill');
-  assert.ok(/indicatorStyle/.test(chip), 'the slide is no longer applied');
-  // The placement and the slide are separate entries, so the slide cannot move the
-  // pill away from a position that is already correct.
-  const styleArray = /styles\.indicator,[\s\S]{0,600}?\]/.exec(chip)?.[0] ?? '';
-  assert.ok(/indicatorPlacement/.test(styleArray), 'the placement is not in the pill style array');
-  assert.ok(/indicatorStyle/.test(styleArray), 'the slide is not in the pill style array');
+  assert.ok(/indicatorStyle/.test(chip), 'no animated style reaches the pill');
+
+  // The placement numbers must NOT also be applied to the node: writing `left` in
+  // style as well as in the animated value is what makes a slide impossible.
+  const styleArray = /styles\.indicator,[\s\S]{0,800}?\]/.exec(chip)?.[0] ?? '';
+  assert.ok(/indicatorStyle/.test(styleArray), 'the animated position is not in the pill style array');
+  assert.doesNotMatch(
+    styleArray,
+    /indicatorPlacement,/,
+    'the static placement is applied too, so the animated value can only add an overshoot',
+  );
 });
 
 test('the indicator is hidden until the track has measured, but still rendered', () => {
@@ -186,21 +189,28 @@ test('the pill names the physical side it measures from, in both directions', as
   const chip = code('src/components/ui/Chip.tsx');
   const geometry = code('src/components/ui/segmented-geometry.ts');
 
-  // Assert — the component asks the shared module for the pair...
+  // Assert — the component takes its position from the shared geometry, which is
+  // the ONE place that knows a right-to-left rail puts its first segment at the
+  // right end. It does not name a side itself: `indicatorLeftFor` already returns
+  // a left edge for both directions, so there is nothing to mirror twice.
   assert.match(
     chip,
-    /indicatorPlacementFor\(/,
+    /indicatorLeftFor\(/,
     'the pill is placed by inline arithmetic instead of the shared geometry',
   );
-  // ...and never hand-rolls a second anchor of its own.
   assert.doesNotMatch(
     chip,
     /right:\s*trackWidth\s*-/,
     'Chip.tsx still computes the right-edge offset itself',
   );
+  assert.doesNotMatch(
+    chip,
+    /indicatorPlacementFor/,
+    'Chip.tsx writes a second, side-swapping anchor that can disagree with its `left`',
+  );
 
-  // Assert — the module converts the left edge into a right-edge distance and
-  // parks the unused side, in both branches.
+  // Assert — the module still offers the converted pair for callers that need a
+  // named side, and it parks the unused one in both branches.
   const placement =
     /export function indicatorPlacementFor\([\s\S]*?\n\}/.exec(geometry)?.[0] ?? '';
   assert.ok(placement.length > 0, 'indicatorPlacementFor is missing');
