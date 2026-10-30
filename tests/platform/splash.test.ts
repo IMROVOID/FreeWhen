@@ -133,51 +133,57 @@ function decodePng(path: string): Decoded {
   return { width, height, data: out };
 }
 
-const DENSITIES = ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi'];
+/**
+ * ★ THE SOURCE ART IS THE TRACKED FILE; `android/` IS NOT.
+ *
+ * These assertions used to read the generated per-density drawables under
+ * `android/app/src/main/res/`, which `expo prebuild` GENERATES and git does not
+ * track. They passed on a developer's machine — where prebuild had already run —
+ * and failed in CI on a fresh checkout, because the directory does not exist
+ * there at all.
+ *
+ * The file that actually decides what ships is `assets/images/splash.png`:
+ * prebuild derives every density from it. Asserting the source is both truthful
+ * and checkout-independent.
+ */
+const SPLASH_SOURCE = 'assets/images/splash.png';
 
-function logoPath(density: string): string {
-  return `android/app/src/main/res/drawable-${density}/splashscreen_logo.png`;
-}
-
-test('the splash logo exists at every density', () => {
-  for (const density of DENSITIES) {
-    const path = logoPath(density);
-    assert.ok(existsSync(path), `${path} is missing`);
-    assert.ok(statSync(path).size > 0, `${path} is empty`);
-  }
+test('the splash source art exists and is a PNG', () => {
+  assert.ok(existsSync(SPLASH_SOURCE), `${SPLASH_SOURCE} is missing`);
+  assert.ok(statSync(SPLASH_SOURCE).size > 0, `${SPLASH_SOURCE} is empty`);
 });
 
-test('the splash logo is not the opaque white square that shipped', () => {
-  for (const density of DENSITIES) {
-    const path = logoPath(density);
-    const { width, height, data } = decodePng(path);
+test('the splash art is transparent outside the mark, so the window colour shows', () => {
+  const { width, height, data } = decodePng(SPLASH_SOURCE);
 
-    const at = (x: number, y: number) => {
-      const i = (y * width + x) * 4;
-      return [data[i], data[i + 1], data[i + 2], data[i + 3]] as const;
-    };
+  const alphaAt = (x: number, y: number) => data[(y * width + x) * 4 + 3] ?? 0;
 
-    // The corners are outside the mark by construction, so they must be
-    // transparent — that is what lets the window's own colour show through, and
-    // it is precisely what the white square failed.
-    for (const [x, y] of [
-      [0, 0],
-      [width - 1, 0],
-      [0, height - 1],
-      [width - 1, height - 1],
-    ] as const) {
-      const [, , , alpha] = at(x, y);
-      assert.equal(alpha, 0, `${path}: corner (${x},${y}) is opaque — a white flash on launch`);
-    }
-
-    // And the mark itself must be present: a fully transparent image is a blank
-    // splash, which is the other way this can look broken.
-    let opaque = 0;
-    for (let i = 3; i < data.length; i += 4) if ((data[i] ?? 0) > 32) opaque += 1;
-    const coverage = opaque / (width * height);
-    assert.ok(coverage > 0.02, `${path}: only ${(coverage * 100).toFixed(1)}% of the image is drawn`);
-    assert.ok(coverage < 0.9, `${path}: ${(coverage * 100).toFixed(1)}% is drawn — that is a fill, not a mark`);
+  // The corners are outside the mark by construction. An opaque corner is what
+  // made the shipped logo a filled rectangle that covered the window.
+  for (const [x, y] of [
+    [0, 0],
+    [width - 1, 0],
+    [0, height - 1],
+    [width - 1, height - 1],
+  ] as const) {
+    assert.equal(
+      alphaAt(x, y),
+      0,
+      `${SPLASH_SOURCE}: corner (${x},${y}) is opaque, so the logo is a filled rectangle`,
+    );
   }
+
+  // And the mark itself must be present: a fully transparent image is a blank
+  // splash, which is the other way this can look broken.
+  let opaque = 0;
+  for (let i = 3; i < data.length; i += 4) if ((data[i] ?? 0) > 32) opaque += 1;
+  const coverage = opaque / (width * height);
+
+  assert.ok(coverage > 0.02, `${SPLASH_SOURCE}: only ${(coverage * 100).toFixed(1)}% of the image is drawn`);
+  assert.ok(
+    coverage < 0.9,
+    `${SPLASH_SOURCE}: ${(coverage * 100).toFixed(1)}% is drawn — that is a fill, not a mark`,
+  );
 });
 
 /**
@@ -218,23 +224,6 @@ test('the splash colour comes from the expo-splash-screen plugin, not a hand edi
   );
   assert.equal(entry[1].backgroundColor, '#120A07', 'the plugin does not set the brand colour');
   assert.equal(entry[1].image, './assets/images/splash.png', 'the plugin points at another image');
-});
-
-test('the splash art is a transparent mark, so the window colour shows through', () => {
-  // Arrange — prebuild derives `splashscreen_logo.png` from this file. A
-  // full-bleed opaque image becomes an opaque logo, which covers the window and
-  // renders as "there is no splash" on a dark background.
-  const { data, width } = decodePng('assets/images/splash.png');
-
-  const cornerAlpha = data[3] ?? 0;
-  let opaque = 0;
-  for (let i = 3; i < data.length; i += 4) if ((data[i] ?? 0) > 32) opaque += 1;
-  const coverage = opaque / (width * width);
-
-  // Assert
-  assert.equal(cornerAlpha, 0, 'the splash source is opaque at its corner, so the logo is a rectangle');
-  assert.ok(coverage > 0.02, 'the splash source draws nothing');
-  assert.ok(coverage < 0.9, `the splash source is ${(coverage * 100).toFixed(0)}% fill, not a mark`);
 });
 
 test('the app holds the splash long enough to be seen', () => {
