@@ -112,12 +112,27 @@ test('the runner passes on this tree', () => {
   // for a reason that had nothing to do with the tree. The value is taken from the
   // parent when it is set (CI passes it) and otherwise from `.env`, which is the same
   // precedence `gate:env` itself applies.
+  // ★ THIS FORWARDS THE VARIABLE `gate:env` ACTUALLY REQUIRES.
+  //
+  // Plan 64 moved the required public build variable from the retired basemap key
+  // to the MapBox token, and this block kept reading the old name: the fallback
+  // looked in `.env` for a variable the branch no longer documents, so it could
+  // never match, and `gate:env` was handed nothing on a machine whose shell had no
+  // token.
+  //
+  // The name is stated once here, and `tests/deploy/map-assets.test.ts` asserts
+  // that it is the name `scripts/gate/env.ts` requires. Reading the gate's own list
+  // at test time would couple this to a module's internals; one shared literal with
+  // a guard on it is the cheaper promise.
   const forwarded = { ...process.env };
-  if (!forwarded.EXPO_PUBLIC_CARTO_API_KEY) {
+
+  const REQUIRED_PUBLIC_VAR = 'EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN';
+
+  if (!forwarded[REQUIRED_PUBLIC_VAR]) {
     const dotenv = existsSync('.env') ? readFileSync('.env', 'utf8') : '';
-    const match = /^EXPO_PUBLIC_CARTO_API_KEY\s*=\s*(.+)$/m.exec(dotenv);
+    const match = new RegExp(`^${REQUIRED_PUBLIC_VAR}\\s*=\\s*(.+)$`, 'm').exec(dotenv);
     if (match?.[1]) {
-      forwarded.EXPO_PUBLIC_CARTO_API_KEY = match[1].trim().replace(/^['"]|['"]$/g, '');
+      forwarded[REQUIRED_PUBLIC_VAR] = match[1].trim().replace(/^['"]|['"]$/g, '');
     }
   }
 

@@ -88,7 +88,19 @@ jobs:
       # environment before `.env`, because CI has no `.env` file. Without this the test
       # step saw neither, so the spawned gate failed on the very run that proves the
       # export works, and reported it as a failing test in the tree.
+      #
+      # ★ THE `env:` BLOCK WAS DELETED, NOT REPOINTED, WHEN THE MAP PROVIDER MOVED.
+      #
+      # Plan 64 replaced the retired basemap key with the MapBox token everywhere it
+      # appeared -- and here the entry was removed outright, leaving this comment
+      # above a step with no environment.
+      # `npm test` then spawned `gate:all` with no token, `gate:env` failed, and
+      # `gates.test.ts` failed with it. It passed locally only because a developer's
+      # `.env` supplies the token; CI has no `.env`. Found by running the suite with
+      # `.env` moved aside, which is the only way this class of defect is visible.
       - name: Unit and component tests
+        env:
+          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
         run: npm test
 
       # The engine suite names its cases (AC-12.1.1), so it reports *which*

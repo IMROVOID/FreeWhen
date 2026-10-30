@@ -25,6 +25,33 @@ import { NullMapAdapter } from '../../src/features/map/null-adapter';
 import { createMapAdapter } from '../../src/features/map';
 import type { RankedVenue } from '../../src/engine/types';
 
+/**
+ * Runs `body` with the given public env vars set or cleared, then restores them.
+ *
+ * `undefined` means "not set" — deleting the key rather than assigning an empty
+ * string, because `readEnv` treats an empty value as absent but `hasMapbox` does
+ * not distinguish it from garbage.
+ */
+function withEnv(vars: Record<string, string | undefined>, body: () => void): void {
+  const env = (globalThis as { process: { env: Record<string, string | undefined> } }).process.env;
+  const before: Record<string, string | undefined> = {};
+
+  for (const [key, value] of Object.entries(vars)) {
+    before[key] = env[key];
+    if (value === undefined) delete env[key];
+    else env[key] = value;
+  }
+
+  try {
+    body();
+  } finally {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
+  }
+}
+
 /** A minimal ranked venue. Only the fields the pin encoder reads matter. */
 function venue(overrides: Partial<RankedVenue> & { venueId: string; rank: number }): RankedVenue {
   return {
@@ -167,15 +194,33 @@ describe('the fallback ladder', () => {
   });
 
   test('no provider variable and no token reads as none', () => {
-    // Neither EXPO_PUBLIC_MAP_PROVIDER nor a public token is set here.
-    assert.equal(configuredProvider(), 'none');
+    // ★ THE ENVIRONMENT IS PINNED, NOT ASSUMED.
+    //
+    // These assertions passed locally and failed on CI, for the same reason in
+    // reverse: a developer's shell has no token and CI's does. A test that reads
+    // ambient environment is a test of the machine, not of the code — so the two
+    // variables are cleared for the duration and restored afterwards.
+    withEnv(
+      { EXPO_PUBLIC_MAP_PROVIDER: undefined, EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: undefined },
+      () => {
+        assert.equal(configuredProvider(), 'none');
+      },
+    );
   });
 
   test('the factory returns a working adapter at every level', () => {
-    const adapter = createMapAdapter('native');
-    assert.ok(adapter.configure instanceof Function);
-    // No token is set, so this build honestly reports the level it reached.
-    assert.equal(adapter.level, 4);
+    // With no token the ladder rests honestly at list-only.
+    withEnv({ EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: undefined }, () => {
+      const adapter = createMapAdapter('native');
+      assert.ok(adapter.configure instanceof Function);
+      assert.equal(adapter.level, 4);
+    });
+
+    // A token produces level 1, which is what a configured deployment sees.
+    withEnv({ EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: 'pk.abc.def' }, () => {
+      const adapter = createMapAdapter('native');
+      assert.equal(adapter.level, 1);
+    });
   });
 
   test('a build with a token but no provider variable is still configured', () => {

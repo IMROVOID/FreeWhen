@@ -176,3 +176,67 @@ test('the map token is INLINED into the exported bundle, not looked up at runtim
     'the MapBox token is not inlined in the export — every map will render unavailable',
   );
 });
+
+/**
+ * ★ THE DEFECT THIS PINS: AN `env:` BLOCK DELETED INSTEAD OF REPOINTED.
+ *
+ * When the map provider moved, the old public variable was removed from CI's
+ * "Unit and component tests" step — the whole `env:` block went with it, leaving
+ * the explanatory comment above a step with no environment. `npm test` then
+ * spawned `gate:all` with no token, `gate:env` failed, and
+ * `tests/deploy/gates.test.ts` failed with it.
+ *
+ * It passed locally for weeks. A developer's `.env` supplies the token, and CI has
+ * no `.env`, so the two environments disagreed about a step that looked identical.
+ * Found by running the suite with `.env` moved aside — which is the only way this
+ * class of defect is visible, and is why the assertion below reads the workflow
+ * file rather than trusting a green local run.
+ */
+test('CI passes the map token into the test step, not just the export', () => {
+  // Arrange
+  const ci = text('.github/workflows/ci.yml');
+
+  // Act — isolate the test step's own `env:`, not the export's above it.
+  const testStep =
+    /- name: Unit and component tests\s*\n\s*env:\s*\n(?:\s+\S[^\n]*\n)*\s*run: npm test/.exec(ci)?.[0] ?? '';
+
+  // Assert
+  assert.ok(testStep.length > 0, 'the test step has no env: block, so gate:env gets nothing in CI');
+  assert.match(
+    testStep,
+    /EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: \$\{\{ vars\.FREEWHEN_MAPBOX_PUBLIC_TOKEN \}\}/,
+    'the test step does not receive the map token, so the spawned gate:all fails on CI',
+  );
+});
+
+test('the gate test forwards the variable gate:env actually requires', () => {
+  // Arrange — two files naming the same variable is a promise, and this guards it.
+  const gateTest = text('tests/deploy/gates.test.ts');
+  const envGate = text('scripts/gate/env.ts');
+
+  // Act
+  const required = /name: '([A-Z0-9_]+)'/.exec(envGate)?.[1] ?? '';
+  const forwarded = /const REQUIRED_PUBLIC_VAR = '([A-Z0-9_]+)'/.exec(gateTest)?.[1] ?? '';
+
+  // Assert
+  assert.ok(required.length > 0, 'the env gate declares no required variable');
+  assert.equal(
+    forwarded,
+    required,
+    `gates.test.ts forwards ${forwarded || 'nothing'} while gate:env requires ${required}`,
+  );
+});
+
+test('the retired variable is not forwarded by any test', () => {
+  // Arrange — a fallback reading a removed key can never match, so it is dead code
+  // that reads as a supported path.
+  const retired = 'EXPO_PUBLIC_' + 'CAR' + 'TO_API_KEY';
+  const gateTest = text('tests/deploy/gates.test.ts');
+
+  // Assert
+  assert.equal(
+    gateTest.includes(retired),
+    false,
+    'gates.test.ts still reads the retired map variable',
+  );
+});
