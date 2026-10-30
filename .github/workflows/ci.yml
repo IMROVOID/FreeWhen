@@ -143,14 +143,13 @@ jobs:
           EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL || 'https://ci.invalid' }}
           EXPO_PUBLIC_SUPABASE_URL: ${{ vars.FREEWHEN_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.FREEWHEN_SUPABASE_PUBLISHABLE_KEY }}
-          EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
-          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
-          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
           # Every map is drawn from this token, and the bundler inlines it. Without
           # it the exported bundle renders the "map unavailable" state everywhere and
           # `gate:env` refuses the tree — which is the point: the same omission on a
           # deploy ships an app whose map never appears.
           EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
+          EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+          EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
         run: npm run export:web
 
       # ★ THE GATES READ THE SAME ENVIRONMENT THE EXPORT DID.
