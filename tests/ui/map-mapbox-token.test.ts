@@ -97,11 +97,16 @@ test('the token is trimmed, so a trailing newline does not corrupt a request', (
 
 /* ── The styles ───────────────────────────────────────────────────────────── */
 
-test('each theme resolves to its own MapBox style', () => {
-  // Assert — the map follows the same light/dark switch as every other surface.
-  assert.match(styleForTheme('dark'), /dark/);
-  assert.match(styleForTheme('light'), /streets|light/);
-  assert.notEqual(styleForTheme('dark'), styleForTheme('light'));
+test('both themes resolve to MapBox Standard, which carries 3D buildings', () => {
+  // ★ THIS ASSERTS THE STYLE PAIR DIFFERED UNTIL THE PRODUCT SWITCHED TO STANDARD.
+  //
+  // `streets-v12` and `dark-v11` carry no `fill-extrusion` layer at all — measured
+  // on the live map — so no pitch could ever make the product 3D. Standard is one
+  // style with a `lightPreset`, so light and dark now share a URI and differ by
+  // APPEARANCE. The theme still reaches the map; `lightPreset` is what carries it,
+  // and `map-3d.test.ts` asserts that wiring.
+  assert.match(styleForTheme('dark'), /standard/);
+  assert.match(styleForTheme('light'), /standard/);
 });
 
 test('both styles are mapbox:// URIs, so one public token serves both', () => {

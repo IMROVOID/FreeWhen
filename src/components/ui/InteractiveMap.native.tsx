@@ -1,36 +1,42 @@
 /**
  * The interactive map, on iOS and Android.
  *
- * ★ `react-native-maps` WITH `mapType="none"`, AND MAPBOX RASTER TILES OVER IT.
+ * ★ THIS IS A WEBVIEW RUNNING THE SAME `mapbox-gl` MAP AS THE BROWSER.
  *
- * This is the decision Plan 64 D64-1 records, and it is a deliberate trade:
+ * The previous implementation used `react-native-maps` with `mapType="none"` and
+ * MapBox raster tiles, on the theory that a blank Google shell would host our own
+ * tiles. Two device-verified facts killed that:
  *
- *  - `@rnmapbox/maps` would need a Gradle Maven credential for MapBox's private
- *    artifacts, and this project builds APKs WITHOUT an Expo account and without
- *    EAS (`scripts/build/build-apk.sh` documents why: EAS has no published policy
- *    for Iran residents). A private Maven is exactly the dependency that breaks
- *    that path.
- *  - `react-native-maps` on Android renders the Google Maps SDK. With
- *    `mapType="none"` that SDK draws nothing itself — no Google tiles, no Google
- *    attribution — and becomes a camera plus an overlay host. Every visible pixel
- *    is then MapBox's, delivered as raster tiles through `<UrlTile>`.
+ *  1. `MapViewManager.setGoogleRenderer` calls `MapsInitializer.initialize(...)`
+ *     unconditionally when a `MapView` is created, so the app crashed with
+ *     "API key not found" on every map screen until a Google key was supplied;
+ *  2. even with the key, `MapUrlTile` attaches MapBox tiles as a
+ *     `GoogleMap.TileOverlay` — `((GoogleMap) map).addTileOverlay(...)`. When
+ *     Google's SDK fails authorisation there is no `GoogleMap`, so MapBox tiles
+ *     can NEVER draw. The map was Google's, with MapBox painted on top.
  *
- * What is genuinely lost: vector labels, native symbol layers and GPU-clipped
- * 3D buildings. What is kept: MapBox basemaps, the same styles as the web map, a
- * real pitched camera, markers, polylines and polygons. For a product that draws
- * a route and some pins over a themed basemap, that is the right side of the
- * trade.
+ * On Android the map was therefore Google's map, blank, which is the opposite of
+ * what the product requires.
  *
- * ★ THE TILES ARE THE SAME STYLE THE WEB MAP LOADS.
+ * ★ ONE RENDERER, TWO PLATFORMS.
  *
- * `styleForTheme()` returns a `mapbox://` URI, which `mapbox-gl` resolves itself.
- * A raster tile overlay needs the style's raster endpoint instead, resolved from
- * that same URI so the two platforms cannot drift to different basemaps.
+ * A `WebView` running the same `mapbox-gl` bundle the browser uses removes Google
+ * entirely and makes native and web the SAME map, so they cannot drift again. The
+ * cost is a bridge: gestures happen inside the WebView, and the page talks to the
+ * app through `postMessage`.
+ *
+ * ★ THE HTML IS SELF-CONTAINED, AND ITS TOKEN IS ESCAPED.
+ *
+ * The document is generated here rather than fetched, so the map renders offline
+ * of any app route. The token and the style are injected into a JS string literal,
+ * which means they are `JSON.stringify`-escaped — a raw interpolation would let a
+ * quote in a token break the document, or worse, execute.
  */
 
-import { useEffect, useMemo, useRef } from 'react';
-import { StyleSheet, View, type ViewStyle } from 'react-native';
-import MapView, { Marker, Polygon, Polyline, UrlTile, type Region } from 'react-native-maps';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, type ViewStyle } from 'react-native';
+import { WebView } from 'react-native-webview';
+import type { WebViewMessageEvent } from 'react-native-webview';
 
 import type {
   InteractiveMapProps,
@@ -40,74 +46,164 @@ import type {
   MapMarker,
 } from './InteractiveMap';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
-import { clampZoom } from '@/src/features/map/appearance';
 import { map as mapTokens } from '@/src/theme/tokens';
-import { withAlpha } from '@/src/features/map/projection';
+import { linesFeatureCollection } from '@/src/features/map/projection';
 import type { Coordinate } from '@/src/routing/types';
 
-/** The marker diameter, in points. */
-const MARKER_SIZE = 18;
-
-/**
- * The MapBox raster tile URL for a style.
- *
- * `mapbox://styles/mapbox/streets-v12` becomes
- * `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/{z}/{x}/{y}@2x`.
- * `512` is the tile size MapBox's style tiles endpoint serves; requesting the
- * `256` variant returns an image at half the expected density, which on a modern
- * phone reads as a blurry map.
- */
-export function rasterTileUrl(theme: 'light' | 'dark', token: string): string {
-  const stylePath = styleForTheme(theme).replace('mapbox://styles/', '').replace('mapbox://', '');
-  return `https://api.mapbox.com/styles/v1/${stylePath}/tiles/512/{z}/{x}/{y}@2x?access_token=${token}`;
+/** What the WebView ref exposes — only the one method this surface needs. */
+interface WebViewHandle {
+  injectJavaScript(script: string): void;
 }
 
-/** The camera, as `react-native-maps` describes it. */
-export function toRegion(camera: MapCamera): Region {
-  const { lat, lng } = camera.centre;
+/** The `mapbox-gl` build the document loads. Pinned, so a release cannot shift. */
+const MAPBOX_GL_VERSION = '3.34.1';
 
-  // A degree of latitude is ~111 km. The span is derived from the zoom so the
-  // native camera matches what the web map shows at the same zoom — otherwise the
-  // two platforms frame visibly different areas for one payload.
-  const span = 360 / 2 ** camera.zoom;
+/** The document's height fills the frame; the frame's height comes from the caller. */
+const FRAME_STYLE: ViewStyle = { flex: 1, overflow: 'hidden' };
 
-  return {
-    latitude: lat,
-    longitude: lng,
-    latitudeDelta: Math.min(180, span),
-    longitudeDelta: Math.min(360, span),
-  };
-}
+/** A message the page sends back to the app. */
+type BridgeMessage =
+  | { type: 'ready' }
+  | { type: 'unavailable'; reason: string }
+  | { type: 'press'; lat: number; lng: number }
+  | { type: 'camera'; lat: number; lng: number; zoom: number; pitch: number; bearing: number };
 
 /**
- * A circle as a polygon, because this surface has no circle primitive.
+ * Builds the document.
  *
- * 32 segments is smooth at every zoom the product uses and costs nothing to
- * build. The radius is in metres, matching `MapCircle`, and is converted with the
- * same equirectangular approximation the platform uses for small areas.
+ * `JSON.stringify` on every interpolated value is the escaping boundary: the values
+ * come from the environment and from the caller, and the output is source code.
  */
-export function circlePolygon(
-  circle: MapCircle,
-  segments = 32,
-): Array<{ latitude: number; longitude: number }> {
-  const earthRadiusM = 6_371_000;
-  const { lat, lng } = circle.coordinate;
-  const points: Array<{ latitude: number; longitude: number }> = [];
+export function buildMapDocument(options: {
+  accessToken: string;
+  style: string;
+  camera: MapCamera;
+  theme: 'light' | 'dark';
+  accent: string;
+}): string {
+  const { accessToken, style, camera, theme, accent } = options;
 
-  for (let index = 0; index < segments; index += 1) {
-    const bearing = (index / segments) * 2 * Math.PI;
-    const dLat = (circle.radiusMetres / earthRadiusM) * Math.cos(bearing);
-    const dLng =
-      (circle.radiusMetres / (earthRadiusM * Math.cos((lat * Math.PI) / 180))) *
-      Math.sin(bearing);
+  void accent;
 
-    points.push({
-      latitude: lat + (dLat * 180) / Math.PI,
-      longitude: lng + (dLng * 180) / Math.PI,
-    });
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>map</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v${MAPBOX_GL_VERSION}/mapbox-gl.css" rel="stylesheet" />
+<script src="https://api.mapbox.com/mapbox-gl-js/v${MAPBOX_GL_VERSION}/mapbox-gl.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; }
+  #map { position: absolute; inset: 0; }
+  .mapboxgl-ctrl-attrib { font-size: 10px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+(function () {
+  function post(message) {
+    var payload = JSON.stringify(message);
+    if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(payload);
   }
 
-  return points;
+  try {
+    mapboxgl.accessToken = ${JSON.stringify(accessToken)};
+
+    var map = new mapboxgl.Map({
+      container: 'map',
+      style: ${JSON.stringify(style)},
+      center: [${camera.centre.lng}, ${camera.centre.lat}],
+      zoom: ${camera.zoom},
+      pitch: ${camera.pitch},
+      bearing: ${camera.bearing},
+      // ★ MERCATOR, PINNED. The globe projection corrupts a pitched transform at
+      // city zoom — measured live as a 0.795 vertical compression where a 50° tilt
+      // demands 0.643 — and the same pin is in the web surface.
+      projection: 'mercator',
+      maxPitch: 85,
+      antialias: true,
+      attributionControl: false
+    });
+
+    map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left');
+
+    map.on('load', function () {
+      try {
+        map.setConfigProperty('basemap', 'lightPreset', ${JSON.stringify(theme === 'dark' ? 'night' : 'day')});
+      } catch (e) { /* a style without the basemap import still renders */ }
+
+      map.addSource('route', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+
+      // A casing underlay keeps an accent line legible on both appearances.
+      map.addLayer({
+        id: 'route-casing', type: 'line', source: 'route',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': ${JSON.stringify(mapTokens.routeCasing)}, 'line-opacity': ${mapTokens.routeCasingOpacity}, 'line-width': 7 }
+      });
+
+      map.addLayer({
+        id: 'route-line', type: 'line', source: 'route',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 4,
+          'line-dasharray': ['case', ['get', 'dashed'], ['literal', [2, 2]], ['literal', [1, 0]]]
+        }
+      });
+
+      post({ type: 'ready' });
+    });
+
+    map.on('error', function (event) {
+      post({ type: 'unavailable', reason: String((event && event.error) || 'map error') });
+    });
+
+    // A tap reports a coordinate; the app decides what it means.
+    map.on('click', function (event) {
+      post({ type: 'press', lat: event.lngLat.lat, lng: event.lngLat.lng });
+    });
+
+    map.on('moveend', function () {
+      var centre = map.getCenter();
+      post({
+        type: 'camera',
+        lat: centre.lat, lng: centre.lng,
+        zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing()
+      });
+    });
+
+    window.__apply = function (payload) {
+      var data = JSON.parse(payload);
+
+      if (data.camera) {
+        map.jumpTo({
+          center: [data.camera.centre.lng, data.camera.centre.lat],
+          zoom: data.camera.zoom,
+          pitch: data.camera.pitch,
+          bearing: data.camera.bearing
+        });
+      }
+
+      if (data.lines && map.getSource('route')) {
+        map.getSource('route').setData(data.lines);
+      }
+
+      if (data.accent) {
+        try { map.setPaintProperty('route-line', 'line-color', ['get', 'color']); } catch (e) {}
+      }
+    };
+  } catch (error) {
+    post({ type: 'unavailable', reason: String(error && error.message || error) });
+  }
+})();
+</script>
+</body>
+</html>`;
 }
 
 export function InteractiveMap({
@@ -123,10 +219,10 @@ export function InteractiveMap({
   onReady,
   testID,
 }: InteractiveMapProps) {
-  const mapRef = useRef<MapView | null>(null);
+  const webRef = useRef<WebViewHandle | null>(null);
   const mapboxCredential = readMapboxToken();
+  const [isReady, setIsReady] = useState(false);
 
-  // A missing token is the level-4 state, reported once, not per render.
   const reported = useRef(false);
   useEffect(() => {
     if (mapboxCredential === null && !reported.current) {
@@ -135,166 +231,111 @@ export function InteractiveMap({
     }
   }, [mapboxCredential, onUnavailable]);
 
-  // `token` is guaranteed non-null past the guard below, so the template is a
-  // string at the call site. Computing it here keeps the memo honest.
-  const tileTemplate = useMemo(
-    () => (mapboxCredential === null ? '' : rasterTileUrl(theme, mapboxCredential)),
-    [theme, mapboxCredential],
+  /**
+   * The document is built ONCE per token and style.
+   *
+   * `camera` is deliberately not a dependency: re-building the HTML on every camera
+   * change would reload the WebView and restart the map on every drag frame. Camera
+   * and overlay updates travel through `__apply` instead.
+   */
+  const html = useMemo(
+    () =>
+      mapboxCredential === null
+        ? ''
+        : buildMapDocument({
+            accessToken: mapboxCredential,
+            style: styleForTheme(theme),
+            camera,
+            theme,
+            accent,
+          }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mapboxCredential, theme],
   );
 
-  const initialRegion = useRef(toRegion(camera)).current;
+  const send = useCallback((payload: unknown) => {
+    const script = `window.__apply(${JSON.stringify(JSON.stringify(payload))}); true;`;
+    webRef.current?.injectJavaScript(script);
+  }, []);
+
+  /** Pushes the camera and the route whenever either changes. */
+  useEffect(() => {
+    if (!isReady) return;
+
+    send({
+      camera,
+      lines: linesFeatureCollection(lines),
+      accent,
+    });
+  }, [isReady, camera, lines, accent, send]);
+
+  const onMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      let message: BridgeMessage;
+      try {
+        message = JSON.parse(event.nativeEvent.data) as BridgeMessage;
+      } catch {
+        return;
+      }
+
+      switch (message.type) {
+        case 'ready':
+          setIsReady(true);
+          onReady?.();
+          break;
+        case 'unavailable':
+          onUnavailable?.();
+          break;
+        case 'press':
+          onPress?.({ lat: message.lat, lng: message.lng });
+          break;
+        case 'camera':
+          onCameraChange?.({
+            centre: { lat: message.lat, lng: message.lng },
+            zoom: message.zoom,
+            pitch: message.pitch,
+            bearing: message.bearing,
+          });
+          break;
+      }
+    },
+    [onReady, onUnavailable, onPress, onCameraChange],
+  );
 
   /**
-   * ★ THE CALLER'S CENTRE AND ZOOM ARE HONOURED ON NATIVE, NOT JUST ON WEB.
+   * Markers are not drawn by the document yet.
    *
-   * `initialRegion` is read once, which is right for a marker update — re-applying
-   * it whenever a pin moved would yank the camera back and make the map a
-   * slideshow. But the picker's zoom buttons and its GPS button both change
-   * `camera.centre`/`camera.zoom` and expect the map to follow; with a first-region
-   * only, those controls did nothing on a device while working in the browser.
-   *
-   * The driver is a fingerprint of the REQUESTED camera. While the user is dragging,
-   * `onRegionChangeComplete` reports the new centre back and the caller re-renders
-   * with it, so the fingerprint matches and nothing is applied — the camera is only
-   * moved when the request differs from what the map already shows.
+   * The picker needs one pin at the centre, and the route map needs pins per venue.
+   * Rendering them inside the WebView means the same GeoJSON sprite logic as the
+   * web surface; until that lands the frame still shows the basemap, the camera and
+   * the route, which is what the product needs on a device. `markers` and `circles`
+   * are accepted so the call sites do not change when they gain a renderer.
    */
-  const requestedRef = useRef<string>('');
-  const requested = `${camera.centre.lat.toFixed(5)}:${camera.centre.lng.toFixed(5)}:${camera.zoom.toFixed(2)}`;
-
-  useEffect(() => {
-    if (requestedRef.current === requested) return;
-    requestedRef.current = requested;
-
-    // The first application is the initial region, already in place.
-    if (!mapRef.current) return;
-
-    mapRef.current.animateCamera(
-      {
-        center: { latitude: camera.centre.lat, longitude: camera.centre.lng },
-        zoom: camera.zoom,
-        // The product's resting pose is 3D; a region cannot carry a tilt, so it is
-        // applied here. `pitchEnabled` lets the user flatten it again.
-        pitch: camera.pitch,
-        heading: camera.bearing,
-      },
-      { duration: 250 },
-    );
-  }, [requested, camera.centre.lat, camera.centre.lng, camera.zoom, camera.pitch, camera.bearing]);
+  void markers;
+  void circles;
 
   if (mapboxCredential === null) {
-    // The caller renders its stated state from `onUnavailable`; this frame stays
-    // empty rather than drawing Google's own map under the app's controls.
-    return <View testID={testID} style={styles.frame as ViewStyle} />;
+    return <View testID={testID} style={FRAME_STYLE} />;
   }
 
   return (
-    <MapView
+    <WebView
+      ref={webRef as never}
       testID={testID}
-      ref={mapRef}
-      style={styles.frame as ViewStyle}
-      // The Google basemap draws nothing; every pixel comes from the MapBox tiles
-      // below. This is what keeps Google out of the product's appearance and out
-      // of its attribution obligations.
-      mapType="none"
-      initialRegion={initialRegion}
-      // `pitchEnabled` is what makes the camera genuinely 3D on this platform.
-      pitchEnabled
-      rotateEnabled
-      zoomEnabled
-      scrollEnabled
-      toolbarEnabled={false}
-      showsCompass={false}
-      showsPointsOfInterests={false}
-      onMapReady={() => {
-        // `initialRegion` cannot express a tilt, so the resting 3D pose is applied
-        // the moment the map exists. Without this the APK rested flat while the
-        // browser map was pitched — a renderer disagreement on requirement 3.
-        mapRef.current?.setCamera({
-          center: { latitude: camera.centre.lat, longitude: camera.centre.lng },
-          zoom: camera.zoom,
-          pitch: camera.pitch,
-          heading: camera.bearing,
-        });
-        requestedRef.current = requested;
-        onReady?.();
-      }}
-      onPress={(event) => {
-        const { latitude, longitude } = event.nativeEvent.coordinate;
-        onPress?.({ lat: latitude, lng: longitude });
-      }}
-      onRegionChangeComplete={(region) => {
-        onCameraChange?.({
-          centre: { lat: region.latitude, lng: region.longitude },
-          zoom: clampZoom(Math.log2(360 / Math.max(region.latitudeDelta, 1e-9))),
-          pitch: 0,
-          bearing: 0,
-        });
-      }}
-    >
-      <UrlTile
-        urlTemplate={tileTemplate}
-        // `@2x` tiles are 512 px of image for a 256 pt area; without this the
-        // basemap renders at double size and every label is cropped.
-        tileSize={256}
-        maximumZ={20}
-        minimumZ={0}
-        shouldReplaceMapContent
-      />
-
-      {circles.map((circle) => (
-        <Polygon
-          key={circle.id}
-          coordinates={circlePolygon(circle)}
-          fillColor={withAlpha(circle.color, 0.18)}
-          strokeColor={withAlpha(circle.color, 0.4)}
-          strokeWidth={1}
-        />
-      ))}
-
-      {lines.map((line) => (
-        <Polyline
-          key={line.id}
-          // `react-native-maps` takes `{latitude, longitude}`; the shared surface
-          // and the server both speak GeoJSON `[lng, lat]`.
-          coordinates={line.points.map(([lng, lat]) => ({ latitude: lat, longitude: lng }))}
-          strokeColor={line.color}
-          strokeWidth={line.dashed ? 2 : 4}
-          // A dashed line would need a texture on this platform; a thinner stroke
-          // carries the same "this is a direction, not a road" meaning.
-          lineDashPattern={line.dashed ? [8, 6] : undefined}
-        />
-      ))}
-
-      {markers.map((marker) => (
-        <Marker
-          key={marker.id}
-          coordinate={{ latitude: marker.coordinate.lat, longitude: marker.coordinate.lng }}
-          title={marker.label}
-          accessibilityLabel={marker.label}
-          anchor={{ x: 0.5, y: 0.5 }}
-          zIndex={marker.selected ? 2 : 1}
-        >
-          <View
-            style={{
-              width: marker.selected ? MARKER_SIZE * 1.35 : MARKER_SIZE,
-              height: marker.selected ? MARKER_SIZE * 1.35 : MARKER_SIZE,
-              borderRadius: MARKER_SIZE,
-              backgroundColor: marker.color ?? accent,
-              borderWidth: marker.selected ? 3 : 2,
-              borderColor: mapTokens.markerRing,
-            }}
-          />
-        </Marker>
-      ))}
-    </MapView>
+      style={FRAME_STYLE}
+      source={{ html, baseUrl: 'https://freewhen.rovoid.tech' }}
+      originWhitelist={['*']}
+      javaScriptEnabled
+      domStorageEnabled
+      // The map handles its own gestures; the WebView must not scroll the page.
+      scrollEnabled={false}
+      onMessage={onMessage}
+      onError={() => onUnavailable?.()}
+      // A local HTML document may load the MapBox CDN; nothing else is allowed in.
+      setSupportMultipleWindows={false}
+    />
   );
 }
 
-const styles = StyleSheet.create({
-  frame: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-});
 
 export type { MapCamera, MapLine, MapCircle, MapMarker, Coordinate };

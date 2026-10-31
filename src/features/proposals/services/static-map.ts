@@ -78,10 +78,19 @@ export function staticMapUrl(
 
   const size = `${STATIC_SIZE}x${STATIC_SIZE}@2x`;
 
+  // ★ THE APPEARANCE IS A QUERY PARAMETER NOW, BECAUSE STANDARD IS ONE STYLE.
+  //
+  // Light and dark share a style URI, so the path alone renders the same picture
+  // twice — a dark proposal card would show a light map. Standard's Static Images
+  // support takes the preset as `setConfig`, which is what carries the theme here,
+  // mirroring `setConfigProperty('basemap', 'lightPreset', …)` on the live map.
+  const preset = theme === 'dark' ? 'night' : 'day';
+  const config = encodeURIComponent(JSON.stringify({ basemap: { lightPreset: preset } }));
+
   return (
     `${MAPBOX_STATIC_BASE}/${stylePath}/static/` +
     `${pinOverlay(accent)}(${lng},${lat})/` +
     `${lng},${lat},${STATIC_ZOOM},0/` +
-    `${size}?access_token=${mapboxCredential}`
+    `${size}?setConfig=${config}&access_token=${mapboxCredential}`
   );
 }

@@ -91,6 +91,32 @@ const PULL_INPUT_RANGE: number[] = Array.from(
 
 const PULL_OUTPUT_RANGE: number[] = PULL_INPUT_RANGE.map((value) => cornerRadiusFor(value));
 
+/**
+ * The DOM node a gesture began on, when there is one.
+ *
+ * React Native Web's responder events carry a synthetic `target`; a native event
+ * has none, and the helpers below therefore answer `null` rather than guessing.
+ */
+function targetOf(event: { nativeEvent?: { target?: unknown }; target?: unknown }): Element | null {
+  const candidate = (event.nativeEvent?.target ?? event.target) as unknown;
+
+  // A DOM `EventTarget` from a real element exposes `closest`; anything else is
+  // not something we can ask about.
+  if (candidate && typeof (candidate as Element).closest === 'function') {
+    return candidate as Element;
+  }
+
+  return null;
+}
+
+/** Whether a gesture began inside a map surface. */
+function startedOnMap(event: { nativeEvent?: { target?: unknown }; target?: unknown }): boolean {
+  // `closest` returns `null` when there is no match and throws on a non-element,
+  // so the lookup is guarded rather than chained twice.
+  const target = targetOf(event);
+  return target !== null && target.closest('[data-map-surface]') !== null;
+}
+
 export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: PullToSyncProps) {
   const { t } = useTheme();
 
@@ -221,10 +247,27 @@ export function PullToSync({ children, onRefresh, testID = 'pull-to-sync' }: Pul
       Platform.OS !== 'web'
         ? null
         : PanResponder.create({
-            // Only claim a gesture that is clearly vertical and downward, so a
-            // horizontal swipe or a normal scroll is untouched.
-            onMoveShouldSetPanResponder: (_event, gesture) =>
-              gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+            /**
+             * Only claim a gesture that is clearly vertical and downward, so a
+             * horizontal swipe or a normal scroll is untouched.
+             *
+             * ★ AND NEVER A DRAG THAT BEGAN ON THE MAP.
+             *
+             * Direction alone cannot tell the two apart: pulling the map down is
+             * vertical and downward, so it satisfied the original predicate and the
+             * page opened its refresh band while the map stayed still — the
+             * reported "the reload prompt on top also pulls down".
+             *
+             * A web `mapbox-gl` canvas handles drags at the DOM level and cannot win
+             * a React responder negotiation, so the refusal has to happen here.
+             * `InteractiveMap.web` marks its frame with `data-map-surface`; a
+             * gesture whose target sits inside one is the map's, not the page's.
+             */
+            onMoveShouldSetPanResponder: (event, gesture) => {
+              if (startedOnMap(event)) return false;
+              return gesture.dy > 8 && Math.abs(gesture.dy) > Math.abs(gesture.dx);
+            },
+
 
             onPanResponderMove: (_event, gesture) => {
               if (busy.current) return;

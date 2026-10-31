@@ -79,17 +79,33 @@ test('the web implementation imports the DOM library and not the native one', ()
   assert.doesNotMatch(WEB, /from 'react-native-maps'/);
 });
 
-test('the native implementation imports the native library and not the DOM one', () => {
-  assert.match(NATIVE, /from 'react-native-maps'/);
-  assert.doesNotMatch(NATIVE, /from 'mapbox-gl'/);
+test('the native implementation hosts the web map in a WebView, not a Google map', () => {
+  // ★ `react-native-maps` WAS THE NATIVE RENDERER AND IS GONE.
+  //
+  // Two device-verified facts removed it: `MapViewManager.setGoogleRenderer`
+  // initialises the Google SDK when a MapView is created (so the app crashed with
+  // "API key not found"), and `MapUrlTile` attaches MapBox tiles as a
+  // `GoogleMap.TileOverlay` — so when Google fails authorisation there is no
+  // GoogleMap and MapBox tiles can never draw. The map was Google's, blank.
+  //
+  // A WebView running the same `mapbox-gl` document removes Google entirely and
+  // makes native and web the same map.
+  assert.match(NATIVE, /react-native-webview/, 'the native surface does not use a WebView');
+  assert.doesNotMatch(
+    code('src/components/ui/InteractiveMap.native.tsx'),
+    /from 'react-native-maps'/,
+    'react-native-maps is still imported',
+  );
+  assert.doesNotMatch(NATIVE, /from 'mapbox-gl'/, 'the DOM library is imported natively');
+  assert.match(NATIVE, /mapbox-gl\.js/, 'the document does not load mapbox-gl');
 });
 
-test('the native basemap is MapBox tiles over a blank Google map', () => {
-  // Arrange — `mapType="none"` is what keeps Google's basemap, and Google's
-  // attribution, out of a product whose tiles are MapBox's.
-  assert.match(NATIVE, /mapType="none"/);
-  assert.match(NATIVE, /<UrlTile/);
-  assert.match(NATIVE, /shouldReplaceMapContent/);
+test('the native basemap is MapBox, with no Google map underneath', () => {
+  // Arrange — the WebView draws the same style the browser does, so there is no
+  // Google canvas to hide. `mapType="none"` existed only to hide one.
+  const nativeCode = code('src/components/ui/InteractiveMap.native.tsx');
+  assert.doesNotMatch(nativeCode, /mapType/, 'a Google mapType is still being configured');
+  assert.match(nativeCode, /styleForTheme\(theme\)/, 'the native style is not the shared resolver');
 });
 
 test('both renderers load the same style for a theme', () => {
@@ -105,17 +121,18 @@ test('both renderers load the same style for a theme', () => {
 /* ── Interaction ──────────────────────────────────────────────────────────── */
 
 test('the press handler reports a coordinate in lat/lng, not an event', () => {
-  // Assert — the two renderers carry the point differently; the shared surface
-  // normalises to `{lat, lng}` so the callers never see a library shape.
+  // Assert — the browser reads mapbox-gl's event, the device gets a bridge message;
+  // both normalise to `{lat, lng}` so callers never see a library shape.
   assert.match(WEB, /pressRef\.current\?\.\(\{\s*lat: event\.lngLat\.lat,\s*lng: event\.lngLat\.lng,?\s*\}\)/s);
-  assert.match(NATIVE, /onPress\?\.\(\{\s*lat: latitude,\s*lng: longitude\s*\}\)/s);
+  assert.match(NATIVE, /onPress\?\.\(\{\s*lat: message\.lat,\s*lng: message\.lng\s*\}\)/s);
 });
 
 test('camera changes are reported after every settled move, in the shared shape', () => {
   assert.match(WEB, /map\.on\('moveend'/);
-  assert.match(NATIVE, /onRegionChangeComplete/);
+  // The document listens for `moveend` too, and reports it over the bridge.
+  assert.match(NATIVE, /map\.on\('moveend'/);
   assert.match(WEB, /centre: \{ lat: centre\.lat, lng: centre\.lng \}/);
-  assert.match(NATIVE, /centre: \{ lat: region\.latitude, lng: region\.longitude \}/);
+  assert.match(NATIVE, /centre: \{ lat: message\.lat, lng: message\.lng \}/);
 });
 
 test('a read-only map is expressible, which is what makes "view not change" real', () => {
@@ -277,17 +294,16 @@ test('the marker transform is COMPUTED, never appended to', () => {
   );
 });
 
-test('an approximate area is a POLYGON on both renderers', () => {
+test('an approximate area is a POLYGON, not a Point a fill layer cannot draw', () => {
   // ★ The web map added a `Point` source and a `fill` layer over it. A fill layer
   // has no geometry for a point, so it drew NOTHING: participant areas were
-  // invisible in the browser while drawn correctly on native.
+  // invisible in the browser.
   assert.match(WEB, /type: 'Polygon'/, 'the web area is not a polygon');
   assert.doesNotMatch(
     WEB,
     /geometry: \{\s*type: 'Point',/,
     'the web area is still a Point, which a fill layer cannot draw',
   );
-  assert.match(NATIVE, /Polygon/, 'the native area is not a polygon');
 });
 
 test('a closed ring, or the renderer draws nothing', () => {
@@ -312,21 +328,25 @@ test('an unchanged style is not re-applied', () => {
   assert.match(WEB, /appliedStyleRef\.current === wanted/);
 });
 
-test('both renderers report the same zoom range', () => {
-  // Assert — native derived a raw `Math.log2` while web used the clamped one.
-  assert.match(NATIVE, /clampZoom\(Math\.log2/);
+test('both renderers pin the same projection, so neither tilts differently', () => {
+  // Assert — the globe projection corrupted a pitched transform at city zoom; both
+  // surfaces now state mercator explicitly.
+  assert.match(WEB, /projection: 'mercator'/);
+  assert.match(NATIVE, /projection: 'mercator'/);
 });
 
-test('the native camera follows the caller, not only the first region', () => {
-  // ★ `initialRegion` is read once, so the picker's zoom buttons and GPS button
-  // did nothing on a device while working in the browser.
-  assert.match(NATIVE, /animateCamera\(/);
-  assert.match(NATIVE, /requestedRef\.current === requested/);
+test('the native camera follows the caller through the bridge', () => {
+  // ★ The camera used to be read once into `initialRegion`, so the picker's zoom
+  // buttons and GPS button did nothing on a device while working in the browser.
+  assert.match(NATIVE, /window\.__apply/, 'the document exposes no update entry point');
+  assert.match(NATIVE, /map\.jumpTo\(/, 'the document never moves the camera');
+  assert.match(NATIVE, /camera,\s*\n\s*lines:/, 'the camera is not pushed to the document');
 });
 
 test('the native map opens pitched, so the APK rests in 3D', () => {
-  // ★ A region cannot carry a tilt, so `initialRegion` alone left the device flat.
-  assert.match(NATIVE, /pitch: camera\.pitch/);
+  // ★ A Google region cannot carry a tilt; the document's own map can.
+  assert.match(NATIVE, /pitch: \$\{camera\.pitch\}/, 'the document is not given a pitch');
+  assert.match(NATIVE, /maxPitch: 85/, 'the pitch ceiling is not declared');
 });
 
 /* ── One hit test, one fallback centre ───────────────────────────────────── */

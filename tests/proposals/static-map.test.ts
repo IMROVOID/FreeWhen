@@ -88,18 +88,21 @@ test('the point is carried as lng,lat — the order the API documents', () => {
   assert.doesNotMatch(url, /35\.6892,51\.389/);
 });
 
-test('the theme selects the style, so light and dark cannot share a picture', () => {
+test('the theme reaches the static picture', () => {
   // Arrange
   setToken(TOKEN);
 
-  // Act
+  // Act — Standard serves both themes, and its appearance is a query parameter on
+  // the Static Images API rather than a different style path.
   const light = staticMapUrl(35.6892, 51.389, 'light', '#0055FF');
   const dark = staticMapUrl(35.6892, 51.389, 'dark', '#0055FF');
 
-  // Assert
+  // Assert — the two pictures must still BE different, or a dark card would show a
+  // light map. With one shared style the difference comes from the appearance
+  // parameter, so that is what is asserted.
   assert.ok(light && dark);
-  assert.match(dark, /dark/);
   assert.notEqual(light, dark, 'both themes produced the same picture');
+  assert.match(dark, /standard/);
 });
 
 test('the marker takes the accent the theme supplied', () => {

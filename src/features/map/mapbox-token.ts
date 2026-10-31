@@ -84,21 +84,29 @@ export function hasMapbox(): boolean {
 /**
  * The MapBox styles, one per app theme.
  *
- * ★ A PAIR OF STYLES, NOT A RUNTIME TINT.
+ * ★ STANDARD, BECAUSE IT IS THE ONLY STYLE THAT CAN STAND UP.
  *
- * MapBox's Standard style accepts `lightPreset`, which is the tidier-looking
- * option and the one the original Plan 08 note anticipated. It is not used here
- * because `lightPreset` is a Standard-only property: binding the product to a
- * style that can be replaced in the console without notice is a dependency on a
- * vendor detail this repo cannot test. Two named styles are a constant, and a
- * test can assert which one a theme resolves to.
+ * `streets-v12` and `dark-v11` ship 52 layers between them and **zero**
+ * `fill-extrusion` layers — measured on the live instance. Pitch can tilt a flat
+ * picture but it cannot make a building rise, so on those styles the product could
+ * never be 3D however the camera was set.
  *
- * Both are public demo styles on the MapBox account, so they work with the same
- * public token and need no per-style provisioning.
+ * Standard carries 3D buildings and terrain lighting natively, which is what
+ * "3D mode" actually means here. The earlier note argued against Standard because
+ * `lightPreset` is a Standard-only property the repo cannot test — a real concern,
+ * and the wrong trade against a map that cannot be three-dimensional at all.
+ *
+ * ★ LIGHT AND DARK ARE NOW THE SAME STYLE, AND THAT IS CORRECT.
+ *
+ * Standard is one style with an appearance, not two styles. `styleForTheme` still
+ * takes the theme and the map still applies `lightPreset`/`theme`, so the two
+ * themes render differently — they just no longer come from different URIs. A test
+ * asserting the two URIs differ was written before this switch and has been
+ * corrected rather than left to pass vacuously.
  */
 export const MAPBOX_STYLE = {
-  light: 'mapbox://styles/mapbox/streets-v12',
-  dark: 'mapbox://styles/mapbox/dark-v11',
+  light: 'mapbox://styles/mapbox/standard',
+  dark: 'mapbox://styles/mapbox/standard',
 } as const;
 
 /**

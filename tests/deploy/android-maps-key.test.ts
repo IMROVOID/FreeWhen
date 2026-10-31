@@ -114,12 +114,19 @@ test('the key is supplied from configuration, not hardcoded in the manifest', ()
   assert.equal(hardcoded, false, 'a Google Maps API key is hardcoded in the app config');
 });
 
-test('the map surface keeps MapBox tiles, so the key is only an initialiser', () => {
-  // Arrange — the key does not make Google the basemap. `mapType="none"` still
-  // hides the Google rendering and every visible pixel is MapBox's.
-  const native = readFileSync('src/components/ui/InteractiveMap.native.tsx', 'utf8');
+test('the native surface no longer needs a Google key at all', () => {
+  // ★ THE KEY WAS A WORKAROUND FOR A RENDERER THAT COULD NEVER WORK.
+  //
+  // `react-native-maps` initialised the Google SDK on every MapView AND attached
+  // MapBox tiles as a `GoogleMap.TileOverlay`, so without a key the app crashed and
+  // with one the map was still Google's. The native renderer is now a WebView
+  // running the same `mapbox-gl` document as the browser, so the APK imports no
+  // Google Maps SDK and the key is no longer required to render a map.
+  const native = readFileSync('src/components/ui/InteractiveMap.native.tsx', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
 
-  // Assert
-  assert.match(native, /mapType="none"/, 'the native surface would draw Google tiles');
-  assert.match(native, /<UrlTile/, 'the native surface no longer draws MapBox tiles');
+  assert.doesNotMatch(native, /react-native-maps/, 'the Google-hosted renderer is still imported');
+  assert.match(native, /react-native-webview/, 'the native surface is not a WebView');
+  assert.match(native, /mapbox-gl/, 'the document does not load MapBox');
 });

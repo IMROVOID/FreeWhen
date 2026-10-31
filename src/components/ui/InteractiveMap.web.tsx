@@ -114,6 +114,17 @@ export function InteractiveMap({
         zoom: camera.zoom,
         pitch: camera.pitch,
         bearing: camera.bearing,
+        // ★ MERCATOR IS PINNED, BECAUSE THE DEFAULT CHANGED UNDER THIS MAP.
+        //
+        // Live, the instance reported `getProjection().name === 'globe'` beside
+        // `transform.projection === 'mercator'`, with `worldSize: 1048576` at zoom 11
+        // (mercator would be 2048). The corrupted transform applied only part of the
+        // tilt — 0.795 vertical compression where cos(50°) = 0.643 — and a point
+        // 0.2° south projected to `Number.MAX_VALUE`. A city map wants mercator, and
+        // saying so stops a library default from deciding the product's camera.
+        projection: 'mercator',
+        // Standard rests at 60; the product sits at 50 and may be tilted further.
+        maxPitch: 85,
         // The product's camera is the interaction; the default chrome would put
         // MapBox's own zoom buttons over the app's own controls.
         attributionControl: false,
@@ -203,11 +214,24 @@ export function InteractiveMap({
     if (!map) return;
 
     const wanted = styleForTheme(theme);
-    if (appliedStyleRef.current === wanted) return;
+    if (appliedStyleRef.current === wanted) {
+      // ★ SAME STYLE, DIFFERENT APPEARANCE — AND THAT IS THE NORMAL CASE NOW.
+      //
+      // Standard is ONE style with a `lightPreset`, so light and dark share a URI
+      // and `setStyle` would never fire. Without this branch the theme control
+      // would do nothing, which is exactly the regression a single-style switch
+      // invites: the URI comparison looks right and the product silently loses
+      // dark mode.
+      applyLightPreset(map, theme);
+      return;
+    }
 
     appliedStyleRef.current = wanted;
     setIsReady(false);
     map.setStyle(wanted);
+    // `setStyle` reloads asynchronously, so the preset is also applied once the
+    // new style reports itself loaded.
+    map.once('styledata', () => applyLightPreset(map, theme));
   }, [theme]);
 
   /**
@@ -379,9 +403,53 @@ export function InteractiveMap({
       // `getBoundingClientRect` needs a real DOM node, which is what the cast in
       // the construction effect relies on. On web a React Native `View` IS a div.
       ref={frameRef}
-      style={styles.frame as ViewStyle}
+      // ★ THE MAP OWNS ITS OWN GESTURES.
+      //
+      // `mapbox-gl` handles drags at the DOM level, so it cannot win a React
+      // responder negotiation — an ancestor `PanResponder` claims the drag first
+      // and the map never moves. `PullToSync` reads this attribute to decline a
+      // gesture that begins here; without it, dragging the map downward opened the
+      // page's pull-to-refresh instead of panning.
+      //
+      // `touch-action: none` is what tells the browser the surface handles touch
+      // itself, so a finger drag does not scroll the page underneath.
+      {...({ 'data-map-surface': 'true' } as Record<string, string>)}
+      style={[styles.frame as ViewStyle, { touchAction: 'none' } as ViewStyle]}
     />
   );
+}
+
+/**
+ * Tells MapBox Standard which appearance to use.
+ *
+ * Standard carries the product's light/dark intent as a style CONFIG property
+ * rather than as two style URIs, so this is where the app theme reaches it. Guarded
+ * because a non-Standard style — or an older library — has no such config, and the
+ * map must keep rendering either way.
+ */
+function applyLightPreset(map: mapboxgl.Map, theme: 'light' | 'dark'): void {
+  try {
+    map.setConfigProperty('basemap', 'lightPreset', theme === 'dark' ? 'night' : 'day');
+  } catch {
+    // A style without the `basemap` import still renders; it just cannot switch
+    // appearance. Losing the theme must not lose the map.
+  }
+}
+
+/**
+ * The subset of a GeoJSON feature this file builds.
+ *
+ * Declared here rather than reached for as a global `GeoJSON` namespace: the
+ * project's tsconfig does not include `@types/geojson`, and `mapbox-gl` exports its
+ * own `GeoJSONSourceSpecification` without re-exporting the namespace.
+ */
+interface MapGeoJsonFeature {
+  type: 'Feature';
+  properties: Record<string, unknown>;
+  geometry: {
+    type: 'Polygon';
+    coordinates: Array<Array<[number, number]>>;
+  };
 }
 
 /**
@@ -396,7 +464,7 @@ export function InteractiveMap({
  * The radius is metres, converted with the same `radiusDegrees` step on both axes —
  * exact enough for a circle whose whole purpose is to say "somewhere in here".
  */
-function circleFeature(circle: MapCircle, zoom: number): GeoJSON.Feature {
+function circleFeature(circle: MapCircle, zoom: number): MapGeoJsonFeature {
   const segments = 32;
   const earthRadiusM = 6_371_000;
   const { lat, lng } = circle.coordinate;
