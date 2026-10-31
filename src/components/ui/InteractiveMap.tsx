@@ -110,29 +110,6 @@ export interface InteractiveMapProps {
   testID?: string;
 }
 
-/**
- * The camera as one comparable string.
- *
- * ★ EQUALITY BY VALUE IS WHAT SEPARATES "THE USER MOVED" FROM "SOMETHING RE-RENDERED".
- *
- * A caller builds its camera from state and memoized bounds, so the object
- * identity changes on renders that did not move anything. Comparing the values
- * means only a real change re-frames the map.
- *
- * Four decimals is about 11 m of latitude and finer than the smallest zoom step,
- * so a rounding difference cannot be mistaken for a deliberate move.
- */
-export function cameraKey(camera: MapCamera): string {
-  const round = (value: number): number => Math.round(value * 10_000) / 10_000;
-  return [
-    round(camera.centre.lat),
-    round(camera.centre.lng),
-    round(camera.zoom),
-    round(camera.pitch),
-    round(camera.bearing),
-  ].join(',');
-}
-
 /** The props this module's fallback accepts — identical to the real surface. */
 export type { Coordinate };
 

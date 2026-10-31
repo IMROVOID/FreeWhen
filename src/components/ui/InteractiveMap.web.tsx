@@ -30,7 +30,7 @@ import type { ViewStyle } from 'react-native';
 import mapboxgl from 'mapbox-gl';
 
 import type { InteractiveMapProps, MapCamera, MapCircle } from './InteractiveMap';
-import { cameraKey } from './InteractiveMap';
+import { cameraKey } from './map-camera';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
 import { map as mapTokens } from '@/src/theme/tokens';
 import { linesFeatureCollection } from '@/src/features/map/projection';
