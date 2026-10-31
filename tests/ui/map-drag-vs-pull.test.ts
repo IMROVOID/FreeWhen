@@ -39,21 +39,35 @@ const WEB_MAP = 'src/components/ui/InteractiveMap.web.tsx';
 
 /* ── The regression ───────────────────────────────────────────────────────── */
 
-test('a drag that starts on the map cannot be claimed as a page pull', () => {
-  // Arrange — the map marks its surface as a region that owns vertical drags.
+test('the map writes data-map-surface onto the DOM node, not as a JSX prop', () => {
+  // ★ THE FIRST VERSION OF THIS TEST PASSED WHILE THE GUARD WAS INERT.
+  //
+  // It asserted the source mentioned `data-map-surface` — and it did, as a spread
+  // prop on `<View>`. React Native Web silently DROPS unknown lowercase `data-*`
+  // props, so the attribute never reached the DOM: verified live, where
+  // `document.querySelector('[data-map-surface]')` returned null. `PullToSync`'s
+  // `closest('[data-map-surface]')` therefore matched nothing and a map drag could
+  // still be claimed as a page pull.
+  //
+  // The assertion is now about the mechanism that works: `setAttribute` on the node.
   const map = source(WEB_MAP);
 
-  // Act — the marker the pull responder checks before claiming.
-  const declaresOwnership = /data-map-surface|onStartShouldSetPanResponderCapture|touchAction/.test(
-    map,
-  );
-
   // Assert
-  assert.equal(
-    declaresOwnership,
-    true,
-    'the web map does not declare ownership of its own drag gestures, so an ancestor pull-to-refresh claims a map pan',
+  assert.match(
+    map,
+    /setAttribute\(\s*'data-map-surface'/,
+    'the attribute is never written to the DOM node, so React Native Web drops it and the guard matches nothing',
   );
+  assert.doesNotMatch(
+    map,
+    /'data-map-surface':\s*'true'/,
+    'the attribute is still passed as a JSX prop, which React Native Web discards',
+  );
+});
+
+test('the map also tells the browser it handles its own touch', () => {
+  // Assert — `touch-action: none` is what stops a finger drag scrolling the page.
+  assert.match(source(WEB_MAP), /touchAction:\s*'none'/);
 });
 
 test('the pull responder declines gestures that begin inside the map', () => {

@@ -102,3 +102,21 @@ test('3D does not cost dark mode, even though both themes share one style', () =
   );
   assert.match(WEB, /applyLightPreset\(map, theme\)/, 'the preset is never applied');
 });
+
+test('the preset is applied again once the basemap import has loaded', () => {
+  // ★ THE FIRST VERSION OF THIS TEST PASSED WHILE DARK MODE WAS BROKEN.
+  //
+  // It asserted that `setConfigProperty('basemap', 'lightPreset', …)` appeared in
+  // the source — and it did. But Standard's basemap is a style IMPORT and the call
+  // only sticks once that import has loaded: verified live, where the app was in
+  // dark mode and `getConfigProperty('basemap','lightPreset')` still returned
+  // `"day"`, rendering a light map on a dark page.
+  //
+  // A single immediate call is therefore not the fix; a second application after
+  // the style finishes loading is.
+  assert.match(
+    WEB,
+    /map\.once\(\s*'style\.load'/,
+    'the preset is never reapplied after the basemap import loads, so Standard keeps its default appearance',
+  );
+});

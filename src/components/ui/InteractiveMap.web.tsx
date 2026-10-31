@@ -100,6 +100,9 @@ export function InteractiveMap({
       return;
     }
 
+    // ★ MARKED ON THE ELEMENT, NOT VIA A PROP — see the note on the frame.
+    node.setAttribute('data-map-surface', 'true');
+
     mapboxgl.accessToken = mapboxCredential;
     // Recorded here so the theme effect does not immediately re-apply the same
     // style and throw away the first draw.
@@ -403,17 +406,21 @@ export function InteractiveMap({
       // `getBoundingClientRect` needs a real DOM node, which is what the cast in
       // the construction effect relies on. On web a React Native `View` IS a div.
       ref={frameRef}
-      // ★ THE MAP OWNS ITS OWN GESTURES.
+      // ★ THE MAP OWNS ITS OWN GESTURES — AND THE MARKER IS SET ON THE REAL NODE.
       //
       // `mapbox-gl` handles drags at the DOM level, so it cannot win a React
       // responder negotiation — an ancestor `PanResponder` claims the drag first
-      // and the map never moves. `PullToSync` reads this attribute to decline a
-      // gesture that begins here; without it, dragging the map downward opened the
-      // page's pull-to-refresh instead of panning.
+      // and the map never moves. `PullToSync` reads `[data-map-surface]` to decline
+      // a gesture that begins here.
+      //
+      // ★ IT CANNOT BE PASSED AS A JSX PROP. React Native Web silently DROPS an
+      // unknown lowercase `data-*` prop on `<View>` — verified live, where
+      // `document.querySelector('[data-map-surface]')` returned null while the
+      // source clearly set it. The attribute has to be written to the underlying
+      // DOM node, which the construction effect already holds a ref to.
       //
       // `touch-action: none` is what tells the browser the surface handles touch
       // itself, so a finger drag does not scroll the page underneath.
-      {...({ 'data-map-surface': 'true' } as Record<string, string>)}
       style={[styles.frame as ViewStyle, { touchAction: 'none' } as ViewStyle]}
     />
   );
@@ -428,12 +435,30 @@ export function InteractiveMap({
  * map must keep rendering either way.
  */
 function applyLightPreset(map: mapboxgl.Map, theme: 'light' | 'dark'): void {
-  try {
-    map.setConfigProperty('basemap', 'lightPreset', theme === 'dark' ? 'night' : 'day');
-  } catch {
-    // A style without the `basemap` import still renders; it just cannot switch
-    // appearance. Losing the theme must not lose the map.
-  }
+  const preset = theme === 'dark' ? 'night' : 'day';
+
+  /**
+   * ★ THE PRESET IS APPLIED TWICE, AND THE SECOND TIME IS WHAT MATTERS.
+   *
+   * Standard's basemap is a style IMPORT, and `setConfigProperty` only sticks once
+   * that import has loaded. Verified live: the app's dark theme was set, the call
+   * ran, and `getConfigProperty('basemap', 'lightPreset')` still returned `"day"`
+   * — a light map on a dark page.
+   *
+   * So it is attempted immediately (harmless, and correct once the import exists)
+   * and again on `style.load`, which fires after the import is ready.
+   */
+  const write = (): void => {
+    try {
+      map.setConfigProperty('basemap', 'lightPreset', preset);
+    } catch {
+      // A style without the `basemap` import still renders; it just cannot switch
+      // appearance. Losing the theme must not lose the map.
+    }
+  };
+
+  write();
+  map.once('style.load', write);
 }
 
 /**
