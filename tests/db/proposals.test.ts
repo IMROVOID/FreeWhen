@@ -641,17 +641,40 @@ describe('proposals', { concurrency: false }, () => {
   });
 
   describe('placeholder search is rate-limited per address', () => {
-    test('the search endpoint answers without a provider key, degraded', async () => {
+    test('the search endpoint answers without a provider key, by falling through', async () => {
+      // ★ THIS USED TO ASSERT `degraded: true`, AND THAT ASSERTION WAS THE DEFECT.
+      //
+      // One rung — Neshan — and no key meant "search is unavailable". Deployed, the
+      // configured key was a DIRECTIONS key, which Neshan's search service refuses
+      // with `485 Api Key services not match`, and the route mapped every non-200 to
+      // the same answer. So this assertion held while every query in both languages
+      // returned nothing, which is exactly what was reported.
+      //
+      // The contract now: without a usable key the ladder falls through to the
+      // keyless rung, so a request either finds places or the providers themselves
+      // were unreachable. It must still never be a 500 the sheet cannot recover from.
       const response = await call('/api/place-search?q=%DA%A9%D8%A7%D9%81%D9%87', {
         ip: uniqueIp(),
       });
 
-      // No key is configured in the test environment, so this is the degraded
-      // path — a 200 with no results, never a 500 the sheet cannot recover from.
+      // Assert
       assert.equal(response.status, 200);
       const body = await bodyOf<{ results: unknown[]; degraded: boolean }>(response);
-      assert.deepEqual(body.results, []);
-      assert.equal(body.degraded, true);
+      assert.ok(Array.isArray(body.results), 'the answer carries no result list');
+
+      // A keyless deployment searches (the Nominatim rung), so `degraded` may only be
+      // true when that rung is itself unreachable — which a test cannot assume either
+      // way without reaching the network. What is pinned is the shape: an empty list
+      // is a no-match only when the answer is NOT degraded.
+      if (body.results.length === 0) {
+        assert.equal(
+          body.degraded,
+          true,
+          'an empty answer that is not degraded would be a silent failure',
+        );
+      } else {
+        assert.equal(body.degraded, false, 'results were returned alongside a degraded flag');
+      }
     });
   });
 });
