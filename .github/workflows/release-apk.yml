@@ -131,6 +131,7 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MAPS_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: |
           set -euo pipefail
           missing=0
@@ -143,6 +144,21 @@ jobs:
           fi
           if [ -z "$KEYSTORE_PASSWORD" ]; then
             echo "::error title=Missing keystore password::ANDROID_KEYSTORE_PASSWORD is unset."
+            missing=1
+          fi
+          # ★ CHECKED HERE RATHER THAN 15 MINUTES INTO GRADLE.
+          #
+          # `react-native-maps` initialises the Google Maps SDK when a MapView is
+          # created, before `mapType` is consulted, so without this key EVERY map
+          # screen crashes the app — that defect shipped in a draft because nothing
+          # checked for it until a phone opened a map. The config plugin also refuses
+          # to prebuild without it; failing in preflight makes the cause obvious in
+          # the first few seconds of the run.
+          if [ -z "$MAPS_KEY" ]; then
+            echo "::error title=Missing map key::GOOGLE_MAPS_API_KEY is unset."
+            echo "react-native-maps initialises the Google Maps SDK on Android even with"
+            echo "mapType=\"none\", and the app crashes on any map screen without it."
+            echo "MapBox still draws every tile; this key only authorises the SDK host."
             missing=1
           fi
           exit "$missing"
@@ -349,10 +365,22 @@ jobs:
           EXPO_PUBLIC_APP_BASE_URL: ${{ vars.FREEWHEN_APP_BASE_URL }}
           EXPO_PUBLIC_API_URL: ${{ vars.FREEWHEN_SERVER_URL }}
           EXPO_PUBLIC_DEMO_TOKEN: ${{ vars.FREEWHEN_DEMO_TOKEN }}
-          # Plan 64: this token is the ONLY map credential the APK needs. There is
-          # no basemap key any more, and no previous-provider key to pass.
+          # The MapBox token draws every visible tile.
           EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN: ${{ vars.FREEWHEN_MAPBOX_PUBLIC_TOKEN }}
           EXPO_PUBLIC_TILE_STYLE_URL: ${{ vars.FREEWHEN_TILE_STYLE_URL }}
+          # ★ THE GOOGLE KEY AUTHORISES THE SDK, NOT THE BASEMAP.
+          #
+          # `react-native-maps` initialises the Google Maps SDK when a MapView is
+          # created, before `mapType` is consulted, so the APK cannot open a map
+          # screen without this key — it died with "API key not found" when this was
+          # missing. MapBox still renders every pixel; see
+          # `plugins/with-google-maps-key.js`.
+          #
+          # A SECRET, not a variable: unlike the publishable MapBox token this one is
+          # restricted by package name and signing certificate, and Google bills per
+          # map load. The plugin fails `prebuild` when it is absent, so a release
+          # cannot ship a crashing map.
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: bash scripts/build/build-apk.sh
 
       # ★ THIS STEP USED TO RUN **BEFORE** THE VERIFY STEP, AND THAT IS THE BUG.
