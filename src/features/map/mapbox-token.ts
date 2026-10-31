@@ -45,8 +45,7 @@
  * bundled `process.env` substitution — it reads the real environment.
  */
 export function readMapboxToken(): string | null {
-  const raw =
-    typeof process === 'undefined' ? undefined : process.env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN;
+  const raw = readPublicEnv('EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN');
 
   if (typeof raw !== 'string') return null;
 
@@ -75,6 +74,37 @@ export function readMapboxToken(): string | null {
  * one.
  */
 const MIN_TOKEN_LENGTH = 8;
+
+/**
+ * Reads an inlined public build variable wherever this code is running.
+ *
+ * ★ `typeof process === 'undefined'` IS NOT ENOUGH, AND THAT CRASHED THE APP.
+ *
+ * The previous form was `typeof process === 'undefined' ? undefined : process.env.X`.
+ * That guard proves the GLOBAL exists and says nothing about `.env`. On a device the
+ * Hermes runtime exposes `process` with no `env`, so `process.env.EXPO_PUBLIC_…`
+ * threw `TypeError: undefined is not a function` — inside `readMapboxToken`, reached
+ * from `ProposalMapPreview`, which took the whole event page down. The browser and
+ * the Node runner both have `process.env` and never saw it.
+ *
+ * ★ THE LITERAL MEMBER EXPRESSION IS STILL WHAT THE BUNDLER REWRITES.
+ *
+ * Metro inlines `process.env.NAME` by matching that exact expression, so the reads
+ * stay literal even though they sit behind optional access. A computed lookup would
+ * survive as a runtime read and ship an empty bundle — the trap that produced a
+ * blank map earlier in this project.
+ */
+function readPublicEnv(name: 'EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN'): string | undefined {
+  // A device: no `process`, or a `process` without an `env`.
+  const env =
+    typeof process === 'undefined' || process.env == null ? undefined : process.env;
+
+  if (env === undefined) return undefined;
+
+  return name === 'EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN'
+    ? process.env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN
+    : undefined;
+}
 
 /** Whether this build can draw a MapBox basemap at all. */
 export function hasMapbox(): boolean {
