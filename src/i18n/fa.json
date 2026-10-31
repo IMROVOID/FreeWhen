@@ -718,6 +718,7 @@
     "emptyAction": "پیشنهاد مکان",
     "singleParticipant": "برای مقایسهٔ سفر به موقعیت نفر دوم نیاز است.",
     "venuePinLabel": "مکان رتبهٔ {{rank}}: {{name}}",
+    "proposalPinLabel": "پیشنهاد {{name}}: {{place}}",
     "participantPinLabel": "محدودهٔ تقریبی {{name}}",
     "lowestRankLabel": "رتبهٔ یک",
     "legend": "رتبه با عدد، اندازه و رنگ نشان داده می‌شود.",

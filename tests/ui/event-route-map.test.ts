@@ -186,8 +186,28 @@ test('a proposal with no place contributes no pin', () => {
 
 test('every fact the drawing shows is also text', () => {
   // Assert — the map is contextual; the list and legend are the accessible path.
-  assert.match(MAP, /t\('map\.venuePinLabel', \{ rank: index \+ 1, name: destination\.name \}\)/);
+  //
+  // ★ THE LEGEND NAMES PEOPLE NOW, NOT RANKS.
+  //
+  // It read «مکان رتبهٔ ۱, مکان رتبهٔ ۲, …», which repeated a ranking the list already
+  // states and answered the one question a coloured pin raises — whose is it? — with
+  // nothing. Each row is the proposer's name in the proposer's own colour, and the
+  // coordinates are still announced for a screen reader through the marker label.
+  assert.match(MAP, /t\('map\.proposalPinLabel', \{\s*name: destination\.proposer,/);
   assert.match(MAP, /t\('location\.useCurrent'\)/);
+});
+
+test('a proposal pin wears its proposer’s colour, not the app’s accent', () => {
+  // Arrange — the report: "display proposal locations by map pins, not circles, and
+  // colour each proposal pin by proposer colour (the same colour that texts use)".
+  const markerColour = /color: destination\.color/.test(MAP);
+  const legendColour = /color=\{destination\.color\}/.test(MAP);
+  const fromNickname = /color: colorForNickname\(proposal\.proposer_name\)/.test(HOME);
+
+  // Assert
+  assert.ok(markerColour, 'the pin is not coloured by the proposer');
+  assert.ok(legendColour, 'the legend swatch is not the proposer’s colour');
+  assert.ok(fromNickname, 'the destination carries no proposer colour to use');
 });
 
 test('the level-4 state is a designed surface, not a blank frame', () => {

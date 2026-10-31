@@ -47,6 +47,20 @@ export interface RouteDestination {
   id: string;
   name: string;
   coordinate: Coordinate;
+  /**
+   * Who proposed it.
+   *
+   * ★ THE PIN BELONGS TO A PERSON, NOT TO A RANK.
+   *
+   * Every destination used to be drawn in the app's accent, so three proposals by
+   * three people were three identical dots — the reported "the proposal locations
+   * are circles, not pins, and they are not anyone's colour". The colour is the
+   * proposer's own nickname colour (the same one their name is printed in), which
+   * is what lets a reader connect a pin on the map to a person in the list.
+   */
+  proposer: string;
+  /** The proposer's colour, from `colorForNickname`. */
+  color: string;
 }
 
 export interface EventRouteMapProps {
@@ -146,16 +160,25 @@ export function EventRouteMap({ origin, destinations, testID }: EventRouteMapPro
             },
           ];
 
-    const destinationMarkers = destinations.map((destination, index) => ({
+    // ★ ONE PIN PER PROPOSAL, IN THE PROPOSER'S OWN COLOUR.
+    //
+    // These are places people are asking the group to go to, so the map's job is to
+    // answer "whose option is that, and are they far from each other?" — and a rank
+    // is already stated by the ranked list below. No `selected` emphasis for the
+    // leader either: emphasis by size plus colour plus position was three encodings
+    // for one fact, and it made the first proposal look chosen before the vote.
+    const destinationMarkers = destinations.map((destination) => ({
       id: destination.id,
       coordinate: destination.coordinate,
-      color: theme.primary,
-      selected: index === 0,
-      label: t('map.venuePinLabel', { rank: index + 1, name: destination.name }),
+      color: destination.color,
+      label: t('map.proposalPinLabel', {
+        name: destination.proposer,
+        place: destination.name,
+      }),
     }));
 
     return [...originMarker, ...destinationMarkers];
-  }, [origin, destinations, theme.info, theme.primary, t]);
+  }, [origin, destinations, theme.info, t]);
 
   const lines: MapLine[] = useMemo(
     () =>
@@ -217,6 +240,12 @@ export function EventRouteMap({ origin, destinations, testID }: EventRouteMapPro
 
       {/* The legend. Every fact the drawing shows, as text (FR-4.5). */}
       <View style={styles.legend}>
+        {/* The legend. Every fact the drawing shows, as text (FR-4.5).
+            ★ IT NAMES PEOPLE, BECAUSE THE PINS ARE PEOPLE'S OPTIONS.
+            It used to read «مکان رتبهٔ ۱, مکان رتبهٔ ۲, …», which repeated a rank the
+            list already states and answered the one question a coloured pin raises —
+            whose is it? — with nothing. The name carries the proposer's colour, the
+            same one their name has on their proposal card. */}
         {origin !== null && (
           <View style={styles.legendRow}>
             <NavigationArrow size={size.stepperButton / 2} color={theme.info} weight="bold" />
@@ -226,16 +255,14 @@ export function EventRouteMap({ origin, destinations, testID }: EventRouteMapPro
           </View>
         )}
 
-        {destinations.map((destination, index) => (
+        {destinations.map((destination) => (
           <View key={destination.id} style={styles.legendRow}>
-            <MapPin size={size.stepperButton / 2} color={theme.primary} weight="fill" />
-            <Text
-              variant="caption"
-              color={theme.textMuted}
-              numberOfLines={1}
-              style={styles.legendText}
-            >
-              {t('map.venuePinLabel', { rank: index + 1, name: destination.name })}
+            <MapPin size={size.stepperButton / 2} color={destination.color} weight="fill" />
+            <Text variant="caption" color={theme.textMuted} numberOfLines={1} style={styles.legendText}>
+              <Text variant="caption" color={destination.color}>
+                {destination.proposer}
+              </Text>
+              {` — ${destination.name}`}
             </Text>
           </View>
         ))}

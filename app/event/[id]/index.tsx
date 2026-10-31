@@ -59,6 +59,7 @@ import { deleteEvent, leaveEvent, renameEvent } from '@/src/features/events/serv
 import { rotateInvite } from '@/src/features/events/services/invite';
 import { extractInviteToken } from '@/src/features/events/utils/invite-token';
 import { ProposalCard } from '@/src/features/proposals/components/ProposalCard';
+import { colorForNickname } from '@/src/features/profile/services/nickname-color';
 import { useProposals } from '@/src/features/proposals/hooks/useProposals';
 import { RANKED_VIEW, rankProposals, shareOfAllAnswers } from '@/src/features/proposals/services/ranking';
 import { DecisionStatusBand } from '@/src/features/voting/components/DecisionStatusBand';
@@ -257,6 +258,14 @@ export default function EventHomeScreen() {
                 id: proposal.id,
                 name: proposal.venue.name,
                 coordinate: { lat: proposal.venue.lat, lng: proposal.venue.lng },
+                // ★ THE PIN WEARS ITS PROPOSER'S COLOUR.
+                //
+                // The same `colorForNickname` the card prints the name in, so a
+                // reader can go from a pin to a person without a key. A rank is
+                // already stated by the list; a colour is the only thing on the
+                // map that can answer "whose option is that?".
+                proposer: proposal.proposer_name,
+                color: colorForNickname(proposal.proposer_name),
               },
             ]
           : [],
@@ -483,6 +492,28 @@ export default function EventHomeScreen() {
         </Text>
       </View>
 
+      {/*
+        ★ THE ACTION SITS ABOVE THE LIST, NOT BELOW IT.
+
+        It was rendered after every card, so on an event with a dozen proposals the
+        way to add one was a full scroll past all of them — furthest away exactly
+        when the list is longest, and reading as a footer to the page rather than as
+        the list's own action. Above the heading it is in the same place every time
+        this screen opens.
+
+        It is present in the non-empty state only: the empty state already carries
+        this exact button inside its prompt (AC-11.3.1), and two of them on one
+        screen is one too many.
+      */}
+      {!isLoading && !errorKey && proposals.length > 0 && (
+        <Button
+          label={t('proposals.newProposal')}
+          onPress={openPropose}
+          testID="event-home-new-proposal"
+          style={styles.action}
+        />
+      )}
+
       {isReconnecting && (
         <Text variant="caption" color={theme.textMuted} testID="event-home-reconnecting">
           {t('proposals.reconnecting')}
@@ -571,6 +602,11 @@ export default function EventHomeScreen() {
                 <ProposalCard
                   proposal={proposal}
                   homeTz={homeTz}
+                  // ★ THE CARD'S MAP ROUTES FROM HERE, WHEN "HERE" EXISTS.
+                  // The start point is the caller's own and is resolved on this
+                  // screen alone; the cards below draw the distance to each proposed
+                  // place from it, which is the one fact a list of venues cannot show.
+                  origin={myStartPoint}
                   share={shareOfAllAnswers(
                     { ...proposal, tally },
                     rankedProposals.map((entry) => ({ ...entry, tally: tallyFor(entry.id) })),
@@ -614,15 +650,6 @@ export default function EventHomeScreen() {
             );
           })}
         </View>
-      )}
-
-      {proposals.length > 0 && (
-        <Button
-          label={t('proposals.newProposal')}
-          onPress={openPropose}
-          testID="event-home-new-proposal"
-          style={styles.action}
-        />
       )}
 
       <EventShareModal

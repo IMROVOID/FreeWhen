@@ -718,6 +718,7 @@
     "emptyAction": "Propose a place",
     "singleParticipant": "Comparing trips needs a second person's location.",
     "venuePinLabel": "Place ranked {{rank}}: {{name}}",
+    "proposalPinLabel": "{{name}}'s option: {{place}}",
     "participantPinLabel": "Approximate area for {{name}}",
     "lowestRankLabel": "Rank one",
     "legend": "Rank is shown by number, size and colour.",

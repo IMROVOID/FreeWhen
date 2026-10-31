@@ -39,7 +39,7 @@
  * says so and offers it.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -68,7 +68,7 @@ import {
   searchPlaces,
   type PlaceResult,
 } from '@/src/features/venues/services/place-search';
-import type { MapMarker } from '@/src/components/ui/InteractiveMap';
+import type { MapCamera, MapMarker } from '@/src/components/ui/InteractiveMap';
 import { hasMapbox } from '@/src/features/map/mapbox-token';
 import { mapAppearance } from '@/src/features/map/appearance';
 import { DEFAULT_MAP_CENTRE } from '@/src/features/map/projection';
@@ -98,6 +98,13 @@ const DEFAULT_CENTRE = DEFAULT_MAP_CENTRE;
 /** The resting zoom for a picker: a neighbourhood, not a city, not a rooftop. */
 const PICKER_ZOOM = 15;
 
+/** The zoom range the basemap has data for. Beyond it the frame goes blank. */
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 20;
+function clampZoom(value: number): number {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
+}
+
 export function LocationMapPicker({
   initialLat = DEFAULT_CENTRE.lat,
   initialLng = DEFAULT_CENTRE.lng,
@@ -112,10 +119,8 @@ export function LocationMapPicker({
 
   const [lat, setLat] = useState(initialLat);
   const [lng, setLng] = useState(initialLng);
-  const [zoom, setZoom] = useState(PICKER_ZOOM);
   const [placeName, setPlaceName] = useState(initialName);
   const [placeAddress, setPlaceAddress] = useState('');
-
   /**
    * ★ A BASEMAP THAT CANNOT DRAW IS A VISIBLE STATE, NOT AN EMPTY FRAME.
    *
@@ -135,6 +140,17 @@ export function LocationMapPicker({
   const [searchUnavailable, setSearchUnavailable] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
+  /**
+   * Whether a completed search found nothing, as distinct from failing.
+   *
+   * ★ "NO PLACE MATCHES THAT" AND "NOBODY COULD BE ASKED" ARE TWO STATES.
+   *
+   * They both arrived as an empty list, so a misspelled street read as broken
+   * search — and so did the deployment's own invalid key, which is how the real
+   * cause survived a report that said only "search returns no results at all".
+   */
+  const [searchEmpty, setSearchEmpty] = useState(false);
+
   const searchRequestId = useRef(0);
 
   /**
@@ -145,10 +161,56 @@ export function LocationMapPicker({
    */
   const biasRef = useRef({ lat: initialLat, lng: initialLng });
 
-  const commitCentre = useCallback((next: { lat: number; lng: number }) => {
+  /**
+   * ★ THE PIN AND THE CAMERA ARE TWO FACTS, AND CONFLATING THEM WAS THE BUG.
+   *
+   * There was one `commitCentre`, wired to BOTH the map's press handler and its
+   * `onCameraChange`. So every settled camera move — every drag, every pinch —
+   * rewrote the selection, and the pin jumped to whatever was under the middle of
+   * the screen. The reported defect is exactly that: "when I move the map, the pin
+   * automatically moves to the centre; it should only move to where the user
+   * clicks, and never change by itself".
+   *
+   * `selectPoint` is the only writer of the selection. `noteCamera` records where
+   * the map is looking for the search bias, and deliberately does nothing else.
+   */
+  const selectPoint = useCallback((next: { lat: number; lng: number }) => {
     biasRef.current = next;
     setLat(next.lat);
     setLng(next.lng);
+  }, []);
+
+  /**
+   * The pose this component has ASKED the map to show.
+   *
+   * ★ ONLY A DELIBERATE ACTION MOVES THE CAMERA; A GESTURE NEVER DOES.
+   *
+   * Choosing a search result, using locate-me and pressing +/- all write here, and
+   * the map is moved to exactly that. A drag or a pinch does not — which is what
+   * makes the camera the user's own once they touch it, and is the fix for a
+   * pinch or a tilt reverting the moment the gesture ended.
+   */
+  const [framing, setFraming] = useState<{ centre: { lat: number; lng: number }; zoom: number }>(
+    () => ({ centre: { lat: initialLat, lng: initialLng }, zoom: PICKER_ZOOM }),
+  );
+
+  /** Moves the map on purpose, and takes the selection with it. */
+  const flyTo = useCallback(
+    (next: { lat: number; lng: number }, zoom?: number) => {
+      selectPoint(next);
+      setFraming((current) => ({ centre: next, zoom: clampZoom(zoom ?? current.zoom) }));
+    },
+    [selectPoint],
+  );
+
+  const noteCamera = useCallback((camera: MapCamera) => {
+    // ★ THE ONLY THING A CAMERA MOVE IS ALLOWED TO DO IS RE-BIAS THE SEARCH.
+    //
+    // It used to also commit the centre as the selection, which is what made the
+    // pin jump to the middle of the screen on every drag. It does not touch
+    // `framing` either: writing the reported pose back would undo a pinch or a
+    // tilt, which is the other half of the same reported defect.
+    biasRef.current = camera.centre;
   }, []);
 
   /**
@@ -157,9 +219,8 @@ export function LocationMapPicker({
    * Beyond 20 the MapBox style has no data and the frame goes blank; below 3 the
    * whole world is one screen and a pin is meaningless.
    */
-  const changeZoom = (delta: number) => {
-    setZoom((current) => Math.max(3, Math.min(20, current + delta)));
-  };
+  const changeZoom = (delta: number) =>
+    setFraming((current) => ({ ...current, zoom: clampZoom(current.zoom + delta) }));
 
   /**
    * A tap on the map moves the pin.
@@ -169,7 +230,7 @@ export function LocationMapPicker({
    * typed a name for is not silently renamed by a stray tap.
    */
   const handlePress = (coordinate: { lat: number; lng: number }) => {
-    commitCentre(coordinate);
+    selectPoint(coordinate);
     setPlaceAddress('');
     setPlaceName((current) =>
       current === '' || current === t('location.currentPosition')
@@ -187,6 +248,7 @@ export function LocationMapPicker({
       setSearchResults([]);
       setShowResults(false);
       setSearchUnavailable(false);
+      setSearchEmpty(false);
       return;
     }
 
@@ -207,13 +269,16 @@ export function LocationMapPicker({
 
         setSearchResults(outcome.results);
         // A degraded provider is a STATE, not an empty list: the custom pin is
-        // the product's first-class answer to a place no database carries.
+        // the product's first-class answer to a place no database carries. A
+        // provider that answered with nothing is a third state — see `searchEmpty`.
         setSearchUnavailable(outcome.degraded);
+        setSearchEmpty(!outcome.degraded && outcome.results.length === 0);
         setShowResults(true);
       } catch {
         if (mine !== searchRequestId.current) return;
         setSearchResults([]);
         setSearchUnavailable(true);
+        setSearchEmpty(false);
         setShowResults(true);
       } finally {
         if (mine === searchRequestId.current) setIsSearching(false);
@@ -224,7 +289,7 @@ export function LocationMapPicker({
   }, [searchQuery]);
 
   const handleSelectSearchResult = (result: PlaceResult) => {
-    commitCentre({ lat: result.lat, lng: result.lng });
+    flyTo({ lat: result.lat, lng: result.lng });
     setPlaceName(result.name);
     setPlaceAddress(result.address ?? '');
     setShowResults(false);
@@ -240,7 +305,7 @@ export function LocationMapPicker({
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        commitCentre({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        flyTo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setPlaceName(t('location.currentPosition'));
         setPlaceAddress('');
         haptics.impact('medium');
@@ -267,10 +332,33 @@ export function LocationMapPicker({
   const appearance = mapAppearance(themeName, theme.primary);
 
   /**
-   * One marker, at the centre.
+   * ★ THE CAMERA IS AN ASK, NOT A MIRROR.
+   *
+   * It used to be built from the live selection and the live zoom, so every value
+   * the map reported came straight back in and the gesture undid itself: a pinch
+   * settled and was reverted, a tilt settled and was reverted. It is built from
+   * `framing` instead — a value only THIS component writes, and only when it
+   * deliberately wants the map somewhere else: on mount, when a search result is
+   * chosen, when locate-me returns, and when the +/- buttons are pressed.
+   *
+   * A drag or a pinch never touches `framing`, so nothing pushes it back.
+   */
+  const camera: MapCamera = useMemo(
+    () => ({
+      centre: framing.centre,
+      zoom: framing.zoom,
+      pitch: appearance.pitch,
+      bearing: 0,
+    }),
+    [framing, appearance.pitch],
+  );
+
+  /**
+   * One marker, at the selection.
    *
    * The marker IS the selection, so its label is the chosen place's name — an
-   * unlabelled dot is silent to a screen reader.
+   * unlabelled pin is silent to a screen reader — and it sits on the point the
+   * user chose, which a camera move no longer changes.
    */
   const markers: MapMarker[] = basemapFailed
     ? []
@@ -292,17 +380,12 @@ export function LocationMapPicker({
       <View style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
         {!basemapFailed && (
           <InteractiveMap
-            camera={{
-              centre: { lat, lng },
-              zoom,
-              pitch: appearance.pitch,
-              bearing: 0,
-            }}
+            camera={camera}
             markers={markers}
             theme={appearance.mode}
             accent={appearance.accent}
             onPress={handlePress}
-            onCameraChange={(camera) => commitCentre(camera.centre)}
+            onCameraChange={noteCamera}
             onUnavailable={() => setBasemapFailed(true)}
             testID={testID ? `${testID}-surface` : undefined}
           />
@@ -349,7 +432,7 @@ export function LocationMapPicker({
           </View>
 
           {/* Autocomplete Suggestions Dropdown */}
-          {showResults && (searchResults.length > 0 || searchUnavailable) && (
+          {showResults && (searchResults.length > 0 || searchUnavailable || searchEmpty) && (
             <Card variant="raised" style={styles.dropdownCard}>
               {searchResults.length > 0 ? (
                 <ScrollView
@@ -379,6 +462,24 @@ export function LocationMapPicker({
                     </Pressy>
                   ))}
                 </ScrollView>
+              ) : searchEmpty ? (
+                /* ★ NO MATCH IS NOT AN OUTAGE.
+                   The provider was asked and had nothing. Saying "search is
+                   unavailable" here told a user who typed a wrong street name
+                   that the product was broken — and, on the deployment whose
+                   provider key was for another service, said the same thing for
+                   the opposite reason, which is what hid the real cause. */
+                <View
+                  style={styles.unavailableBody}
+                  testID={testID ? `${testID}-search-empty` : undefined}
+                >
+                  <Text variant="body" color={theme.text} align="start">
+                    {t('proposals.place.noResults')}
+                  </Text>
+                  <Text variant="caption" color={theme.textMuted} align="start">
+                    {t('proposals.place.pickOnMap')}
+                  </Text>
+                </View>
               ) : (
                 /* ★ AN UNAVAILABLE SEARCH SAYS SO, AND POINTS AT THE PIN.
                    The custom pin is a first-class path in this product — an

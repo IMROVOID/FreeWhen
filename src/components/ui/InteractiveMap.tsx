@@ -68,7 +68,21 @@ export interface MapCamera {
 }
 
 export interface InteractiveMapProps {
-  /** The camera's initial pose. Later camera moves are the user's. */
+  /**
+   * The camera's pose. NOT a controlled value.
+   *
+   * ★ THE MAP APPLIES THIS ONCE PER DISTINCT POSE, THEN LEAVES THE CAMERA ALONE.
+   *
+   * Both renderers used to push every camera change straight back in, so a pinch
+   * or a tilt was reverted the moment the reported camera reached the parent: the
+   * gesture settled, `onCameraChange` lifted the result, the parent re-rendered
+   * with a new object, and the effect below wrote it back — undoing what the
+   * fingers had just done. The reported defect is exactly that, on both axes.
+   *
+   * The pose is compared by VALUE (see `cameraKey`), so a re-render that rebuilds
+   * an equal object does nothing, and a caller who deliberately re-frames — a new
+   * bounding box, the locate-me button — still moves the map.
+   */
   camera: MapCamera;
   markers?: MapMarker[];
   lines?: MapLine[];
@@ -94,6 +108,29 @@ export interface InteractiveMapProps {
   /** Whether the basemap finished its first draw. Drives the caller's spinner. */
   onReady?: () => void;
   testID?: string;
+}
+
+/**
+ * The camera as one comparable string.
+ *
+ * ★ EQUALITY BY VALUE IS WHAT SEPARATES "THE USER MOVED" FROM "SOMETHING RE-RENDERED".
+ *
+ * A caller builds its camera from state and memoized bounds, so the object
+ * identity changes on renders that did not move anything. Comparing the values
+ * means only a real change re-frames the map.
+ *
+ * Four decimals is about 11 m of latitude and finer than the smallest zoom step,
+ * so a rounding difference cannot be mistaken for a deliberate move.
+ */
+export function cameraKey(camera: MapCamera): string {
+  const round = (value: number): number => Math.round(value * 10_000) / 10_000;
+  return [
+    round(camera.centre.lat),
+    round(camera.centre.lng),
+    round(camera.zoom),
+    round(camera.pitch),
+    round(camera.bearing),
+  ].join(',');
 }
 
 /** The props this module's fallback accepts — identical to the real surface. */

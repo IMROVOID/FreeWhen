@@ -42,7 +42,7 @@ const PICKER = code('src/components/ui/LocationMapPicker.tsx');
 test('a tap on the map drops the pin, which is the plainest way to choose a place', () => {
   // Arrange — the surface reports a coordinate; the picker commits it.
   const handles = /onPress=\{handlePress\}/.test(PICKER);
-  const commits = /const handlePress = \(coordinate[\s\S]{0,200}?commitCentre\(coordinate\)/.test(PICKER);
+  const commits = /const handlePress = \(coordinate[\s\S]{0,200}?selectPoint\(coordinate\)/.test(PICKER);
 
   // Assert
   assert.ok(handles, 'the picker does not pass a press handler, so a tap does nothing');
@@ -52,7 +52,7 @@ test('a tap on the map drops the pin, which is the plainest way to choose a plac
 test('a search result moves the map, and a tap clears a stale search name', () => {
   // Arrange — the two paths must agree about what the pin is called, or a place
   // searched by name shows the name while sitting somewhere else.
-  const fromSearch = /handleSelectSearchResult[\s\S]{0,200}?commitCentre\(\{ lat: result\.lat, lng: result\.lng \}\)/.test(
+  const fromSearch = /handleSelectSearchResult[\s\S]{0,200}?flyTo\(\{ lat: result\.lat, lng: result\.lng \}\)/.test(
     PICKER,
   );
   const resetsName = /setPlaceName\(\(current\)[\s\S]{0,200}?proposals\.place\.customPin/.test(PICKER);
@@ -60,6 +60,51 @@ test('a search result moves the map, and a tap clears a stale search name', () =
   // Assert
   assert.ok(fromSearch, 'a chosen search result does not move the map');
   assert.ok(resetsName, 'a hand-placed pin keeps the previous result’s name');
+});
+
+/* ── The selection is the user's, the camera is the user's ────────────────── */
+
+test('moving the map never moves the pin', () => {
+  // ★ THE REPORTED DEFECT: "when I move the map, the selected pin automatically
+  // moves to the centre of the screen. It should only move to where the user clicks
+  // and never change by itself."
+  //
+  // One `commitCentre` used to be wired to BOTH the press handler and
+  // `onCameraChange`, so every settled drag rewrote the selection. The two facts are
+  // separate now, and this pins that they stay separate: a camera move may only
+  // re-bias the next search.
+  const noteCamera = /const noteCamera = useCallback\(\(camera: MapCamera\) => \{([\s\S]*?)\}, \[\]\);/.exec(
+    PICKER,
+  )?.[1];
+
+  // Assert — the handler exists, and it touches the bias and nothing else.
+  assert.ok(noteCamera, 'there is no camera handler');
+  assert.match(noteCamera, /biasRef\.current = camera\.centre/, 'a camera move no longer biases search');
+  assert.doesNotMatch(noteCamera, /setLat|setLng|selectPoint/, 'a camera move writes the selection');
+  assert.doesNotMatch(noteCamera, /setFraming/, 'a camera move is written back, so a pinch or a tilt reverts');
+});
+
+test('the pin sits on the selected point, not on the camera centre', () => {
+  // Assert — the marker is built from the selection alone.
+  assert.match(PICKER, /coordinate: \{ lat, lng \}/);
+  assert.doesNotMatch(
+    PICKER,
+    /coordinate: camera\.centre/,
+    'the marker follows the camera instead of the selection',
+  );
+});
+
+test('the camera is only moved by a deliberate action', () => {
+  // Arrange — `framing` is the only thing the camera prop is built from, and only
+  // `flyTo` and the zoom buttons write it. A pinch reports up and stops there.
+  const builtFromFraming = /centre: framing\.centre,\s*\n\s*zoom: framing\.zoom/.test(PICKER);
+  const zoomIsFraming = /setFraming\(\(current\) => \(\{ \.\.\.current, zoom: clampZoom\(current\.zoom \+ delta\) \}\)\)/.test(
+    PICKER,
+  );
+
+  // Assert
+  assert.ok(builtFromFraming, 'the camera is built from something other than the picker’s own framing');
+  assert.ok(zoomIsFraming, 'the zoom buttons do not ask the map to zoom');
 });
 
 /* ── 3D and camera ────────────────────────────────────────────────────────── */
@@ -76,14 +121,17 @@ test('the picker rests at a pitched camera, so the map reads as 3D', () => {
 });
 
 test('the user owns the camera: every settled move is recorded', () => {
-  // Assert — the selected coordinate must follow the camera, or the confirm card
-  // reports a place the pin is no longer over.
-  assert.match(PICKER, /onCameraChange=\{\(camera\) => commitCentre\(camera\.centre\)\}/);
+  // Assert — the picker still hears every settled move, because the search bias has
+  // to follow where the user is looking. What it does with it is `noteCamera`'s
+  // business, asserted above: bias only.
+  assert.match(PICKER, /onCameraChange=\{noteCamera\}/);
 });
 
 test('zoom is offered and clamped to the range the style has data for', () => {
   // Assert — beyond 20 the basemap has no tiles and the frame goes blank.
-  assert.match(PICKER, /Math\.max\(3, Math\.min\(20, current \+ delta\)\)/);
+  assert.match(PICKER, /Math\.max\(MIN_ZOOM, Math\.min\(MAX_ZOOM, value\)\)/);
+  assert.match(PICKER, /const MIN_ZOOM = 3;/);
+  assert.match(PICKER, /const MAX_ZOOM = 20;/);
   assert.match(PICKER, /accessibilityLabel=\{t\('map\.zoomIn'\)\}/);
   assert.match(PICKER, /accessibilityLabel=\{t\('map\.zoomOut'\)\}/);
 });

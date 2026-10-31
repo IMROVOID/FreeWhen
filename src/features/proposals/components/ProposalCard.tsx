@@ -23,7 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowSquareOut } from 'phosphor-react-native';
 
 import { Card } from '@/src/components/ui/Card';
-import { ProposalMapPreview } from './ProposalMapPreview';
+import { ProposalRouteMap } from './ProposalRouteMap';
 import { VoteShareBar } from './VoteShareBar';
 import { Chip } from '@/src/components/ui/Chip';
 import { Pressy } from '@/src/components/ui/Pressy';
@@ -41,6 +41,7 @@ import { endsNextDay, formatLocalTime } from '@/src/features/proposals/services/
 import { radius, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Proposal } from '@/src/types/proposal';
+import type { Coordinate } from '@/src/routing/types';
 import type { Language } from '@/src/i18n/types';
 
 export interface ProposalCardProps {
@@ -65,6 +66,17 @@ export interface ProposalCardProps {
   onOpenComments?: () => void;
   /** How many comments the proposal carries, when the caller knows. */
   commentCount?: number;
+  /**
+   * The viewer's own start point, when they have one.
+   *
+   * ★ THE CARD CANNOT LOOK THIS UP ITSELF.
+   *
+   * A `start_point` is the caller's own, and the server's participant list
+   * deliberately carries its STATE and never a coordinate. The event screen is the
+   * one place that has the resolved point, so it passes it down; a card with no
+   * origin draws the proposed place alone rather than a line from nowhere.
+   */
+  origin?: Coordinate | null;
   testID?: string;
 }
 
@@ -114,6 +126,7 @@ export function ProposalCard({
   onPress,
   onOpenComments,
   commentCount,
+  origin = null,
   testID,
 }: ProposalCardProps) {
   const { t, i18n } = useTranslation();
@@ -209,17 +222,19 @@ export function ProposalCard({
           style={[styles.venueBlock, { backgroundColor: theme.surface2 }]}
           testID={testID ? `${testID}-venue` : undefined}
         >
-          {/* ★ THE VENUE IS DRAWN, NOT DESCRIBED.
-              This block had no picture at all — only a button whose label is
-              «بازکردن در برنامه دیگر», which the reader reported as the map being
-              missing. The preview puts the venue's own coordinates on screen; see
-              `ProposalMapPreview.tsx`. It is absent for a withdrawn proposal,
-              because a place nobody is going does not need a map. */}
+          {/* ★ THE VENUE IS DRAWN, AND THE DISTANCE TO IT IS DRAWN TOO.
+              This block used to hold a still picture, which on a device collapsed to
+              a pin glyph — "the map is a simple Location icon". `ProposalRouteMap`
+              puts the venue on the same interactive map the rest of the app uses, and
+              when this reader has a start point it routes from there, which is the
+              question a proposal card leaves open. See `ProposalRouteMap.tsx`. It is
+              absent for a withdrawn proposal, because a place nobody is going does
+              not need a map. */}
           {!isWithdrawn && (
-            <ProposalMapPreview
-              lat={proposal.venue.lat}
-              lng={proposal.venue.lng}
+            <ProposalRouteMap
+              destination={{ lat: proposal.venue.lat, lng: proposal.venue.lng }}
               label={proposal.venue.name}
+              origin={origin}
               testID={testID ? `${testID}-map` : undefined}
             />
           )}

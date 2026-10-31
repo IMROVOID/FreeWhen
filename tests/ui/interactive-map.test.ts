@@ -338,9 +338,31 @@ test('both renderers pin the same projection, so neither tilts differently', () 
 test('the native camera follows the caller through the bridge', () => {
   // ★ The camera used to be read once into `initialRegion`, so the picker's zoom
   // buttons and GPS button did nothing on a device while working in the browser.
+  //
+  // ★ AND IT IS APPLIED ONCE PER POSE, WHICH IS THE OTHER HALF OF THE SAME SEAM.
+  //
+  // A camera pushed back on every report is a camera that undoes the user's pinch:
+  // the gesture settles, `moveend` reports it, the parent re-renders with the new
+  // object, and `jumpTo` cancels what the fingers just did. So the payload carries a
+  // key, and the document moves only when that key is not the one it already holds.
   assert.match(NATIVE, /window\.__apply/, 'the document exposes no update entry point');
   assert.match(NATIVE, /map\.jumpTo\(/, 'the document never moves the camera');
-  assert.match(NATIVE, /camera,\s*\n\s*lines:/, 'the camera is not pushed to the document');
+  assert.match(NATIVE, /camera,\s*\n\s*cameraKey:/, 'the camera is not pushed to the document');
+  assert.match(
+    NATIVE,
+    /data\.cameraKey !== window\.__cameraKey/,
+    'the document applies every camera it receives, so a pinch or a tilt reverts',
+  );
+});
+
+test('a reported camera is never written back as the map’s pose', () => {
+  // Assert — the reported value must reach the caller and stop there. `moveend`
+  // only posts; it must not call `__apply` on itself.
+  const moveEnd = /map\.on\('moveend', function \(\) \{([\s\S]*?)\n {4}\}\)/.exec(NATIVE)?.[1] ?? '';
+
+  assert.ok(moveEnd.length > 0, 'the moveend handler is missing');
+  assert.doesNotMatch(moveEnd, /__apply|jumpTo/, 'a settled gesture re-drives the camera');
+  assert.match(moveEnd, /post\(\{\s*type: 'camera'/, 'the settled camera is not reported');
 });
 
 test('the native map opens pitched, so the APK rests in 3D', () => {
@@ -388,12 +410,17 @@ test('a marker is announced, not just drawn', () => {
   // `.mapboxgl-marker` div, so an inspector looking at that wrapper sees a childless
   // node. The role and label are on the element this file creates, which is what a
   // screen reader announces. Pinned here so neither is dropped in a refactor.
+  //
+  // The two attributes moved into `pinElement`, because a pin is now drawn as a
+  // teardrop rather than a dot and the geometry belongs in one place; the label is
+  // still the caller's and still reaches the element.
   assert.match(WEB, /setAttribute\('role', 'img'\)/, 'the marker is not exposed as an image');
-  assert.match(WEB, /setAttribute\('aria-label', marker\.label\)/, 'the marker has no accessible name');
+  assert.match(WEB, /pinElement\(marker\.label\)/, 'the marker is built without its label');
+  assert.match(WEB, /element\.setAttribute\('aria-label', label\)/, 'the marker has no accessible name');
 });
 
 test('the marker’s accessible name comes from the caller, never from its position', () => {
   // Assert — "pin 1" is a coordinate; the label is the place or participant name.
-  assert.match(WEB, /aria-label', marker\.label/);
+  assert.match(WEB, /pinElement\(marker\.label\)/);
   assert.match(PICKER_WITH_LABEL, /label: placeName \|\| t\('proposals\.place\.customPin'\)/);
 });

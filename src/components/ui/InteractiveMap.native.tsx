@@ -45,6 +45,7 @@ import type {
   MapLine,
   MapMarker,
 } from './InteractiveMap';
+import { cameraKey } from './InteractiveMap';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
 import { map as mapTokens } from '@/src/theme/tokens';
 import { linesFeatureCollection } from '@/src/features/map/projection';
@@ -57,6 +58,14 @@ interface WebViewHandle {
 
 /** The `mapbox-gl` build the document loads. Pinned, so a release cannot shift. */
 const MAPBOX_GL_VERSION = '3.34.1';
+
+/** The pin's geometry — the same numbers `InteractiveMap.web.tsx` draws with. */
+const PIN_WIDTH = 22;
+const PIN_HEIGHT = 30;
+
+/** The teardrop path. `24×32` viewBox, so both platforms draw one shape. */
+const PIN_PATH =
+  'M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12zm0 16.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9z';
 
 /** The document's height fills the frame; the frame's height comes from the caller. */
 const FRAME_STYLE: ViewStyle = { flex: 1, overflow: 'hidden' };
@@ -94,9 +103,25 @@ export function buildMapDocument(options: {
 <link href="https://api.mapbox.com/mapbox-gl-js/v${MAPBOX_GL_VERSION}/mapbox-gl.css" rel="stylesheet" />
 <script src="https://api.mapbox.com/mapbox-gl-js/v${MAPBOX_GL_VERSION}/mapbox-gl.js"></script>
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; background: transparent; }
-  #map { position: absolute; inset: 0; }
+  /* ★ THE DOCUMENT OWNS ITS GESTURES, SO A DRAG NEVER REACHES THE FORM UNDER IT.
+     \`touch-action: none\` stops the browser claiming a finger drag as a scroll;
+     \`overscroll-behavior: none\` stops a drag that reaches the document's edge from
+     chaining up to the React Native ScrollView holding this WebView. Without both,
+     a vertical drag on the map in \`New Proposal\` scrolled the FORM — the reported
+     defect — while the horizontal drag worked, because that ScrollView is vertical
+     only. */
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: transparent;
+    touch-action: none;
+    overscroll-behavior: none;
+    overflow: hidden;
+  }
+  #map { position: absolute; inset: 0; touch-action: none; }
   .mapboxgl-ctrl-attrib { font-size: 10px; }
+  /* A place is a pin, not a dot — the same teardrop the web surface draws. */
+  .pin { display: flex; align-items: flex-start; justify-content: center; }
+  .pin svg { display: block; }
 </style>
 </head>
 <body>
@@ -106,6 +131,142 @@ export function buildMapDocument(options: {
   function post(message) {
     var payload = JSON.stringify(message);
     if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(payload);
+  }
+
+  var PIN_WIDTH = ${PIN_WIDTH};
+  var PIN_HEIGHT = ${PIN_HEIGHT};
+  var PIN_PATH = ${JSON.stringify(PIN_PATH)};
+  var MARKER_RING = ${JSON.stringify(mapTokens.markerRing)};
+  var MARKER_SHADOW = ${JSON.stringify(mapTokens.markerShadow)};
+
+  var markersById = {};
+
+  function pinElement(label) {
+    var element = document.createElement('div');
+    element.className = 'pin';
+    element.setAttribute('role', 'img');
+    element.setAttribute('aria-label', label || '');
+    element.style.width = PIN_WIDTH + 'px';
+    element.style.height = PIN_HEIGHT + 'px';
+    element.style.transformOrigin = '50% 100%';
+    return element;
+  }
+
+  /**
+   * Paints a pin. Idempotent — it SETS each property and never appends.
+   *
+   * The transform is computed, not concatenated: an earlier version did
+   * \`style.transform + ' scale(1.35)'\`, which compounded on every marker refresh
+   * until the selected pin grew without bound.
+   */
+  function paintPin(element, fill, selected) {
+    element.style.transform = selected ? 'scale(1.25)' : '';
+    element.style.filter = 'drop-shadow(0 1px 3px ' + MARKER_SHADOW + ')';
+
+    if (element.childElementCount === 0) {
+      element.innerHTML =
+        '<svg width="' + PIN_WIDTH + '" height="' + PIN_HEIGHT + '" viewBox="0 0 24 32" aria-hidden="true">' +
+        '<path data-pin-body d="' + PIN_PATH + '" /></svg>';
+    }
+
+    var body = element.querySelector('[data-pin-body]');
+    if (body) {
+      body.setAttribute('fill', fill);
+      body.setAttribute('stroke', MARKER_RING);
+      body.setAttribute('stroke-width', '1.5');
+    }
+  }
+
+  /**
+   * \`list\` is the WHOLE marker set, and the id is the identity.
+   *
+   * This surface used to accept \`markers\` and draw NOTHING — the file voided the
+   * prop with a comment saying a renderer would come later. So the picker's pin,
+   * the proposal's pin and the event's per-proposal pins were all invisible on a
+   * device while the browser drew every one of them.
+   *
+   * Present and missing-from-registry means removed; a new id means added. That is
+   * all a diff needs, and it keeps the app from having to send one.
+   */
+  function applyMarkers(map, list, accent) {
+    var seen = {};
+
+    for (var i = 0; i < list.length; i += 1) {
+      var marker = list[i];
+      seen[marker.id] = true;
+
+      var handle = markersById[marker.id];
+
+      if (!handle) {
+        var element = pinElement(marker.label);
+        handle = new mapboxgl.Marker({ element: element, anchor: 'bottom' })
+          .setLngLat([marker.coordinate.lng, marker.coordinate.lat])
+          .addTo(map);
+        markersById[marker.id] = handle;
+      } else {
+        handle.setLngLat([marker.coordinate.lng, marker.coordinate.lat]);
+      }
+
+      paintPin(handle.getElement(), marker.color || accent, marker.selected === true);
+    }
+
+    for (var id in markersById) {
+      if (markersById.hasOwnProperty(id) && !seen[id]) {
+        markersById[id].remove();
+        delete markersById[id];
+      }
+    }
+  }
+
+  /**
+   * Approximate areas as polygons, matching the web renderer's 32-gon.
+   *
+   * Also previously accepted and undrawn. The ring is in DEGREES so it stays
+   * correct while the camera moves, and a pixel radius would not.
+   */
+  function applyAreas(map, list) {
+    var wanted = list.length;
+    if (map.__areaCount === wanted) return;
+
+    for (var index = 0; index < wanted; index += 1) {
+      var id = 'area-' + index;
+      if (map.getSource(id)) continue;
+
+      var circle = list[index];
+      var segments = 32;
+      var earthRadiusM = 6371000;
+      var lat = circle.coordinate.lat;
+      var lng = circle.coordinate.lng;
+      var ring = [];
+
+      for (var step = 0; step < segments; step += 1) {
+        var bearing = (step / segments) * 2 * Math.PI;
+        var dLat = (circle.radiusMetres / earthRadiusM) * Math.cos(bearing);
+        var dLng =
+          (circle.radiusMetres / (earthRadiusM * Math.cos((lat * Math.PI) / 180))) *
+          Math.sin(bearing);
+        ring.push([lng + (dLng * 180) / Math.PI, lat + (dLat * 180) / Math.PI]);
+      }
+
+      // GeoJSON polygons must close: the first position repeats as the last.
+      ring.push(ring[0]);
+
+      map.addSource(id, {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: { color: circle.color },
+          geometry: { type: 'Polygon', coordinates: [ring] }
+        }
+      });
+
+      map.addLayer({
+        id: id, type: 'fill', source: id,
+        paint: { 'fill-color': circle.color, 'fill-opacity': 0.18 }
+      });
+    }
+
+    map.__areaCount = wanted;
   }
 
   try {
@@ -157,6 +318,7 @@ export function buildMapDocument(options: {
       });
 
       post({ type: 'ready' });
+      window.__ready = true;
     });
 
     map.on('error', function (event) {
@@ -177,10 +339,26 @@ export function buildMapDocument(options: {
       });
     });
 
+    /**
+     * ★ THE CAMERA IS REPORTED UP, NEVER PUSHED BACK DOWN.
+     *
+     * A pinch or a tilt produces a new camera; \`moveend\` reports it; the app lifts
+     * it into state. While this function applied every camera it received, that
+     * state returned as the next payload and \`jumpTo\` cancelled the gesture's own
+     * result — the reported "it snaps back to the same zoom / the original angle".
+     *
+     * \`cameraKey\` is the discriminator. The key is seeded from the pose this
+     * document was BUILT with, so the first post-ready payload is a no-op, and a
+     * caller that deliberately re-frames (locate-me, a new bounding box) sends a
+     * different key and does move the map.
+     */
+    window.__cameraKey = ${JSON.stringify(cameraKey(camera))};
+
     window.__apply = function (payload) {
       var data = JSON.parse(payload);
 
-      if (data.camera) {
+      if (data.camera && data.cameraKey && data.cameraKey !== window.__cameraKey) {
+        window.__cameraKey = data.cameraKey;
         map.jumpTo({
           center: [data.camera.centre.lng, data.camera.centre.lat],
           zoom: data.camera.zoom,
@@ -193,9 +371,15 @@ export function buildMapDocument(options: {
         map.getSource('route').setData(data.lines);
       }
 
-      if (data.accent) {
-        try { map.setPaintProperty('route-line', 'line-color', ['get', 'color']); } catch (e) {}
-      }
+      var drawOverlays = function () {
+        applyMarkers(map, data.markers || [], data.accent);
+        applyAreas(map, data.circles || []);
+      };
+
+      // The style carries the layers, so a payload that lands before the first
+      // draw would add sources to a map that is about to replace them.
+      if (window.__ready) drawOverlays();
+      else map.once('idle', drawOverlays);
     };
   } catch (error) {
     post({ type: 'unavailable', reason: String(error && error.message || error) });
@@ -258,16 +442,19 @@ export function InteractiveMap({
     webRef.current?.injectJavaScript(script);
   }, []);
 
-  /** Pushes the camera and the route whenever either changes. */
+  /** Pushes the camera, the overlays and the markers whenever any of them changes. */
   useEffect(() => {
     if (!isReady) return;
 
     send({
       camera,
+      cameraKey: cameraKey(camera),
       lines: linesFeatureCollection(lines),
+      markers,
+      circles,
       accent,
     });
-  }, [isReady, camera, lines, accent, send]);
+  }, [isReady, camera, lines, markers, circles, accent, send]);
 
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -303,16 +490,14 @@ export function InteractiveMap({
   );
 
   /**
-   * Markers are not drawn by the document yet.
+   * ★ MARKERS ARE DRAWN HERE NOW, AND THAT WAS THE REPORTED MISSING PIN.
    *
-   * The picker needs one pin at the centre, and the route map needs pins per venue.
-   * Rendering them inside the WebView means the same GeoJSON sprite logic as the
-   * web surface; until that lands the frame still shows the basemap, the camera and
-   * the route, which is what the product needs on a device. `markers` and `circles`
-   * are accepted so the call sites do not change when they gain a renderer.
+   * This block used to void both props with a comment saying a renderer would come
+   * later, so the browser drew every pin and a device drew none: the selection in
+   * `Set your Location`, the place in `New Proposal`, and every proposal on the
+   * event map were all invisible. The document renders them through `applyMarkers`
+   * (`__apply`), from the same marker payload the web surface consumes.
    */
-  void markers;
-  void circles;
 
   if (mapboxCredential === null) {
     return <View testID={testID} style={FRAME_STYLE} />;

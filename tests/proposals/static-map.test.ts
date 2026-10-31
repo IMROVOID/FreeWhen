@@ -22,15 +22,9 @@
 import '../ui/support/register';
 
 import assert from 'node:assert/strict';
-import { afterEach, before, test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { afterEach, test } from 'node:test';
 
-import {
-  PROPOSAL_MAP_PREVIEW_HEIGHT,
-  staticMapUrl,
-} from '@/src/features/proposals/services/static-map';
-
-let renderComponent: typeof import('../ui/support/render').renderComponent;
+import { staticMapUrl } from '@/src/features/proposals/services/static-map';
 
 const ENV = 'EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN';
 const TOKEN = 'pk.eyJ1IjoiZml4dHVyZSIsImEiOiJjbG9jYWx0ZXN0YWNjb3VudCJ9.c2lnbmF0dXJlZm9yfHRlc3Rz';
@@ -41,21 +35,9 @@ function setToken(value: string | undefined): void {
   else env[ENV] = value;
 }
 
-before(async () => {
-  const { initI18n } = await import('@/src/i18n');
-  initI18n('fa');
-  ({ renderComponent } = await import('../ui/support/render'));
-});
-
 afterEach(() => {
   setToken(undefined);
 });
-
-function code(path: string): string {
-  return readFileSync(path, 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-}
 
 /* ── The URL ──────────────────────────────────────────────────────────────── */
 
@@ -150,86 +132,4 @@ test('an impossible coordinate has no URL', () => {
   assert.equal(staticMapUrl(Number.NaN, 51.389, 'light', '#0055FF'), null);
   assert.equal(staticMapUrl(35.6892, Number.POSITIVE_INFINITY, 'light', '#0055FF'), null);
   assert.equal(staticMapUrl(90, 51.389, 'light', '#0055FF'), null);
-});
-
-/* ── The component ────────────────────────────────────────────────────────── */
-
-test('a rendered preview carries the venue’s point and a description', async () => {
-  // Arrange
-  setToken(TOKEN);
-  const { ProposalMapPreview } = await import(
-    '@/src/features/proposals/components/ProposalMapPreview'
-  );
-
-  // Act
-  const screen = renderComponent(ProposalMapPreview, {
-    lat: 35.6892,
-    lng: 51.389,
-    label: 'کافه مرکزی',
-    testID: 'preview',
-  });
-
-  // Assert — the picture is information, so it has a description; an empty alt
-  // would make the one element that says WHERE silent to a screen reader.
-  assert.match(screen.html, /api\.mapbox\.com/, 'the preview does not request a MapBox image');
-  assert.ok(screen.html.includes('کافه مرکزی'), 'the preview has no accessible description');
-});
-
-test('an impossible coordinate degrades to a pin, not to a label', async () => {
-  // Arrange
-  setToken(TOKEN);
-  const { ProposalMapPreview } = await import(
-    '@/src/features/proposals/components/ProposalMapPreview'
-  );
-
-  // Act
-  const screen = renderComponent(ProposalMapPreview, {
-    lat: Number.NaN,
-    lng: 0,
-    label: 'کافه',
-    testID: 'preview',
-  });
-
-  // Assert — a place at no coordinates is still a place: the block shows a pin
-  // rather than turning into an error message about one.
-  assert.ok(!/api\.mapbox\.com/.test(screen.html), 'a NaN coordinate still requested an image');
-  assert.match(screen.html, /data-testid="preview"/, 'the block disappeared instead of degrading');
-});
-
-test('a build without a token draws the pin rather than requesting a keyless image', async () => {
-  // Arrange — the level-4 state, reached by configuration rather than by failure.
-  setToken(undefined);
-  const { ProposalMapPreview } = await import(
-    '@/src/features/proposals/components/ProposalMapPreview'
-  );
-
-  // Act
-  const screen = renderComponent(ProposalMapPreview, {
-    lat: 35.6892,
-    lng: 51.389,
-    label: 'کافه مرکزی',
-    testID: 'preview',
-  });
-
-  // Assert
-  assert.ok(!/api\.mapbox\.com/.test(screen.html), 'a tokenless build still asked for a picture');
-  assert.match(screen.html, /data-testid="preview"/);
-});
-
-test('the preview is a single image layer, not a composited stack', () => {
-  // Arrange — the dark path used to render TWO images, one for the canvas and one
-  // for the label ink.
-  const preview = code('src/features/proposals/components/ProposalMapPreview.tsx');
-
-  // Act
-  const images = (preview.match(/<Image\b/g) ?? []).length;
-
-  // Assert
-  assert.equal(images, 1, `the preview renders ${images} image layers`);
-  assert.doesNotMatch(preview, /dark_only_labels|dark_nolabels/);
-});
-
-test('the preview keeps a readable height', () => {
-  // Assert
-  assert.ok(PROPOSAL_MAP_PREVIEW_HEIGHT >= 96, 'the preview is too short to read as a map');
 });

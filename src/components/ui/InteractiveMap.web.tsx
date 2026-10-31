@@ -30,13 +30,91 @@ import type { ViewStyle } from 'react-native';
 import mapboxgl from 'mapbox-gl';
 
 import type { InteractiveMapProps, MapCamera, MapCircle } from './InteractiveMap';
+import { cameraKey } from './InteractiveMap';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
 import { map as mapTokens } from '@/src/theme/tokens';
 import { linesFeatureCollection } from '@/src/features/map/projection';
 /** `mapbox-gl`'s CSS is a package import, which the bundler inlines. */
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-const MARKER_SIZE = 18;
+/**
+ * The pin's own geometry, shared by both platform renderers.
+ *
+ * ★ A PLACE IS A PIN, NOT A DOT.
+ *
+ * Every marker used to be a circle — `borderRadius: 50%` on an 18pt square. On the
+ * event map that turned three venues and a starting point into four identical
+ * blobs, which is the reported "proposal locations are shown as circles". A
+ * teardrop reads as a place at a glance, its point sits on the coordinate, and the
+ * colour is still free to mean "whose proposal this is".
+ *
+ * The shape is a CSS mask rather than a background image so it needs no asset and
+ * no second request, and works identically in the browser and inside the native
+ * WebView (which runs this same markup).
+ */
+export const PIN_WIDTH = 22;
+export const PIN_HEIGHT = 30;
+
+/** The teardrop, as one inline SVG path. `24×32` viewBox, scaled by the caller. */
+export const PIN_PATH =
+  'M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12zm0 16.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9z';
+
+/**
+ * The DOM element a marker is drawn on.
+ *
+ * Split from `paintPin` so the geometry is written once, at creation, and a
+ * re-render only repaints colour and emphasis — which is what keeps a moving
+ * marker from being torn down and rebuilt on every camera report.
+ */
+function pinElement(label: string): HTMLDivElement {
+  const element = document.createElement('div');
+  // The marker's name is its accessible name; a coloured shape alone is silent to
+  // a screen reader.
+  element.setAttribute('role', 'img');
+  element.setAttribute('aria-label', label);
+  element.style.width = `${PIN_WIDTH}px`;
+  element.style.height = `${PIN_HEIGHT}px`;
+  element.style.boxSizing = 'border-box';
+  element.style.display = 'flex';
+  element.style.alignItems = 'flex-start';
+  element.style.justifyContent = 'center';
+  return element;
+}
+
+/**
+ * Paints a pin. Idempotent: it SETS each property, it never appends.
+ *
+ * ★ THE TRANSFORM IS COMPUTED, NEVER APPENDED TO.
+ *
+ * The first version did `element.style.transform + ' scale(1.35)'`, which
+ * compounds: every marker effect run (any change to `markers`) grew the selected
+ * pin by another 35%, and it grew without bound.
+ */
+function paintPin(element: HTMLElement, fill: string, selected: boolean): void {
+  const scale = selected ? 1.25 : 1;
+
+  element.style.transform = scale === 1 ? '' : `scale(${scale})`;
+  element.style.transformOrigin = '50% 100%';
+  element.style.filter = `drop-shadow(0 1px 3px ${mapTokens.markerShadow})`;
+
+  // ★ THE SHAPE IS REBUILT ONLY WHEN IT IS MISSING.
+  //
+  // `innerHTML` on every repaint would defeat the idempotence above: the node the
+  // browser is compositing would be replaced each time `markers` changes identity,
+  // which on a map with a live camera is every settled move.
+  if (element.childElementCount === 0) {
+    element.innerHTML =
+      `<svg width="${PIN_WIDTH}" height="${PIN_HEIGHT}" viewBox="0 0 24 32" aria-hidden="true">` +
+      `<path data-pin-body d="${PIN_PATH}" /></svg>`;
+  }
+
+  const body = element.querySelector('[data-pin-body]');
+  if (body instanceof SVGPathElement) {
+    body.setAttribute('fill', fill);
+    body.setAttribute('stroke', mapTokens.markerRing);
+    body.setAttribute('stroke-width', '1.5');
+  }
+}
 
 export function InteractiveMap({
   camera,
@@ -61,6 +139,18 @@ export function InteractiveMap({
 
   /** Bumped on every completed style load, so the overlays redraw after one. */
   const [styleVersion, setStyleVersion] = useState(0);
+
+  /**
+   * The camera pose this map has already been told to fly to.
+   *
+   * ★ THE POSE IS APPLIED ONCE PER DISTINCT VALUE, AND THAT IS THE PINCH FIX.
+   *
+   * Every settled move reports its camera up. While the camera was pushed back in
+   * on every change, the reported value returned as a new prop and re-drove the
+   * map — so a pinch or a tilt ended exactly where it started. Nothing writes the
+   * camera to the map unless the CALLER changed it, which a gesture never does.
+   */
+  const appliedCameraRef = useRef<string>(cameraKey(camera));
 
   // ★ THE CALLBACKS ARE READ THROUGH A REF.
   //
@@ -197,8 +287,36 @@ export function InteractiveMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Theme ───────────────────────────────────────────────────────────────
+  // ── Camera ──────────────────────────────────────────────────────────────
   //
+  // ★ A GESTURE MUST NEVER BE UNDONE BY THE PROP IT REPORTED.
+  //
+  // The map is constructed with the camera, and every settled move reports the new
+  // one upward. While that prop was applied on every change, a pinch-zoom or a
+  // tilt was reverted the instant the parent re-rendered: the reported value came
+  // straight back as the next camera and `jumpTo` cancelled what the fingers had
+  // just done. Nothing here writes the camera unless the CALLER changed it, and a
+  // gesture never changes the caller's own intent — it changes the map's.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const wanted = cameraKey(camera);
+    if (appliedCameraRef.current === wanted) return;
+
+    appliedCameraRef.current = wanted;
+
+    // `jumpTo`, not `flyTo`: a caller that re-frames (locate-me, a new bounding
+    // box) wants the map there now, and an animation would race the next draw.
+    map.jumpTo({
+      center: [camera.centre.lng, camera.centre.lat],
+      zoom: camera.zoom,
+      pitch: camera.pitch,
+      bearing: camera.bearing,
+    });
+  }, [camera]);
+
+  // ── Theme ───────────────────────────────────────────────────────────────
   // ★ `setStyle()` DROPS EVERY CUSTOM SOURCE AND LAYER, AND THE ROUTE WAS LOST.
   //
   // The first version called `setStyle()` on every `theme` change and relied on
@@ -349,17 +467,8 @@ export function InteractiveMap({
       let handle = markerRefs.current.get(marker.id);
 
       if (!handle) {
-        const element = document.createElement('div');
-        // The marker's name is its accessible name; a coloured dot alone is
-        // silent to a screen reader.
-        element.setAttribute('role', 'img');
-        element.setAttribute('aria-label', marker.label);
-        element.style.width = `${MARKER_SIZE}px`;
-        element.style.height = `${MARKER_SIZE}px`;
-        element.style.borderRadius = '50%';
-        element.style.boxSizing = 'border-box';
-
-        handle = new mapboxgl.Marker({ element, anchor: 'center' })
+        const element = pinElement(marker.label);
+        handle = new mapboxgl.Marker({ element, anchor: 'bottom' })
           .setLngLat([marker.coordinate.lng, marker.coordinate.lat])
           .addTo(map);
 
@@ -368,27 +477,7 @@ export function InteractiveMap({
         handle.setLngLat([marker.coordinate.lng, marker.coordinate.lat]);
       }
 
-      const element = handle.getElement();
-      const fill = marker.color ?? accent;
-      element.style.background = fill;
-      element.style.border = `${marker.selected ? 3 : 2}px solid ${mapTokens.markerRing}`;
-      element.style.boxShadow = `0 1px 3px ${mapTokens.markerShadow}`;
-
-      // ★ THE TRANSFORM IS COMPUTED, NEVER APPENDED TO.
-      //
-      // The first version did `element.style.transform + ' scale(1.35)'`, which
-      // compounds: every marker effect run (any change to `markers`) grew the
-      // selected pin by another 35%, and it grew without bound.
-      //
-      // The RTL mirror is written here for the same reason. `mapbox-gl` positions
-      // via `transform: translate(...)`, and a React Native `View` would have this
-      // flip automatically — a raw DOM node does not. Setting the whole value from
-      // a computed string keeps both concerns in one place and idempotent.
-      element.style.transform = [
-        marker.selected ? 'scale(1.35)' : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
+      paintPin(handle.getElement(), marker.color ?? accent, marker.selected === true);
     }
 
     // A marker the payload no longer carries is removed, not left on screen.
