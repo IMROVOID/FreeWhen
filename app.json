@@ -102,7 +102,8 @@
         }
       ],
       "./plugins/with-direction-reload.js",
-      "./plugins/with-no-startup-provider.js"
+      "./plugins/with-no-startup-provider.js",
+      "./plugins/with-google-maps-key.js"
     ],
     "experiments": {
       "typedRoutes": false
