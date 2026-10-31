@@ -101,7 +101,8 @@
           "backgroundColor": "#120A07"
         }
       ],
-      "./plugins/with-direction-reload.js"
+      "./plugins/with-direction-reload.js",
+      "./plugins/with-no-startup-provider.js"
     ],
     "experiments": {
       "typedRoutes": false

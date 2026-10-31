@@ -148,8 +148,15 @@ export async function saveNicknameOptimistically(nickname: string): Promise<void
 export function validateNickname(value: string): { ok: true } | { ok: false; messageKey: string } {
   const trimmed = value.trim();
 
-  if (trimmed.length < 1) return { ok: false, messageKey: 'validation.nameRequired' };
-  if (trimmed.length > 30) return { ok: false, messageKey: 'validation.nameTooLong' };
+  // ★ THE NAMESPACE IS `events.validation`, NOT `validation`.
+  //
+  // These two keys were missing their namespace, so `t()` found nothing and echoed
+  // the key itself: a user submitting an empty name was shown the literal string
+  // `validation.nameRequired`. The other validators in `src/types/event.ts` all
+  // report `events.validation.*`, and the catalogues nest every message there —
+  // this file was the only one that disagreed.
+  if (trimmed.length < 1) return { ok: false, messageKey: 'events.validation.nameRequired' };
+  if (trimmed.length > 30) return { ok: false, messageKey: 'events.validation.nameTooLong' };
 
   return { ok: true };
 }
