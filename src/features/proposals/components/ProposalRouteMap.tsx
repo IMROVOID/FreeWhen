@@ -44,6 +44,7 @@ import { mapAppearance } from '@/src/features/map/appearance';
 import { hasMapbox } from '@/src/features/map/mapbox-token';
 import { withAlpha } from '@/src/features/map/projection';
 import { DEFAULT_PITCH } from '@/src/features/map/types';
+import { ORIGIN_COLOR, originMarker } from '@/src/features/map/origin';
 import { fallbackRoute, fetchRoute, type RouteGeometry } from '@/src/features/venues/services/route-line';
 import { radius } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -148,18 +149,17 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
       label,
     };
 
-    if (drawableOrigin === null) return [proposed];
+    const originPoint = originMarker(drawableOrigin, t('location.youAreHere'));
+    if (originPoint === null) return [proposed];
 
-    return [
-      {
-        id: 'origin',
-        coordinate: drawableOrigin,
-        color: theme.info,
-        label: t('location.approxArea'),
-      },
-      proposed,
-    ];
-  }, [destination, drawableOrigin, label, t, theme.info, theme.primary]);
+    // ★ THE ORIGIN IS A DOT IN THE READER'S OWN COLOUR, NOT A SECOND PIN.
+    //
+    // Two teardrops read as two options, and the reader's position is not one — it
+    // is the reference the card is asking "how far is that, for ME?". The colour is
+    // `ORIGIN_COLOR` rather than `theme.info`, which is the near-black
+    // `palette.espresso` on the light theme: the reported "black" origin and line.
+    return [originPoint, proposed];
+  }, [destination, drawableOrigin, label, t, theme.primary]);
 
   const lines: MapLine[] = useMemo(
     () =>
@@ -169,11 +169,13 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
             {
               id: 'proposal-route',
               points: route.points,
-              color: theme.primary,
-              dashed: route.source === 'straight_line',
+              // The same colour as the dot it starts at, so the two read as one fact.
+              color: ORIGIN_COLOR,
+              // Solid: the card draws a route, not a bearing. See `EventRouteMap`.
+              dashed: false,
             },
           ],
-    [route, theme.primary],
+    [route],
   );
 
   if (basemapFailed) {
@@ -196,6 +198,10 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
         lines={lines}
         theme={appearance.mode}
         accent={appearance.accent}
+        // ★ ZOOM ONLY. There is no auto-pin control on a card: the pin is the
+        // proposal, and a control that re-frames onto it is the gesture-undo defect
+        // with a button on top — see `InteractiveMap`'s `controls` prop.
+        controls
         onUnavailable={() => setBasemapFailed(true)}
         testID={testID ? `${testID}-surface` : undefined}
       />

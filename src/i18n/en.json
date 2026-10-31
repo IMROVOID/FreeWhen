@@ -253,6 +253,8 @@
     "save": "Save location",
     "saved": "Location saved",
     "approxArea": "Approximate area",
+    "youAreHere": "Your location",
+    "changeLocation": "Change your location",
     "audience": "{{count}} people can see this area",
     "expiresAt": "Until {{date}}",
     "revoke": "Delete my location",

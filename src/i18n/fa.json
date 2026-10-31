@@ -253,6 +253,8 @@
     "save": "ذخیرهٔ موقعیت",
     "saved": "موقعیت ذخیره شد",
     "approxArea": "محدودهٔ تقریبی",
+    "youAreHere": "موقعیت شما",
+    "changeLocation": "تغییر موقعیت شما",
     "audience": "{{count}} نفر این محدوده را می‌بینند",
     "expiresAt": "تا {{date}}",
     "revoke": "حذف موقعیت من",

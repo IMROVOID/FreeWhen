@@ -24,15 +24,17 @@
  * loop rather than a map.
  */
 
-import { useEffect, useRef, useState, type ComponentRef } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, type ComponentRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { ViewStyle } from 'react-native';
 import mapboxgl from 'mapbox-gl';
 
 import type { InteractiveMapProps, MapCamera, MapCircle } from './InteractiveMap';
+import { ZOOM_STEP, type MapSurfaceHandle } from './map-imperative';
 import { cameraKey } from './map-camera';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
 import { map as mapTokens } from '@/src/theme/tokens';
+import { dur } from '@/src/theme/motion';
 import { linesFeatureCollection } from '@/src/features/map/projection';
 /** `mapbox-gl`'s CSS is a package import, which the bundler inlines. */
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -55,9 +57,42 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 export const PIN_WIDTH = 22;
 export const PIN_HEIGHT = 30;
 
-/** The teardrop, as one inline SVG path. `24×32` viewBox, scaled by the caller. */
+/**
+ * The origin dot's diameter, in points.
+ *
+ * Smaller than a pin's height but wider than its tip, so the reader's own position
+ * is visible without competing with the proposals it is being compared to.
+ */
+export const DOT_SIZE = 16;
+
+/**
+ * The teardrop, as one inline SVG path. `24×32` viewBox, scaled by the caller.
+ */
 export const PIN_PATH =
   'M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12zm0 16.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9z';
+
+/**
+ * The element a circle marker is drawn on.
+ *
+ * ★ THE CENTRE, NOT THE BOTTOM.
+ *
+ * A pin's `anchor: 'bottom'` puts its TIP on the coordinate. A dot has no tip, so
+ * anchoring it the same way would draw the reader's position half a pin-height
+ * north of where they are. The renderer therefore anchors a circle at `center`,
+ * and the marker effect picks the anchor from the shape.
+ */
+function dotElement(label: string): HTMLDivElement {
+  const element = document.createElement('div');
+  element.setAttribute('role', 'img');
+  element.setAttribute('aria-label', label);
+  element.style.width = `${DOT_SIZE}px`;
+  element.style.height = `${DOT_SIZE}px`;
+  element.style.boxSizing = 'border-box';
+  element.style.borderRadius = '50%';
+  element.style.border = `2px solid ${mapTokens.originRing}`;
+  element.style.filter = `drop-shadow(0 1px 3px ${mapTokens.markerShadow})`;
+  return element;
+}
 
 /**
  * The DOM element a marker is drawn on.
@@ -116,7 +151,31 @@ function paintPin(element: HTMLElement, fill: string, selected: boolean): void {
   }
 }
 
+/**
+ * Paints whichever shape this marker is.
+ *
+ * A dot has no path to recolour — its fill IS its background — so this is the one
+ * branch the two shapes need.
+ */
+function paintMarker(
+  element: HTMLElement,
+  fill: string,
+  selected: boolean,
+  shape: 'pin' | 'circle' | undefined,
+): void {
+  if (shape === 'circle') {
+    element.style.backgroundColor = fill;
+    // Emphasis without a transform: a dot is already small, and scaling it would
+    // move its CENTRE off the coordinate it is anchored on.
+    element.style.boxShadow = selected ? `0 0 0 3px ${mapTokens.selectionRing}` : '';
+    return;
+  }
+
+  paintPin(element, fill, selected);
+}
+
 export function InteractiveMap({
+  ref,
   camera,
   markers = [],
   lines = [],
@@ -127,8 +186,9 @@ export function InteractiveMap({
   onCameraChange,
   onUnavailable,
   onReady,
+  controls = false,
   testID,
-}: InteractiveMapProps) {
+}: InteractiveMapProps & { ref?: React.Ref<MapSurfaceHandle | null> }) {
   const frameRef = useRef<ComponentRef<typeof View> | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRefs = useRef(new Map<string, mapboxgl.Marker>());
@@ -418,8 +478,14 @@ export function InteractiveMap({
           paint: {
             'line-color': ['get', 'color'],
             'line-width': 4,
-            // A `straight_line` route is drawn dashed so the picture does not
-            // claim a road the provider never returned.
+            // ★ A `case` MUST YIELD LITERALS, AND THE FIRST VERSION DID NOT.
+            //
+            // `line-dasharray` is a data-driven painting property, so it takes an
+            // expression — but a `case` branch that is a bare array is read as an
+            // expression, not as a dash pattern, and MapBox refuses the style. The
+            // route layer was therefore the one layer in the document that could not
+            // compile, which is why every line came out solid even when it was a
+            // straight-line fallback. `['literal', …]` wraps the pattern as DATA.
             'line-dasharray': ['case', ['get', 'dashed'], ['literal', [2, 2]], ['literal', [1, 0]]],
           },
         });
@@ -467,8 +533,15 @@ export function InteractiveMap({
       let handle = markerRefs.current.get(marker.id);
 
       if (!handle) {
-        const element = pinElement(marker.label);
-        handle = new mapboxgl.Marker({ element, anchor: 'bottom' })
+        // ★ A PIN'S POINT IS ON THE COORDINATE; A DOT'S CENTRE IS.
+        //
+        // `anchor` is fixed when the marker is created, so a marker that changes
+        // shape is re-created rather than repositioned — which is also what keeps
+        // the anchor and the element's geometry from disagreeing.
+        const circle = marker.shape === 'circle';
+        const element = circle ? dotElement(marker.label) : pinElement(marker.label);
+
+        handle = new mapboxgl.Marker({ element, anchor: circle ? 'center' : 'bottom' })
           .setLngLat([marker.coordinate.lng, marker.coordinate.lat])
           .addTo(map);
 
@@ -477,7 +550,7 @@ export function InteractiveMap({
         handle.setLngLat([marker.coordinate.lng, marker.coordinate.lat]);
       }
 
-      paintPin(handle.getElement(), marker.color ?? accent, marker.selected === true);
+      paintMarker(handle.getElement(), marker.color ?? accent, marker.selected === true, marker.shape);
     }
 
     // A marker the payload no longer carries is removed, not left on screen.
@@ -488,6 +561,37 @@ export function InteractiveMap({
       }
     }
   }, [markers, accent]);
+
+  /**
+   * The imperative handle, so a corner control can zoom without a camera prop.
+   *
+   * ★ THIS IS THE OTHER HALF OF THE "IT RETURNS TO THE PIN" FIX.
+   *
+   * A button that writes a camera is a button that re-frames the map, because the
+   * camera prop is the pose the map was BUILT with. The control asks the surface
+   * instead — see `map-imperative.ts`.
+   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomBy: (delta: number) => {
+        const map = mapRef.current;
+        if (!map) return;
+        map.zoomTo(map.getZoom() + delta, { duration: dur.fast });
+      },
+      recentre: () => {
+        const map = mapRef.current;
+        if (!map) return;
+        map.jumpTo({
+          center: [camera.centre.lng, camera.centre.lat],
+          zoom: camera.zoom,
+          pitch: camera.pitch,
+          bearing: camera.bearing,
+        });
+      },
+    }),
+    [camera],
+  );
 
   return (
     <View
@@ -511,7 +615,39 @@ export function InteractiveMap({
       // `touch-action: none` is what tells the browser the surface handles touch
       // itself, so a finger drag does not scroll the page underneath.
       style={[styles.frame as ViewStyle, { touchAction: 'none' } as ViewStyle]}
-    />
+    >
+      {controls ? (
+        <MapControls
+          onZoomIn={() => mapRef.current?.zoomTo((mapRef.current?.getZoom() ?? 0) + ZOOM_STEP, { duration: dur.fast })}
+          onZoomOut={() => mapRef.current?.zoomTo((mapRef.current?.getZoom() ?? 0) - ZOOM_STEP, { duration: dur.fast })}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The `+`/`−` pair, drawn over the map in its own corner.
+ *
+ * A plain DOM element rather than a React Native view: it lives INSIDE the
+ * renderer's frame, and a `View` there would be a flex child of a node whose only
+ * other child is MapBox's absolutely-positioned canvas. Absolutely positioning a
+ * div is one line and cannot disturb the canvas's box.
+ */
+function MapControls({ onZoomIn, onZoomOut }: { onZoomIn: () => void; onZoomOut: () => void }) {
+  useEffect(() => {
+    ensureControlsStyle();
+  }, []);
+
+  return (
+    <div className="map-zoom" data-map-controls>
+      <button type="button" aria-label="zoom in" onClick={onZoomIn}>
+        +
+      </button>
+      <button type="button" aria-label="zoom out" onClick={onZoomOut}>
+        −
+      </button>
+    </div>
   );
 }
 
@@ -621,6 +757,52 @@ const styles = StyleSheet.create({
   },
 });
 
+/**
+ * The corner controls' look, injected once.
+ *
+ * ★ THE BROWSER NEEDS STYLE FOR PLAIN DOM NODES, AND A LAYOUT EFFECT IS THE PLACE.
+ *
+ * `MapControls` is a `div` because it must sit over MapBox's canvas without
+ * becoming a flex sibling of it, so it cannot take a React Native style. One
+ * `<style>` element per document, added the first time a surface with controls
+ * mounts, is the smallest correct answer — and it is what makes the buttons read
+ * as the app's controls rather than as the browser's.
+ */
+const CONTROLS_STYLE_ID = 'freewhen-map-controls';
+
+const CONTROLS_CSS = `
+[data-map-controls] {
+  position: absolute;
+  bottom: ${mapTokens.controlInset}px;
+  right: ${mapTokens.controlInset}px;
+  display: flex;
+  flex-direction: column;
+  gap: ${mapTokens.controlGap}px;
+  z-index: 2;
+}
+[data-map-controls] button {
+  width: ${mapTokens.controlSize}px;
+  height: ${mapTokens.controlSize}px;
+  border: 0;
+  border-radius: ${mapTokens.controlSize / 2}px;
+  font: 600 20px/1 -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  cursor: pointer;
+  background: ${mapTokens.controlFill};
+  color: ${mapTokens.controlInk};
+  box-shadow: 0 1px 3px ${mapTokens.markerShadow};
+}
+[data-map-controls] button:active { opacity: 0.75; }
+`;
+
+function ensureControlsStyle(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(CONTROLS_STYLE_ID)) return;
+
+  const style = document.createElement('style');
+  style.id = CONTROLS_STYLE_ID;
+  style.textContent = CONTROLS_CSS;
+  document.head.append(style);
+}
 
 /** Re-exported so the caller can build a camera without importing the types file. */
 export type { MapCamera };

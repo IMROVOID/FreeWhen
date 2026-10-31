@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { Modal, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import GorhomBottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
+import GorhomBottomSheet, {
+  BottomSheetBackdrop,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from '@gorhom/bottom-sheet';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { dur } from '@/src/theme/motion';
 import { radius, size, space } from '@/src/theme/tokens';
@@ -303,44 +308,93 @@ export function BottomSheet({
         if (dismissible) sheetRef.current?.close();
       }}
     >
-      {/* ★ THE CONTAINER NEEDS A FULL-SIZE PARENT TO FILL.
-          The library's hosting container is `position: absolute` at all four
-          edges, so its height comes from its PARENT. A `Modal` renders its child
-          into a wrapper that sizes to the content, and the content here is an
-          absolutely-positioned box — which collapses to zero. The container then
-          measures 0, the library's `isLayoutCalculated` never becomes true, and
-          the panel is never shown: the modal opened, covered the page (Back
-          dismissed it), and painted nothing.
-          This `flex: 1` view gives it a real height to measure against.
+      {/*
+        ★ A GESTURE ROOT, BECAUSE A MODAL STARTS A NEW WINDOW.
 
-          ★ AND ITS `onLayout` IS THE OPEN'S SECOND CHANCE.
-          This node is the sheet's measuring parent, so its layout event is
-          precisely the moment the library's `isLayoutCalculated` can become true
-          — which is the moment a previously-dropped `snapToIndex` would succeed.
-          Without this the open was attempted once, before measurement existed, and
-          never retried. */}
-      <View style={styles.modalRoot} onLayout={requestOpen}>
-        <GorhomBottomSheet
-          ref={sheetRef}
-          index={openIndex}
-          // `undefined` lets the library measure the content; passing an array is
-          // what pins it to fractions of the screen.
-          snapPoints={snapPoints}
-          enablePanDownToClose={dismissible}
-          enableDynamicSizing={isDynamic}
-          onClose={handleClose}
-          // ★ THE ACKNOWLEDGEMENT. This is the only thing that marks the open as
-          // done, so a call the library silently ignored cannot consume the retry.
-          onChange={handleChange}
-          backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
-          handleComponent={Grabber}
-          accessibilityLabel={testID}
-        >
-          <BottomSheetView style={styles.content}>{children}</BottomSheetView>
-        </GorhomBottomSheet>
-      </View>
+        `@gorhom/bottom-sheet` builds its pan-down, its backdrop and its scroll
+        hand-off on `react-native-gesture-handler`. A gesture handler only works
+        inside a `GestureHandlerRootView`, and the app's root one does NOT cover this
+        subtree: an Android `Modal` is a separate window with its own view tree, and
+        a react-native-web `Modal` mounts into a portal wrapper outside the app's
+        root view. So every gesture inside a sheet was silently dead — which is the
+        report exactly: "I cannot close the overlay by dragging the handle down or by
+        tapping outside, and I cannot scroll it either; only the phone's Back works."
+
+        Nothing else about the sheet changes: same mount, same open retry, same
+        teardown delay.
+      */}
+      <GestureHandlerRootView style={styles.root}>
+        {/* ★ THE CONTAINER NEEDS A FULL-SIZE PARENT TO FILL.
+            The library's hosting container is `position: absolute` at all four
+            edges, so its height comes from its PARENT. A `Modal` renders its child
+            into a wrapper that sizes to the content, and the content here is an
+            absolutely-positioned box — which collapses to zero. The container then
+            measures 0, the library's `isLayoutCalculated` never becomes true, and
+            the panel is never shown: the modal opened, covered the page (Back
+            dismissed it), and painted nothing.
+            This `flex: 1` view gives it a real height to measure against.
+
+            ★ AND ITS `onLayout` IS THE OPEN'S SECOND CHANCE.
+            This node is the sheet's measuring parent, so its layout event is
+            precisely the moment the library's `isLayoutCalculated` can become true
+            — which is the moment a previously-dropped `snapToIndex` would succeed.
+            Without this the open was attempted once, before measurement existed, and
+            never retried. */}
+        <View style={styles.modalRoot} onLayout={requestOpen}>
+          <GorhomBottomSheet
+            ref={sheetRef}
+            index={openIndex}
+            // `undefined` lets the library measure the content; passing an array is
+            // what pins it to fractions of the screen.
+            snapPoints={snapPoints}
+            enablePanDownToClose={dismissible}
+            enableDynamicSizing={isDynamic}
+            onClose={handleClose}
+            // ★ THE ACKNOWLEDGEMENT. This is the only thing that marks the open as
+            // done, so a call the library silently ignored cannot consume the retry.
+            onChange={handleChange}
+            // ★ A TAP OUTSIDE CLOSES, AND IT USED TO BE IMPOSSIBLE.
+            //
+            // The component's own header promised a scrim press on both platforms,
+            // and the native sheet had none: a `Modal` covers the window, and without
+            // a backdrop component nothing in the transparent area is a control. The
+            // backdrop appears only while the sheet is CLOSED or dismissing, so it
+            // never covers the panel.
+            backdropComponent={dismissible ? renderBackdrop : undefined}
+            backgroundStyle={[styles.background, { backgroundColor: t.surface1 }, style]}
+            handleComponent={Grabber}
+            accessibilityLabel={testID}
+          >
+            {/* ★ A SCROLL VIEW, NOT A `BottomSheetView`, AND `flex: 1` WAS THE BUG.
+                `BottomSheetView` sizes to its content and cannot scroll, so a long
+                document — the privacy notice at `85%` — was clipped at one screen with
+                no way to reach the rest: the reported "I cannot even scroll the
+                overlay". `BottomSheetScrollView` is the library's own scroll
+                container, which is also what lets a downward drag at the top of the
+                content reach the pan-down gesture instead of dying in the scroll. */}
+            <BottomSheetScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.content}
+              // A short sheet stays short; a long one scrolls.
+              scrollEnabled
+            >
+              {children}
+            </BottomSheetScrollView>
+          </GorhomBottomSheet>
+        </View>
+      </GestureHandlerRootView>
     </Modal>
   );
+}
+
+/**
+ * The scrim behind the panel — the tap-outside dismissal.
+ *
+ * `pointerEvents="auto"` on an opaque-looking, fully transparent Pressable is what
+ * makes the dimmed area a control rather than a picture.
+ */
+function renderBackdrop(props: BottomSheetBackdropProps) {
+  return <BottomSheetBackdrop {...props} appearsOnIndex={-1} disappearsOnIndex={0} />;
 }
 
 function Grabber() {
@@ -353,6 +407,10 @@ function Grabber() {
 }
 
 const styles = StyleSheet.create({
+  root: {
+    // The gesture root has to be a real box for the sheet to fill.
+    flex: 1,
+  },
   modalRoot: {
     // The library's container is absolute-fill; this is the box it fills.
     flex: 1,
@@ -360,6 +418,11 @@ const styles = StyleSheet.create({
   background: {
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
+  },
+  scroll: {
+    // A scroll view with no height cannot scroll, which is what the notice's
+    // `flex: 1` body needs it to have.
+    flex: 1,
   },
   content: {
     padding: space[5],

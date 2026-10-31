@@ -29,10 +29,37 @@ export interface VoteShareBarProps {
   share: number;
   /** Which edge of the card the bar is drawn along. */
   position?: 'top' | 'bottom';
+  /**
+   * The corner rounding to apply, in points.
+   *
+   * ★ THE BAR TAKES THE CARD'S RADIUS, AND IT IS THE CARD'S `radius.lg`.
+   *
+   * The track used to round itself to `radius.md` inside a card rounded to
+   * `radius.lg`, and its own corners were transparent — so at the card's foot the
+   * gauge's straight left and right edges crossed the card's curve and the fill
+   * read as a strip UNDER the box rather than as an edge OF it. The caller passes
+   * the radius it draws with, so the two cannot disagree.
+   */
+  cornerRadius?: number;
+  /**
+   * The colour behind the bar — the card's own surface.
+   *
+   * A transparent track leaves whatever is beneath it showing, which is why the
+   * unfilled part of the gauge looked like the page rather than the box. Painting
+   * the track with the card's fill makes the bar read as an INSIDE edge: masked to
+   * the box, not overflowing it.
+   */
+  trackColor?: string;
   testID?: string;
 }
 
-export function VoteShareBar({ share, position = 'bottom', testID = 'vote-share-bar' }: VoteShareBarProps) {
+export function VoteShareBar({
+  share,
+  position = 'bottom',
+  cornerRadius = radius.md,
+  trackColor,
+  testID = 'vote-share-bar',
+}: VoteShareBarProps) {
   const { t } = useTheme();
 
   // A NaN or a value from a stale payload must never produce a negative width or
@@ -40,14 +67,26 @@ export function VoteShareBar({ share, position = 'bottom', testID = 'vote-share-
   const clamped = Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
   const percent = `${Math.round(clamped * 100)}%` as const;
 
+  /** The two corners on the edge this bar is drawn against. */
+  const corners =
+    position === 'top'
+      ? { borderTopLeftRadius: cornerRadius, borderTopRightRadius: cornerRadius }
+      : { borderBottomLeftRadius: cornerRadius, borderBottomRightRadius: cornerRadius };
+
   return (
     <View
       testID={testID}
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped * 100) }}
-      style={[styles.track, position === 'top' ? styles.trackTop : styles.trackBottom]}
+      style={[
+        styles.track,
+        corners,
+        { backgroundColor: trackColor ?? t.surface1 },
+      ]}
     >
-      <View style={[styles.fill, { width: percent, backgroundColor: t.brand }]} />
+      {/* The fill takes the same corners on the bar's own edge, so a full bar ends
+          inside the card's curve instead of squaring it off. */}
+      <View style={[styles.fill, corners, { width: percent, backgroundColor: t.brand }]} />
     </View>
   );
 }
@@ -59,15 +98,6 @@ const styles = StyleSheet.create({
     height: space[1],
     width: '100%',
     overflow: 'hidden',
-    backgroundColor: 'transparent',
-  },
-  trackTop: {
-    borderTopLeftRadius: radius.md,
-    borderTopRightRadius: radius.md,
-  },
-  trackBottom: {
-    borderBottomLeftRadius: radius.md,
-    borderBottomRightRadius: radius.md,
   },
   fill: {
     height: '100%',

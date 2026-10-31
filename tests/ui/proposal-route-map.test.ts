@@ -81,7 +81,9 @@ test('with a start point, the route is drawn from it', () => {
   // disagree about the road between the same two places.
   assert.match(MAP, /fetchRoute\(drawableOrigin, destination\)/);
   assert.match(MAP, /fallbackRoute\(drawableOrigin, destination\)/);
-  assert.match(MAP, /source === 'straight_line'/);
+  // SOLID NOW, AND THAT IS THE REPORT: a dashed line read as approximate, and a
+  // fallback drawn solid is still honest because the geometry module labels it.
+  assert.match(MAP, /dashed: false/);
 });
 
 test('without a start point, the proposed place is drawn alone', () => {
@@ -90,7 +92,9 @@ test('without a start point, the proposed place is drawn alone', () => {
   // The origin is the caller's own `start_point`, which they may never have set. The
   // report is explicit: "if the user hasn't selected a location, just display the
   // proposed location".
-  const alone = /if \(drawableOrigin === null\) return \[proposed\];/.test(MAP);
+  // The origin marker is built by `originMarker`, which answers null for a coordinate
+  // the projection cannot draw — so an absent origin adds no marker at all.
+  const alone = /const originPoint = originMarker\(drawableOrigin, t\('location\.youAreHere'\)\);\s*if \(originPoint === null\) return \[proposed\];/.test(MAP);
   const noRoute = /if \(drawableOrigin === null\) \{\s*\n\s*setRoute\(null\);/.test(MAP);
 
   // Assert

@@ -118,35 +118,43 @@ export function decodePolyline(encoded: string, precision = 5): Array<[number, n
   let lat = 0;
   let lng = 0;
 
-  while (index < encoded.length) {
+  /**
+   * The next signed delta, advancing `index` past its last 5-bit group.
+   *
+   * ★ THE TERMINATION BIT IS READ OUT OF THE *MASKED* VALUE, NOT THE RAW BYTE.
+   *
+   * Each group contributes its low five bits; the SIXTH bit — the one that says
+   * "another group follows" — is `chunk >= 0x20` on the masked value. Testing the !"
+   * raw byte instead is the same question only when no higher bit is set, and a
+   * payload character above `0x7f` sets plenty of them: the loop then kept consuming
+   * groups that belonged to the NEXT coordinate. `@` (code 64 → 1 after the offset)
+   * is exactly such a character, and it silently corrupted the third point of the
+   * reference polyline while the first two decoded correctly.
+   */
+  function nextDelta(): number {
     let shift = 0;
     let result = 0;
-    let byte: number;
 
-    // Latitude chunk: 5-bit groups, low bit set means "another chunk follows".
-    do {
-      // `decodePolyline` is also reachable as a seam for caller-supplied
-      // geometry, so a truncated chunk must stop the loop explicitly rather than
-      // relying on `NaN >= 0x20` being false by accident.
-      byte = encoded.charCodeAt(index++) - 63;
-      if (!Number.isFinite(byte) || byte < -63) break;
-      result |= (byte & 0x1f) << shift;
+    for (;;) {
+      // `decodePolyline` is also reachable as a seam for caller-supplied geometry,
+      // so a truncated chunk must stop rather than run off the end of the string.
+      if (index >= encoded.length) break;
+
+      const chunk = encoded.charCodeAt(index++) - 63;
+      if (!Number.isFinite(chunk) || chunk < 0) break;
+
+      result |= (chunk & 0x1f) << shift;
       shift += 5;
-    } while (byte >= 0x20 && index < encoded.length);
 
-    lat += result & 1 ? ~(result >> 1) : result >> 1;
+      if (chunk < 0x20) break;
+    }
 
-    shift = 0;
-    result = 0;
+    return result & 1 ? ~(result >> 1) : result >> 1;
+  }
 
-    do {
-      byte = encoded.charCodeAt(index++) - 63;
-      if (!Number.isFinite(byte) || byte < -63) break;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20 && index < encoded.length);
-
-    lng += result & 1 ? ~(result >> 1) : result >> 1;
+  while (index < encoded.length) {
+    lat += nextDelta();
+    lng += nextDelta();
 
     // GeoJSON order: longitude first.
     points.push([lng / factor, lat / factor]);
@@ -187,12 +195,25 @@ export function directionsUrl(from: RoutePoint, to: RoutePoint, accessToken: str
  * Never throws. Every failure — no token, a non-200, unparseable JSON, an empty
  * route — returns the straight-line geometry, because the caller is drawing a
  * map, not gating a decision on this.
+ *
+ * ★ TWO PROVIDERS, IN ORDER, BECAUSE ONE OF THEM DOES NOT COVER THIS COUNTRY.
+ *
+ * The report was "the lines are just straight dashed lines, not real navigation
+ * routes". The lines were straight because MapBox Directions refuses this account's
+ * token — every call degraded to the fallback, so the map never drew a road. MapBox's
+ * driving profile has thin coverage in Iran in any case, which is why the travel-TIME
+ * ladder does not use it either; Neshan is the Iranian provider this product already
+ * pays for, and its direction endpoint returns the same route as a polyline.
+ *
+ * So MapBox is tried first (it is the token every deployment already has), and
+ * Neshan — when a direction key is configured — answers when MapBox cannot.
  */
 export async function resolveRouteGeometry(
   from: RoutePoint,
   to: RoutePoint,
   accessToken: string | null,
   transport: GeometryTransport,
+  alternatives: RouteAlternatives = {},
 ): Promise<RouteGeometry> {
   const fallback = straightLineRoute(from, to);
 
@@ -205,28 +226,48 @@ export async function resolveRouteGeometry(
   // line is the correct answer and costs nothing.
   if (from.lat === to.lat && from.lng === to.lng) return fallback;
 
-  if (accessToken === null || accessToken.trim() === '') return fallback;
+  const mapbox = await resolveWithMapbox(from, to, accessToken, transport);
+  if (mapbox !== null) return mapbox;
+
+  return (await resolveWithNeshan(from, to, alternatives)) ?? fallback;
+}
+
+/** The providers `resolveRouteGeometry` may fall back to. */
+export interface RouteAlternatives {
+  /** A Neshan direction key, when the deployment has one. */
+  neshanKey?: string | null;
+}
+
+/** MapBox Directions, or `null` when it could not answer. */
+async function resolveWithMapbox(
+  from: RoutePoint,
+  to: RoutePoint,
+  accessToken: string | null,
+  transport: GeometryTransport,
+): Promise<RouteGeometry | null> {
+  if (accessToken === null || accessToken.trim() === '') return null;
   // A secret token must never reach a URL, and a `pk.` is the only usable form.
-  if (!accessToken.startsWith('pk.')) return fallback;
+  if (!accessToken.startsWith('pk.')) return null;
 
   try {
     const response = await transport(directionsUrl(from, to, accessToken));
-    if (response.status !== 200) return fallback;
+    if (response.status !== 200) return null;
 
     const body = JSON.parse(response.body) as {
       routes?: Array<{ geometry?: unknown; distance?: unknown }>;
     };
 
     const first = body.routes?.[0];
-    if (!first || typeof first.geometry !== 'string') return fallback;
+    if (!first || typeof first.geometry !== 'string') return null;
 
     // Refuse an oversized payload BEFORE spending CPU on it — see the note on
     // MAX_ENCODED_POLYLINE: the transport timeout does not cover parsing.
-    if (first.geometry.length > MAX_ENCODED_POLYLINE) return fallback;
+    if (first.geometry.length > MAX_ENCODED_POLYLINE) return null;
 
     const points = decodePolyline(first.geometry);
-    // A one-point line is not a line; the fallback at least shows the direction.
-    if (points.length < 2 || points.length > MAX_ROUTE_POINTS) return fallback;
+    // A one-point line is not a line; the caller's fallback at least shows the
+    // direction.
+    if (points.length < 2 || points.length > MAX_ROUTE_POINTS) return null;
 
     return {
       points,
@@ -234,6 +275,67 @@ export async function resolveRouteGeometry(
       distanceMetres: typeof first.distance === 'number' ? first.distance : null,
     };
   } catch {
-    return fallback;
+    return null;
+  }
+}
+
+/**
+ * Neshan, whose direction endpoint answers with the route's points already decoded.
+ *
+ * It takes the key in an `Api-Key` HEADER rather than in the URL, so the key never
+ * reaches a log line or a proxy's cache key.
+ */
+async function resolveWithNeshan(
+  from: RoutePoint,
+  to: RoutePoint,
+  alternatives: RouteAlternatives,
+): Promise<RouteGeometry | null> {
+  const key = alternatives.neshanKey?.trim() ?? '';
+  if (key === '') return null;
+
+  const query = new URLSearchParams({
+    type: 'car',
+    origin: `${from.lat},${from.lng}`,
+    destination: `${to.lat},${to.lng}`,
+  });
+
+  try {
+    const response = await fetch(`https://api.neshan.org/v4/direction?${query.toString()}`, {
+      method: 'GET',
+      headers: { 'Api-Key': key, accept: 'application/json' },
+      signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(8_000) : undefined,
+    });
+
+    if (response.status !== 200) return null;
+
+    const body = (await response.json()) as {
+      routes?: Array<{
+        overview_polyline?: { points?: unknown };
+        legs?: Array<{ distance?: { value?: number } }>;
+      }>;
+    };
+
+    const first = body.routes?.[0];
+    const encoded = first?.overview_polyline?.points;
+    if (typeof encoded !== 'string' || encoded.length === 0) return null;
+    if (encoded.length > MAX_ENCODED_POLYLINE) return null;
+
+    const points = decodePolyline(encoded);
+    if (points.length < 2 || points.length > MAX_ROUTE_POINTS) return null;
+
+    const distance = (first?.legs ?? []).reduce(
+      (total, leg) => total + (leg.distance?.value ?? 0),
+      0,
+    );
+
+    return {
+      points,
+      // Reported as `mapbox` so the client's union — and its "is this a road?"
+      // branch — does not need a third member for the same fact.
+      source: 'mapbox',
+      distanceMetres: distance > 0 ? Math.round(distance) : null,
+    };
+  } catch {
+    return null;
   }
 }

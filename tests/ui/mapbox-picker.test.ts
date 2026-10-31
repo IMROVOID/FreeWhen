@@ -96,15 +96,16 @@ test('the pin sits on the selected point, not on the camera centre', () => {
 
 test('the camera is only moved by a deliberate action', () => {
   // Arrange — `framing` is the only thing the camera prop is built from, and only
-  // `flyTo` and the zoom buttons write it. A pinch reports up and stops there.
+  // `flyTo` writes it. A pinch reports up and stops there, and so do the zoom buttons:
+  // they ask the SURFACE, because writing `framing` re-framed the map onto the pin.
   const builtFromFraming = /centre: framing\.centre,\s*\n\s*zoom: framing\.zoom/.test(PICKER);
-  const zoomIsFraming = /setFraming\(\(current\) => \(\{ \.\.\.current, zoom: clampZoom\(current\.zoom \+ delta\) \}\)\)/.test(
+  const zoomWritesFraming = /setFraming\(\(current\) => \(\{ \.\.\.current, zoom/.test(
     PICKER,
   );
 
   // Assert
   assert.ok(builtFromFraming, 'the camera is built from something other than the picker’s own framing');
-  assert.ok(zoomIsFraming, 'the zoom buttons do not ask the map to zoom');
+  assert.equal(zoomWritesFraming, false, 'the zoom control writes the camera, so the map returns to the pin');
 });
 
 /* ── 3D and camera ────────────────────────────────────────────────────────── */
@@ -132,8 +133,7 @@ test('zoom is offered and clamped to the range the style has data for', () => {
   assert.match(PICKER, /Math\.max\(MIN_ZOOM, Math\.min\(MAX_ZOOM, value\)\)/);
   assert.match(PICKER, /const MIN_ZOOM = 3;/);
   assert.match(PICKER, /const MAX_ZOOM = 20;/);
-  assert.match(PICKER, /accessibilityLabel=\{t\('map\.zoomIn'\)\}/);
-  assert.match(PICKER, /accessibilityLabel=\{t\('map\.zoomOut'\)\}/);
+  assert.match(PICKER, /controls/);
 });
 
 /* ── Theme and accent ─────────────────────────────────────────────────────── */

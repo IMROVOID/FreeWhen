@@ -78,7 +78,12 @@ test('the props carry no editing affordance at all', () => {
 test('the camera is left to the user, not re-fitted on every render', () => {
   // Arrange — the camera is a single memo of the initial framing, passed as a
   // prop. The surface applies it once, at construction.
-  const memo = /const camera = useMemo\(\(\) => \{[\s\S]*?\}, \[origin, destinations\]\);/.test(MAP);
+  // AND IT IS KEYED ON THE COORDINATES, NOT ON THE ARRAYS.
+  //
+  // destinations is rebuilt by the screen on every render and this component
+  // re-renders whenever a route lands, so a memo on those ARRAYS produced a new pose
+  // every time - and a new pose is exactly what InteractiveMap applies.
+  const memo = /const camera = useMemo\(\(\) => \{[\s\S]*?\}, \[originLat, originLng, destinationKey\]\);/.test(MAP);
 
   // Act / Assert — re-deriving the camera from the routes would snap the view back
   // every time a line arrived, which reads as the map fighting the finger.
@@ -111,7 +116,12 @@ test('the lines are fetched in parallel, not one after another', () => {
 
 test('a straight-line route is drawn dashed, so it does not claim a road', () => {
   // Assert
-  assert.match(MAP, /dashed: geometry\.source === 'straight_line'/);
+  // SOLID NOW, AND THAT IS THE REPORT.
+  //
+  // A dashed line read as "approximate" and the request was that a route look like a
+  // route. The fallback is still LABELLED as one (map.directionOnly), so the picture
+  // does not silently claim a road.
+  assert.match(MAP, /dashed: false/);
   assert.match(MAP, /map\.directionOnly/);
 });
 
@@ -172,7 +182,7 @@ test('the camera frames the whole event, never one person', () => {
   // Assert — FR-8.16: a viewport centred on one fix leaks what the fuzzed
   // coordinate was protecting.
   assert.match(MAP, /boundingBox\(points, EVENT_PADDING_RATIO\)/);
-  assert.match(MAP, /\[\s*\.\.\.\(origin \? \[origin\] : \[\]\),\s*\.\.\.destinations\.map/);
+  assert.match(MAP, /\[\s*\.\.\.\(originLat !== null && originLng !== null \? \[\{ lat: originLat, lng: originLng \}\] : \[\]\),\s*\.\.\.destinations\.map/);
 });
 
 test('a proposal with no place contributes no pin', () => {
@@ -194,7 +204,7 @@ test('every fact the drawing shows is also text', () => {
   // nothing. Each row is the proposer's name in the proposer's own colour, and the
   // coordinates are still announced for a screen reader through the marker label.
   assert.match(MAP, /t\('map\.proposalPinLabel', \{\s*name: destination\.proposer,/);
-  assert.match(MAP, /t\('location\.useCurrent'\)/);
+  assert.match(MAP, /t\('location\.youAreHere'\)/);
 });
 
 test('a proposal pin wears its proposer’s colour, not the app’s accent', () => {

@@ -70,7 +70,8 @@ test('the sheet grows to fill, so no page content shows through the gap', () => 
   // Act / Assert — the sheet's container must stretch, otherwise the content
   // sits in a short box inside a taller background.
   assert.ok(
-    /BottomSheetView/.test(sheet),
+    /BottomSheetScrollView/.test(sheet),
     'the content view is missing; content cannot drive the height',
   );
+  assert.match(sheet, /scrollEnabled/, 'the content cannot scroll at all');
 });

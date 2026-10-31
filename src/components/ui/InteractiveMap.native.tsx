@@ -33,8 +33,8 @@
  * quote in a token break the document, or worse, execute.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, type ViewStyle } from 'react-native';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { PanResponder, View, type ViewStyle } from 'react-native';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 
@@ -45,6 +45,7 @@ import type {
   MapLine,
   MapMarker,
 } from './InteractiveMap';
+import type { MapSurfaceHandle } from './map-imperative';
 import { cameraKey } from './map-camera';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
 import { map as mapTokens } from '@/src/theme/tokens';
@@ -63,6 +64,9 @@ const MAPBOX_GL_VERSION = '3.34.1';
 const PIN_WIDTH = 22;
 const PIN_HEIGHT = 30;
 
+/** The origin dot's diameter — the web surface's `DOT_SIZE`. */
+const DOT_SIZE = 16;
+
 /** The teardrop path. `24×32` viewBox, so both platforms draw one shape. */
 const PIN_PATH =
   'M12 0C5.4 0 0 5.4 0 12c0 8.4 12 20 12 20s12-11.6 12-20c0-6.6-5.4-12-12-12zm0 16.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9z';
@@ -75,6 +79,7 @@ type BridgeMessage =
   | { type: 'ready' }
   | { type: 'unavailable'; reason: string }
   | { type: 'press'; lat: number; lng: number }
+  | { type: 'gesture'; active: boolean }
   | { type: 'camera'; lat: number; lng: number; zoom: number; pitch: number; bearing: number };
 
 /**
@@ -89,8 +94,9 @@ export function buildMapDocument(options: {
   camera: MapCamera;
   theme: 'light' | 'dark';
   accent: string;
+  controls: boolean;
 }): string {
-  const { accessToken, style, camera, theme, accent } = options;
+  const { accessToken, style, camera, theme, accent, controls } = options;
 
   void accent;
 
@@ -122,6 +128,22 @@ export function buildMapDocument(options: {
   /* A place is a pin, not a dot — the same teardrop the web surface draws. */
   .pin { display: flex; align-items: flex-start; justify-content: center; }
   .pin svg { display: block; }
+  /* The viewer's own position: a dot, not a destination. */
+  .dot { border-radius: 50%; border: 2px solid ${mapTokens.originRing}; }
+  /* ★ THE CORNER CONTROLS, AND THE DOCUMENT OWNS THEIR LOOK.
+     They are drawn here rather than as React Native views above the WebView for
+     the same reason the pins are: one document, two platforms, nothing to drift.
+     \`touch-action: none\` on the buttons keeps the press out of the page's gesture
+     budget; \`pointer-events\` keeps the strip they sit in from blocking the map. */
+  .zoom { position: absolute; bottom: ${mapTokens.controlInset}px; right: ${mapTokens.controlInset}px; display: flex; flex-direction: column; gap: ${mapTokens.controlGap}px; z-index: 5; }
+  .zoom button {
+    width: ${mapTokens.controlSize}px; height: ${mapTokens.controlSize}px; border: 0; border-radius: ${mapTokens.controlSize / 2}px; padding: 0;
+    font: 600 20px/1 -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    touch-action: none; -webkit-tap-highlight-color: transparent;
+    background: ${mapTokens.controlFill}; color: ${mapTokens.controlInk};
+    box-shadow: 0 1px 3px ${mapTokens.markerShadow};
+  }
+  .zoom button:active { opacity: 0.75; }
 </style>
 </head>
 <body>
@@ -138,6 +160,9 @@ export function buildMapDocument(options: {
   var PIN_PATH = ${JSON.stringify(PIN_PATH)};
   var MARKER_RING = ${JSON.stringify(mapTokens.markerRing)};
   var MARKER_SHADOW = ${JSON.stringify(mapTokens.markerShadow)};
+  var ORIGIN_RING = ${JSON.stringify(mapTokens.originRing)};
+  var DOT_SIZE = ${DOT_SIZE};
+  var CONTROLS = ${controls ? 'true' : 'false'};
 
   var markersById = {};
 
@@ -149,6 +174,26 @@ export function buildMapDocument(options: {
     element.style.width = PIN_WIDTH + 'px';
     element.style.height = PIN_HEIGHT + 'px';
     element.style.transformOrigin = '50% 100%';
+    return element;
+  }
+
+  /**
+   * ★ THE ORIGIN DOT. Centred on its coordinate, not anchored by a tip.
+   *
+   * A pin's anchor is 'bottom' because its point is the coordinate. A dot has no
+   * point, so the SAME anchor would draw the reader's own position half a pin
+   * north of where they are; \`applyMarkers\` therefore anchors a circle at centre.
+   */
+  function dotElement(label) {
+    var element = document.createElement('div');
+    element.className = 'dot';
+    element.setAttribute('role', 'img');
+    element.setAttribute('aria-label', label || '');
+    element.style.width = DOT_SIZE + 'px';
+    element.style.height = DOT_SIZE + 'px';
+    element.style.boxSizing = 'border-box';
+    element.style.borderColor = ORIGIN_RING;
+    element.style.filter = 'drop-shadow(0 1px 3px ' + MARKER_SHADOW + ')';
     return element;
   }
 
@@ -196,18 +241,37 @@ export function buildMapDocument(options: {
       seen[marker.id] = true;
 
       var handle = markersById[marker.id];
+      var isCircle = marker.shape === 'circle';
 
       if (!handle) {
-        var element = pinElement(marker.label);
-        handle = new mapboxgl.Marker({ element: element, anchor: 'bottom' })
+        var element = isCircle ? dotElement(marker.label) : pinElement(marker.label);
+        handle = new mapboxgl.Marker({ element: element, anchor: isCircle ? 'center' : 'bottom' })
           .setLngLat([marker.coordinate.lng, marker.coordinate.lat])
           .addTo(map);
+        handle.__isCircle = isCircle;
+        markersById[marker.id] = handle;
+      } else if (handle.__isCircle !== isCircle) {
+        // ★ A MARKER THAT CHANGED SHAPE IS REBUILT, NOT REPAINTED.
+        //
+        // The anchor is fixed at construction, so repainting a pin into a dot would
+        // leave it anchored by the tip it no longer has. Ids are stable per fact —
+        // 'origin' is always the origin — so this happens at most once per marker.
+        handle.remove();
+        var replacement = isCircle ? dotElement(marker.label) : pinElement(marker.label);
+        handle = new mapboxgl.Marker({ element: replacement, anchor: isCircle ? 'center' : 'bottom' })
+          .setLngLat([marker.coordinate.lng, marker.coordinate.lat])
+          .addTo(map);
+        handle.__isCircle = isCircle;
         markersById[marker.id] = handle;
       } else {
         handle.setLngLat([marker.coordinate.lng, marker.coordinate.lat]);
       }
 
-      paintPin(handle.getElement(), marker.color || accent, marker.selected === true);
+      if (isCircle) {
+        handle.getElement().style.backgroundColor = marker.color || accent;
+      } else {
+        paintPin(handle.getElement(), marker.color || accent, marker.selected === true);
+      }
     }
 
     for (var id in markersById) {
@@ -313,6 +377,11 @@ export function buildMapDocument(options: {
         paint: {
           'line-color': ['get', 'color'],
           'line-width': 4,
+          // ★ A \`case\` MUST YIELD LITERALS.
+          //
+          // A bare array as a branch is read as an expression, not as a dash
+          // pattern, and MapBox refuses the style — so this layer never compiled and
+          // every line came out solid. \`['literal', …]\` wraps the pattern as data.
           'line-dasharray': ['case', ['get', 'dashed'], ['literal', [2, 2]], ['literal', [1, 0]]]
         }
       });
@@ -329,6 +398,62 @@ export function buildMapDocument(options: {
     map.on('click', function (event) {
       post({ type: 'press', lat: event.lngLat.lat, lng: event.lngLat.lng });
     });
+
+    /**
+     * ★ A FINGER DOWN IN THE MAP IS REPORTED UP, SO THE APP CAN CLAIM IT.
+     *
+     * \`scrollEnabled={false}\` stops the WebView scrolling ITSELF, and
+     * \`touch-action: none\` stops this document claiming the finger as a scroll —
+     * neither of which reaches React Native, because a WebView does not participate
+     * in RN's responder negotiation. So an ancestor \`ScrollView\` was free to take a
+     * vertical drag that began on the map and scroll the page instead (the reported
+     * defect; horizontal drags were fine because that ScrollView is vertical only).
+     *
+     * The app's wrapper becomes the responder while a finger is down in here, and
+     * an ancestor that has lost the negotiation does not scroll. This is that
+     * signal, posted for the whole duration of the touch rather than once per
+     * gesture, so a long pan keeps the claim.
+     */
+    document.addEventListener('touchstart', function () {
+      post({ type: 'gesture', active: true });
+    }, { passive: true });
+
+    document.addEventListener('touchend', function () {
+      post({ type: 'gesture', active: false });
+    }, { passive: true });
+
+    document.addEventListener('touchcancel', function () {
+      post({ type: 'gesture', active: false });
+    }, { passive: true });
+
+    /**
+     * ★ THE CORNER CONTROLS ASK THE MAP TO ZOOM; THEY DO NOT WRITE A POSE.
+     *
+     * \`zoomTo\` keeps the CENTRE the reader left the map at. A control written as a
+     * camera change would re-frame the map onto the pose this document was built
+     * with — the reported "when I zoom, it returns to the pin".
+     */
+    if (CONTROLS) {
+      var zoomIn = document.createElement('button');
+      zoomIn.setAttribute('type', 'button');
+      zoomIn.setAttribute('aria-label', 'zoom in');
+      zoomIn.textContent = '+';
+      zoomIn.addEventListener('click', function () { map.zoomTo(map.getZoom() + 1, { duration: 160 }); });
+
+      var zoomOut = document.createElement('button');
+      zoomOut.setAttribute('type', 'button');
+      zoomOut.setAttribute('aria-label', 'zoom out');
+      zoomOut.textContent = '\\u2212';
+      zoomOut.addEventListener('click', function () { map.zoomTo(map.getZoom() - 1, { duration: 160 }); });
+
+      var zoomBox = document.createElement('div');
+      zoomBox.className = 'zoom';
+      zoomBox.setAttribute('data-map-controls', '');
+      zoomBox.appendChild(zoomIn);
+      zoomBox.appendChild(zoomOut);
+      document.body.appendChild(zoomBox);
+    }
+
 
     map.on('moveend', function () {
       var centre = map.getCenter();
@@ -381,6 +506,21 @@ export function buildMapDocument(options: {
       if (window.__ready) drawOverlays();
       else map.once('idle', drawOverlays);
     };
+
+    /**
+     * ★ THE IMPERATIVE ZOOM THE CORNER CONTROL ASKS FOR.
+     *
+     * \`zoomTo\` keeps the CENTRE the reader left the map at — a camera prop would
+     * re-frame onto the pose the document was built with, which is the reported
+     * "when I zoom, it returns to the pin".
+     */
+    window.__zoom = function (delta) {
+      map.zoomTo(map.getZoom() + delta, { duration: 160 });
+    };
+
+    window.__recentre = function () {
+      map.jumpTo({ center: [${camera.centre.lng}, ${camera.centre.lat}] });
+    };
   } catch (error) {
     post({ type: 'unavailable', reason: String(error && error.message || error) });
   }
@@ -391,6 +531,7 @@ export function buildMapDocument(options: {
 }
 
 export function InteractiveMap({
+  ref,
   camera,
   markers = [],
   lines = [],
@@ -401,26 +542,62 @@ export function InteractiveMap({
   onCameraChange,
   onUnavailable,
   onReady,
+  controls = false,
   testID,
-}: InteractiveMapProps) {
+}: InteractiveMapProps & { ref?: React.Ref<MapSurfaceHandle | null> }) {
   const webRef = useRef<WebViewHandle | null>(null);
   const mapboxCredential = readMapboxToken();
   const [isReady, setIsReady] = useState(false);
 
-  const reported = useRef(false);
-  useEffect(() => {
-    if (mapboxCredential === null && !reported.current) {
-      reported.current = true;
-      onUnavailable?.();
-    }
-  }, [mapboxCredential, onUnavailable]);
+  /**
+   * ★ WHETHER A FINGER IS CURRENTLY DOWN INSIDE THE MAP.
+   *
+   * The document reports the beginning and end of every touch, and the wrapper
+   * below becomes the responder for as long as this is true — which is what stops
+   * the page's `ScrollView` claiming a vertical drag that began on the map. Read
+   * through a ref so the `PanResponder` (built once) never sees a stale value.
+   */
+  const gestureHeld = useRef(false);
+
+  /** Whether the wrapper currently holds the responder. */
+  const holding = useRef(false);
+
+  const releaseClaim = useCallback(() => {
+    gestureHeld.current = false;
+    holding.current = false;
+  }, []);
 
   /**
-   * The document is built ONCE per token and style.
+   * The responder that keeps a map drag away from the page.
+   *
+   * It claims a touch that BEGINS inside the map, and claims nothing else: the
+   * page's own scrolling, the pull-to-sync band and every control around the map
+   * are untouched. `onPanResponderTerminationRequest` answers `false` for the same
+   * reason — the ancestor `ScrollView` asks for the responder the moment the finger
+   * travels vertically, and answering "yes" would hand the map's drag straight
+   * back to the page, which is the defect.
+   */
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => gestureHeld.current,
+        onMoveShouldSetPanResponder: () => gestureHeld.current,
+        onPanResponderTerminationRequest: () => !gestureHeld.current,
+        onPanResponderTerminate: releaseClaim,
+        onPanResponderRelease: releaseClaim,
+      }),
+    [releaseClaim],
+  );
+
+  /**
+   * The document is built once per token, theme and control set.
    *
    * `camera` is deliberately not a dependency: re-building the HTML on every camera
    * change would reload the WebView and restart the map on every drag frame. Camera
    * and overlay updates travel through `__apply` instead.
+   *
+   * `controls` IS a dependency — it is a document feature, and a map that gains its
+   * zoom buttons has to be rebuilt to draw them.
    */
   const html = useMemo(
     () =>
@@ -432,9 +609,10 @@ export function InteractiveMap({
             camera,
             theme,
             accent,
+            controls,
           }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mapboxCredential, theme],
+    [mapboxCredential, theme, controls],
   );
 
   const send = useCallback((payload: unknown) => {
@@ -456,6 +634,28 @@ export function InteractiveMap({
     });
   }, [isReady, camera, lines, markers, circles, accent, send]);
 
+  /**
+   * The imperative handle — the same two commands the web surface exposes.
+   *
+   * A zoom control must behave like a pinch: `zoomTo` in the document, never a new
+   * camera prop. Through `__apply` a pose would arrive with a new `cameraKey` and
+   * `jumpTo` would re-frame the map onto the centre it was built with.
+   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomBy: (delta: number) => {
+        const script = `window.__zoom && window.__zoom(${delta}); true;`;
+        webRef.current?.injectJavaScript(script);
+      },
+      recentre: () => {
+        const script = `window.__recentre && window.__recentre(); true;`;
+        webRef.current?.injectJavaScript(script);
+      },
+    }),
+    [],
+  );
+
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
       let message: BridgeMessage;
@@ -475,6 +675,12 @@ export function InteractiveMap({
           break;
         case 'press':
           onPress?.({ lat: message.lat, lng: message.lng });
+          break;
+        case 'gesture':
+          // The app raises its native claim while the finger is down; see
+          // `responder` above and `map-gesture.ts`.
+          gestureHeld.current = message.active;
+          if (!message.active) holding.current = false;
           break;
         case 'camera':
           onCameraChange?.({
@@ -504,21 +710,31 @@ export function InteractiveMap({
   }
 
   return (
-    <WebView
-      ref={webRef as never}
-      testID={testID}
-      style={FRAME_STYLE}
-      source={{ html, baseUrl: 'https://freewhen.rovoid.tech' }}
-      originWhitelist={['*']}
-      javaScriptEnabled
-      domStorageEnabled
-      // The map handles its own gestures; the WebView must not scroll the page.
-      scrollEnabled={false}
-      onMessage={onMessage}
-      onError={() => onUnavailable?.()}
-      // A local HTML document may load the MapBox CDN; nothing else is allowed in.
-      setSupportMultipleWindows={false}
-    />
+    // ★ THE WRAPPER IS THE CLAIM, AND IT IS WHY A VERTICAL DRAG PANS THE MAP.
+    //
+    // A WebView is an opaque native view: it never hands a touch back to React
+    // Native, so an ancestor ScrollView wins a vertical drag that began on the map.
+    // This View holds the responder for the duration of a touch inside the map (the
+    // document reports it over the bridge), and an ancestor that lost the
+    // negotiation does not scroll. The WebView still receives the touch, so the map
+    // pans. See `map-gesture.ts` for the reasoning in full.
+    <View style={FRAME_STYLE} {...responder.panHandlers} testID={testID ? `${testID}-frame` : undefined}>
+      <WebView
+        ref={webRef as never}
+        testID={testID}
+        style={FRAME_STYLE}
+        source={{ html, baseUrl: 'https://freewhen.rovoid.tech' }}
+        originWhitelist={['*']}
+        javaScriptEnabled
+        domStorageEnabled
+        // The map handles its own gestures; the WebView must not scroll the page.
+        scrollEnabled={false}
+        onMessage={onMessage}
+        onError={() => onUnavailable?.()}
+        // A local HTML document may load the MapBox CDN; nothing else is allowed in.
+        setSupportMultipleWindows={false}
+      />
+    </View>
   );
 }
 

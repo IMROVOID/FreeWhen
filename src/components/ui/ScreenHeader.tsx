@@ -41,10 +41,34 @@ import { size, space } from '@/src/theme/tokens';
 import { isRtlLayout } from '@/src/platform/layout-direction';
 import { useTheme } from '@/src/theme/useTheme';
 
+/** A control in the header's trailing slot, opposite the back chevron. */
+export interface HeaderAction {
+  /** The glyph, already sized and coloured by the caller's theme. */
+  icon: React.ReactNode;
+  /** Announced to assistive technology. A bare glyph says nothing. */
+  label: string;
+  onPress: () => void;
+  testID?: string;
+}
+
 export interface ScreenHeaderProps {
   title: string;
   subtitle?: string;
   onBack: () => void;
+  /**
+   * A control on the opposite side of the back chevron.
+   *
+   * ★ THE SLOT WAS A SYMMETRIC SPACER, WHICH IS WHY NOTHING COULD SIT IN IT.
+   *
+   * The spacer exists to centre the title on the screen's axis: the back control
+   * takes a `stepperButton`'s width on the leading edge, so an empty box of the same
+   * width balances it. A screen that needs its own header control therefore had
+   * nowhere to put one — the event page had no way back into the location overlay
+   * except a first-entry gate. The spacer and the action are the same box, so the
+   * title stays centred and the control lands where the eye expects it: in both
+   * directions, because the row itself follows the document.
+   */
+  action?: HeaderAction;
   /** Extra content under the title, e.g. a status line. */
   children?: React.ReactNode;
   testID?: string;
@@ -52,12 +76,14 @@ export interface ScreenHeaderProps {
 }
 
 /**
- * A back chevron, a centred title block, and the top safe-area inset.
+ * A back chevron, a centred title block, an optional trailing action, and the top
+ * safe-area inset.
  */
 export function ScreenHeader({
   title,
   subtitle,
   onBack,
+  action,
   children,
   testID,
   style,
@@ -98,8 +124,23 @@ export function ScreenHeader({
         {children}
       </View>
 
-      {/* Mirrors the chevron's width, so the title centres on the screen. */}
-      <View style={styles.backSpacer} />
+      {/* ★ THE TRAILING SLOT IS THE ACTION, OR THE SPACER THAT CENTRES THE TITLE.
+          Exactly one of the two, so a header with an action keeps the title on the
+          screen's axis instead of pushing it off by half a button. */}
+      {action ? (
+        <Pressy
+          onPress={action.onPress}
+          accessibilityRole="button"
+          accessibilityLabel={action.label}
+          haptic="light"
+          testID={action.testID}
+          style={styles.backPress}
+        >
+          <View style={styles.backBox}>{action.icon}</View>
+        </Pressy>
+      ) : (
+        <View style={styles.backSpacer} />
+      )}
     </View>
   );
 }

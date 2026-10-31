@@ -52,9 +52,7 @@ import * as Location from 'expo-location';
 import {
   MagnifyingGlass,
   MapPin,
-  Minus,
   NavigationArrow,
-  Plus,
   X,
 } from 'phosphor-react-native';
 
@@ -63,6 +61,7 @@ import { Card } from '@/src/components/ui/Card';
 import { InteractiveMap } from '@/src/components/ui/InteractiveMap';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
+import type { MapSurfaceHandle } from '@/src/components/ui/map-imperative';
 import {
   MIN_SEARCH_LENGTH,
   searchPlaces,
@@ -91,7 +90,6 @@ export interface LocationMapPickerProps {
 
 const MAP_HEIGHT = 380;
 const DEBOUNCE_MS = 300;
-
 /** The shared fallback centre, so every map agrees which city "no bias" means. */
 const DEFAULT_CENTRE = DEFAULT_MAP_CENTRE;
 
@@ -104,6 +102,7 @@ const MAX_ZOOM = 20;
 function clampZoom(value: number): number {
   return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value));
 }
+
 
 export function LocationMapPicker({
   initialLat = DEFAULT_CENTRE.lat,
@@ -213,14 +212,19 @@ export function LocationMapPicker({
     biasRef.current = camera.centre;
   }, []);
 
+  /** The live map surface, so the zoom controls can ask it rather than write state. */
+  const mapRef = useRef<MapSurfaceHandle | null>(null);
+
   /**
-   * ★ ZOOM IS CLAMPED HERE BECAUSE BOTH RENDERERS NEED A SENSIBLE RANGE.
+   * ★ ZOOM IS IMPERATIVE, AND THAT IS WHAT STOPS THE MAP RETURNING TO THE PIN.
    *
-   * Beyond 20 the MapBox style has no data and the frame goes blank; below 3 the
-   * whole world is one screen and a pin is meaningless.
+   * The `+`/`−` pair lives in the map's corner now (`controls`), and it asks the
+   * SURFACE to zoom through `mapRef`. The old version wrote `framing` — the CAMERA
+   * PROP — so pressing a button re-framed the map onto `framing.centre`, which is
+   * where the pin was placed: the reported "when I zoom, it returns to the selected
+   * location, like the pin is the pivot". A pinch never does that, and so neither
+   * does this. See `map-imperative.ts`.
    */
-  const changeZoom = (delta: number) =>
-    setFraming((current) => ({ ...current, zoom: clampZoom(current.zoom + delta) }));
 
   /**
    * A tap on the map moves the pin.
@@ -380,10 +384,14 @@ export function LocationMapPicker({
       <View style={[styles.mapFrame, { backgroundColor: theme.surface2, borderColor: theme.line }]}>
         {!basemapFailed && (
           <InteractiveMap
+            ref={mapRef}
             camera={camera}
             markers={markers}
             theme={appearance.mode}
             accent={appearance.accent}
+            // The zoom pair lives in the map's own corner, so it moves with the map
+            // and is drawn by the same document on both platforms.
+            controls
             onPress={handlePress}
             onCameraChange={noteCamera}
             onUnavailable={() => setBasemapFailed(true)}
@@ -502,24 +510,14 @@ export function LocationMapPicker({
           )}
         </View>
 
-        {/* Floating Zoom & GPS Controls */}
+        {/* ★ ONE CONTROL: LOCATE ME — AND NO AUTO-PIN.
+            The `+`/`−` pair is drawn inside the map now (`controls`), in the same
+            corner on both platforms, so it moves with the map instead of over it.
+            What is deliberately NOT here is a control that re-frames the map onto
+            the selection: the pin is where the user put it, and pressing a button
+            to fly back to it is the same "the pin is the pivot" behaviour the zoom
+            controls were reported for. Dropping a new pin is a tap on the map. */}
         <View style={styles.floatingControls}>
-          <Pressy
-            onPress={() => changeZoom(1)}
-            style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}
-            accessibilityRole="button"
-            accessibilityLabel={t('map.zoomIn')}
-          >
-            <Plus size={18} color={theme.text} />
-          </Pressy>
-          <Pressy
-            onPress={() => changeZoom(-1)}
-            style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}
-            accessibilityRole="button"
-            accessibilityLabel={t('map.zoomOut')}
-          >
-            <Minus size={18} color={theme.text} />
-          </Pressy>
           <Pressy
             onPress={() => void handleLocateMe()}
             style={[styles.fabBtn, { backgroundColor: theme.surface1 }]}

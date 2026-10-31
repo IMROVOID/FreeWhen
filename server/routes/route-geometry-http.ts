@@ -23,7 +23,7 @@
 
 import { json, wireError } from '../lib/http';
 import { clientIp, limiters } from '../lib/rate-limit';
-import { readMapboxPublicToken } from '../lib/provider-secrets';
+import { readMapboxPublicToken, providerKey } from '../lib/provider-secrets';
 import { createProviderTransport } from '../lib/provider-transport';
 import {
   isDrawablePoint,
@@ -69,6 +69,10 @@ export async function routeGeometryHandler(request: Request): Promise<Response> 
       const transport = createProviderTransport();
       return transport(target, { method: 'GET', headers: { accept: 'application/json' } });
     },
+    // The second rung. MapBox's driving profile has thin coverage in Iran and this
+    // deployment's token is refused outright, so without this every line is the
+    // straight-line fallback — the reported "they are just straight lines".
+    { neshanKey: providerKey('neshan_direction') },
   );
 
   return json(geometry, 200, {

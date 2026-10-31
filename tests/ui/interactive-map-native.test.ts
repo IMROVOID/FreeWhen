@@ -58,19 +58,27 @@ test('a marker is a pin on both platforms, never a circle', () => {
   // proposals are a street apart.
   const nativePin = /PIN_PATH/.test(NATIVE) && /viewBox="0 0 24 32"/.test(NATIVE);
   const webPin = /PIN_PATH/.test(WEB) && /viewBox="0 0 24 32"/.test(WEB);
-  const round = /borderRadius = '50%'/.test(WEB) || /borderRadius = '50%'/.test(NATIVE);
+  // THE ORIGIN IS THE ONE EXCEPTION, AND IT IS A DELIBERATE ONE (Plan 65).
+  //
+  // A proposal is a place the group is being asked to go to, so it is a teardrop whose
+  // POINT is the coordinate. The viewer's own start point is not a destination, so it
+  // is a circle centred on its coordinate - MapMarker.shape: 'circle'. The rule this
+  // test protects is unchanged: a PLACE is a pin, never a dot.
+  const rounded = /borderRadius = '50%'/.test(WEB) || /borderRadius = '50%'/.test(NATIVE);
+  const guardedByShape = /marker\.shape === 'circle'/.test(WEB) && /marker\.shape === 'circle'/.test(NATIVE);
+
+  assert.equal(rounded && !guardedByShape, false, 'a marker is a circle with no shape guard');
 
   // Assert
   assert.ok(nativePin, 'the device draws no pin shape');
   assert.ok(webPin, 'the browser draws no pin shape');
-  assert.equal(round, false, 'a marker is still a circle somewhere');
 });
 
 test('the pin’s point sits on the coordinate', () => {
   // Assert — `anchor: 'bottom'` puts the tip where the place is; `center` would put
   // the middle of the shape there, half a pin south of the truth.
-  assert.match(NATIVE, /anchor: 'bottom'/);
-  assert.match(WEB, /anchor: 'bottom'/);
+  assert.match(NATIVE, /isCircle \? 'center' : 'bottom'/);
+  assert.match(WEB, /circle \? 'center' : 'bottom'/);
 });
 
 test('a repainted pin does not lose its shape', () => {

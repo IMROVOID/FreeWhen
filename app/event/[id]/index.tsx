@@ -36,6 +36,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MapPin } from 'phosphor-react-native';
 
 import { Button } from '@/src/components/ui/Button';
 import { PullToSync } from '@/src/components/ui/PullToSync';
@@ -328,6 +329,20 @@ export default function EventHomeScreen() {
   const [shareModalVisible, setShareModalVisible] = useState(false);
   const [managementModalVisible, setManagementModalVisible] = useState(false);
 
+  /**
+   * Whether the location sheet was opened from the header.
+   *
+   * ★ DISTINCT FROM THE FIRST-ENTRY GATE, AND NOT A DUPLICATE OF IT.
+   *
+   * `askForStartPoint` is a question the screen asks once; this is the user asking
+   * the same question back. The sheet renders when EITHER is true, and the header's
+   * control is the only writer of this one. Two flags rather than one, because
+   * closing the header's sheet must not mark the gate as answered — the gate's
+   * `asked` flag is what stops a skip being re-asked, and the two have opposite
+   * lifetimes.
+   */
+  const [locationSheetVisible, setLocationSheetVisible] = useState(false);
+
   const handleRename = useCallback(
     async (newTitle: string) => {
       const stored = await getStoredUserId();
@@ -442,9 +457,22 @@ export default function EventHomeScreen() {
       {/* ★ A WAY BACK EXISTS. The router header is off for this whole subtree,
           so before `ScreenHeader` the event home had no exit at all beyond the
           OS gesture — which a desktop web build does not have. */}
+      {/* ★ A WAY BACK INTO THE LOCATION OVERLAY.
+          The sheet used to be reachable exactly once: `shouldOfferStartPoint` asks on
+          the first visit and a skip is remembered, so a participant who declined — or
+          who has since moved — had no path back to the question on this screen. The
+          control sits opposite the back chevron, where a header action belongs, and
+          re-opens the same sheet; the sheet is dismissible, so it is a panel and not
+          a gate. */}
       <ScreenHeader
         title={event.title}
         onBack={() => router.replace('/')}
+        action={{
+          icon: <MapPin size={24} color={theme.brand} weight="bold" />,
+          label: t('location.changeLocation'),
+          onPress: () => setLocationSheetVisible(true),
+          testID: 'event-home-location',
+        }}
         testID="event-home-header"
       />
 
@@ -688,11 +716,16 @@ export default function EventHomeScreen() {
         is a worse answer than asking over it.
       */}
       <StartPointSheet
-        visible={askForStartPoint}
+        visible={askForStartPoint || locationSheetVisible}
         eventId={eventId}
         userId={myUserId}
         onSaved={setSavedStartPoint}
-        onDismiss={() => setStartPointAnswered(true)}
+        onDismiss={() => {
+          // The header's path closes itself; the gate's path records that it was
+          // answered. See `locationSheetVisible`.
+          setLocationSheetVisible(false);
+          setStartPointAnswered(true);
+        }}
       />
     </ScrollView>
     </PullToSync>
@@ -749,7 +782,9 @@ const styles = StyleSheet.create({
     // proposal — "increase the spacing between the proposal boxes and the vote
     // buttons". `space[4]` separates them clearly and the list's own `space[6]`
     // still keeps two proposals apart, so the grouping reads right.
-    gap: space[4],
+    // One step tighter: with the gauge pulled inside the card the pair read as one
+    // unit at space[4] and as two groups at space[5]; space[3] is the tight one.
+    gap: space[3],
   },
   action: {
     marginTop: space[6],

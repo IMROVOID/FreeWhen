@@ -19,6 +19,7 @@
  */
 
 import type { Coordinate } from '@/src/routing/types';
+import type { MapSurfaceHandle } from './map-imperative';
 
 /** A marker on the map. */
 export interface MapMarker {
@@ -31,6 +32,19 @@ export interface MapMarker {
   label: string;
   /** Whether this marker is the selected one. */
   selected?: boolean;
+  /**
+   * The marker's shape.
+   *
+   * ★ A PLACE IS A PIN; THE READER IS A DOT.
+   *
+   * A proposal is somewhere the group is being asked to go, so it is a teardrop
+   * whose point sits on the coordinate. The viewer's own start point is not a
+   * destination at all, and drawing it as another pin made it read as one more
+   * option on the list. It is a circle, centred on the coordinate — the dot every
+   * map application uses for "you are here". Omitted means `'pin'`, so every
+   * existing call site is unchanged.
+   */
+  shape?: 'pin' | 'circle';
 }
 
 /**
@@ -107,17 +121,48 @@ export interface InteractiveMapProps {
   onUnavailable?: () => void;
   /** Whether the basemap finished its first draw. Drives the caller's spinner. */
   onReady?: () => void;
+  /**
+   * Corner controls: the `+`/`−` pair every map surface draws.
+   *
+   * ★ ZOOM IS NOT A CAMERA PROP, AND THAT IS WHY THIS EXISTS.
+   *
+   * A zoom button written as `setZoom(camera.zoom + 1)` writes the caller's pose,
+   * the renderer sees a new `cameraKey`, and `jumpTo` re-frames the map onto the
+   * centre it was BUILT with — the reported "when I zoom, the map returns to the
+   * pin". A control that asks the surface to zoom behaves like a pinch: the map
+   * moves and the camera stays where the reader left it. The locate-me / auto-pin
+   * control is deliberately NOT part of it — the event page and the proposal cards
+   * are read-only views, and a control that moves the camera back to a marker is
+   * the gesture-undo defect wearing a button's clothes.
+   *
+   * Defaults to `false`, so a surface that is decoration (a legend-sized frame)
+   * stays quiet.
+   */
+  controls?: boolean;
   testID?: string;
 }
 
-/** The props this module's fallback accepts — identical to the real surface. */
+/**
+ * The props this module's fallback accepts — identical to the real surface.
+ */
 export type { Coordinate };
+
+/** The handle a map surface exposes through its ref. */
+export type { MapSurfaceHandle };
 
 /**
  * The type-system fallback. Metro always substitutes a real implementation, so
  * this body is unreachable — it exists only so `tsc` can resolve the import.
+ *
+ * ★ IT TAKES A `ref` IN ITS TYPE, BECAUSE BOTH REAL SURFACES DO.
+ *
+ * Zoom is imperative (see `map-imperative.ts`), so callers pass a ref to ask the
+ * map to zoom. The fallback never runs, but a caller's `ref` has to type-check
+ * against it — `tsc` resolves the bare specifier, not the platform sibling.
  */
-export function InteractiveMap(_props: InteractiveMapProps): never {
+export function InteractiveMap(
+  _props: InteractiveMapProps & { ref?: React.Ref<MapSurfaceHandle | null> },
+): never {
   throw new Error(
     'InteractiveMap: Metro must resolve InteractiveMap.native.tsx or InteractiveMap.web.tsx',
   );

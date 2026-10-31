@@ -226,6 +226,45 @@ export const map = {
   routeCasingOpacity: 0.25,
   /** The shadow under a marker, which lifts it off a busy basemap. */
   markerShadow: 'rgba(0,0,0,0.4)',
+  /**
+   * The viewer's own position — the origin dot and every route line from it.
+   *
+   * ★ NOT A THEME COLOUR, AND THAT IS THE FIX FOR A REPORTED DEFECT.
+   *
+   * The origin used `theme.info`, which is the near-black `palette.espresso` on the
+   * light theme, so the reader's own position and every line to a proposal were
+   * drawn in the darkest colour on the map. A map chrome colour is drawn over a
+   * basemap the app does not control, in both themes, so it is fixed: a deep teal
+   * that separates from a pale street and a dark one.
+   */
+  originFill: '#0E7C86',
+  /** The origin dot's ring, so it separates from a busy basemap. White, as a pin's. */
+  originRing: '#FFFFFF',
+  /**
+   * A corner control's fill and its glyph colour.
+   *
+   * The controls float over the basemap, not over a theme surface, so they are
+   * drawn as a light disc with dark glyphs in both themes — the same reasoning the
+   * marker ring follows. These are the two colours a plain DOM button cannot get
+   * from a theme provider.
+   */
+  controlFill: '#FFFFFF',
+  controlInk: '#170E0A',
+  /**
+   * The corner control's box, in points.
+   *
+   * Square, and its radius is half of it, so it stays a disc if the button is ever
+   * resized. The controls sit inside the map document on a device and in an injected
+   * stylesheet in the browser, so these cannot come from `size` — `size` is React
+   * Native's, and neither of those surfaces is a `View`.
+   */
+  controlSize: 40,
+  /** The gap between two stacked controls. One spacing step, spelled for CSS. */
+  controlGap: 8,
+  /** The controls' inset from the map's corner. One spacing step, for CSS. */
+  controlInset: 12,
+  /** The emphasis ring around a selected dot, so it is not a bare colour literal. */
+  selectionRing: 'rgba(255,255,255,0.35)',
   /** The drawn map's height, in points. */
   height: 260,
 } as const;

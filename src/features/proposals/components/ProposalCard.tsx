@@ -357,7 +357,18 @@ export function ProposalCard({
           with the card body padded to clear it — see `cardWithShare`. */}
       {share !== undefined && (
         <View style={styles.shareSlot}>
-          <VoteShareBar share={share} position="bottom" testID={testID ? `${testID}-share` : undefined} />
+          {/* ★ THE BAR WEARS THE CARD'S OWN CURVE AND THE CARD'S OWN FILL.
+              `radius.md` inside a `radius.lg` card left the gauge's square ends
+              crossing the card's corner, and a transparent track let the page show
+              through the unfilled part — so it read as a strip under the box rather
+              than as an inside edge of it. */}
+          <VoteShareBar
+            share={share}
+            position="bottom"
+            cornerRadius={radius.lg}
+            trackColor={theme.surface1}
+            testID={testID ? `${testID}-share` : undefined}
+          />
         </View>
       )}
     </Card>
@@ -383,7 +394,9 @@ const styles = StyleSheet.create({
    * bar itself.
    */
   cardWithShare: {
-    paddingBottom: space[4] + space[1],
+    // One step, not the card's full padding: twenty points of air under the last
+    // line made the vote controls read as the NEXT proposal's.
+    paddingBottom: space[3] + space[1],
   },
   /**
    * ★ THE STRIP TAKES THE CARD'S OWN CURVE.
