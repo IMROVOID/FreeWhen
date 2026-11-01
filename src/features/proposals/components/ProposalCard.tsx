@@ -171,7 +171,7 @@ export function ProposalCard({
       variant="surface"
       onPress={onPress}
       testID={testID}
-      style={[styles.card, share !== undefined ? styles.cardWithShare : null]}
+      bleed={share !== undefined ? styles.cardWithShare : undefined}
     >
       <View style={styles.header}>
         <Text
@@ -376,26 +376,24 @@ export function ProposalCard({
 }
 
 const styles = StyleSheet.create({
-  card: {
-    gap: space[2],
-    // The gauge is drawn against the card's own edge, so it must not escape it.
-    overflow: 'hidden',
-  },
   /**
-   * Room for the gauge at the foot of the card.
+   * What a card owns when it draws a full-bleed child on its own edge.
    *
-   * ★ THE RESERVATION IS THE BAR, NOT THE BAR PLUS A TAIL.
+   * ★ THE CLIP AND THE RESERVATION BELONG TO THE SURFACE, NOT TO A WRAPPER.
    *
-   * `cardWithShare` used to reserve `space[5] + shareBarTail` — the card's own
-   * bottom padding, plus sixteen pixels of clearance for a transparent strip that
-   * existed only to finish the corner curve. Between them they left a visible dead
-   * band under a four-pixel gauge. `overflow: 'hidden'` on the card already clips
-   * the bar to the card's radius, so the foot is now the card's padding plus the
-   * bar itself.
+   * `Card` paints the radius and the fill on an INNER view; a `style` prop lands on
+   * an outer wrapper that paints nothing. An `overflow` there clips nothing a reader
+   * can see, so the share gauge - a child of the inner view - escaped the card
+   * entirely: on the event page, where a card is not pressable, the gauge hung below
+   * the box with the card's own bottom edge drawn over it as a hairline. This style is
+   * handed to `Card` as `bleed`, which applies it to the surface that has the radius.
    */
   cardWithShare: {
-    // One step, not the card's full padding: twenty points of air under the last
-    // line made the vote controls read as the NEXT proposal's.
+    // The gauge is drawn against the card's own edge, so it must not escape it.
+    overflow: 'hidden',
+    // Room for the bar at the foot: one step, not the card's full padding. Twenty
+    // points of air under the last line made the vote controls read as the NEXT
+    // proposal's.
     paddingBottom: space[3] + space[1],
   },
   /**

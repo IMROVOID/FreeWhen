@@ -111,7 +111,37 @@ test('the gauge still lives on the card’s own bottom edge', () => {
   assert.match(slot, /bottom: 0/);
 });
 
-test('the card still clips what it draws, which is what makes the mask real', () => {
-  const card = /card: \{([\s\S]*?)\n {2}\}/.exec(CARD)?.[1] ?? '';
-  assert.match(card, /overflow: 'hidden'/);
+test('the clip lands on the surface that has the radius, not on a wrapper', () => {
+  // ★ THIS IS THE "STILL OUTSIDE THE BOX" DEFECT, AND IT WAS A PROP-PLACEMENT BUG.
+  //
+  // `Card` paints the radius and the fill on an INNER view; a `style` prop lands on
+  // an outer wrapper that paints nothing. Passing `overflow: 'hidden'` through
+  // `style` therefore clipped a box the reader cannot see while the gauge — a child
+  // of the inner view — escaped the visible card and hung below it. The reservation
+  // has to travel with it, or the gauge would sit over the last line of text.
+  assert.match(CARD, /bleed=\{share !== undefined \? styles\.cardWithShare : undefined\}/);
+
+  const share = /cardWithShare: \{([\s\S]*?)\n {2}\}/.exec(CARD)?.[1] ?? '';
+  assert.ok(share.length > 0, 'the share style is gone');
+  assert.match(share, /overflow: 'hidden'/, 'the surface does not clip');
+  assert.match(share, /paddingBottom: space\[3\] \+ space\[1\]/);
+});
+
+test('the card component applies leed to the painted surface', () => {
+  // Arrange ★ THE MECHANISM, ASSERTED WHERE IT LIVES.
+  const card = code('src/components/ui/Card.tsx');
+
+  // Act — the inner view is the one carrying styles.base and the background.
+  const surface = /styles\.base,([\s\S]*?)>/.exec(card)?.[1] ?? '';
+
+  // Assert
+  assert.ok(surface.length > 0, 'the surface view is no longer findable');
+  assert.match(surface, /\bbleed\b/, 'leed never reaches the view with the radius');
+  assert.match(card, /bleed\?: StyleProp<ViewStyle>;/, 'the prop is not declared');
+});
+
+test('a card that does not pass leed is unchanged', () => {
+  // Assert — the prop is optional, so every other caller keeps the box it had.
+  const card = code('src/components/ui/Card.tsx');
+  assert.match(card, /style=\{style\}/, 'the outer wrapper stopped taking style');
 });

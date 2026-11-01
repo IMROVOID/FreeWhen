@@ -33,7 +33,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-import { claimsMapGesture, mapOwnsGesture } from '@/src/components/ui/map-gesture';
+import { MAP_GESTURE_ALLOWANCE, claimsMapGesture, mapOwnsGesture } from '@/src/components/ui/map-gesture';
 
 function code(path: string): string {
   return readFileSync(path, 'utf8')
@@ -72,66 +72,66 @@ test('the page-pull refuses exactly what the map claims', () => {
 });
 
 /* ── 1. The document reports the touch ────────────────────────────────────── */
+/* ── 1. The document reports the touch ────────────────────────────────────── */
 
 test('the document reports a finger down and a finger up', () => {
-  // Assert — this is the signal the app has nothing else to infer from: a WebView
-  // gives React Native no touch events of its own.
+  // ★ The report is now DIAGNOSTIC, and it is kept on purpose: it is the only signal
+  // that a touch reached the document at all, which is what a future regression needs
+  // in order to tell "the claim failed" from "the finger never arrived".
   assert.match(NATIVE, /document\.addEventListener\('touchstart'/, 'no touchstart listener');
   assert.match(NATIVE, /document\.addEventListener\('touchend'/, 'no touchend listener');
-  assert.match(NATIVE, /document\.addEventListener\('touchcancel'/, 'no touchcancel listener');
   assert.match(NATIVE, /post\(\{ type: 'gesture', active: true \}\)/);
   assert.match(NATIVE, /post\(\{ type: 'gesture', active: false \}\)/);
 });
 
-test('the bridge message carries the claim', () => {
-  // Assert — a message the union does not name would be dropped by the switch.
+test('the bridge message still carries the gesture report', () => {
+  // Assert — a message the union does not name would be dropped as a parse failure.
   assert.match(NATIVE, /\{ type: 'gesture'; active: boolean \}/);
   assert.match(NATIVE, /case 'gesture':/);
-  assert.match(NATIVE, /gestureHeld\.current = message\.active;/);
 });
 
-/* ── 2. The surface becomes the responder ─────────────────────────────────── */
+/* ── 2. The surface claims it NATIVELY ────────────────────────────────────── */
 
-test('the map is wrapped in a view that can hold the responder', () => {
-  // Arrange — a `PanResponder` attached nowhere claims nothing.
-  const wraps = /<View style=\{FRAME_STYLE\} \{\.\.\.responder\.panHandlers\}/.test(NATIVE);
-
-  // Assert
-  assert.ok(wraps, 'the WebView has no responder-holding parent, so an ancestor claims the drag');
-});
-
-test('the claim follows the document, not a direction', () => {
-  // Arrange — the reported defect is a PRIORITY problem: the page won the
-  // negotiation before the map was consulted, so the predicate must be "a finger is
-  // down in the map", never "the drag looks vertical".
-  const start = /onStartShouldSetPanResponder: \(\) => gestureHeld\.current/.test(NATIVE);
-  const move = /onMoveShouldSetPanResponder: \(\) => gestureHeld\.current/.test(NATIVE);
-
-  // Assert
-  assert.ok(start, 'the surface does not claim a touch that begins in the map');
-  assert.ok(move, 'the surface does not keep the claim while the finger travels');
-});
-
-test('the responder is refused to whoever asks for it mid-drag', () => {
-  // ★ THIS IS THE LINE THE DEFECT TURNS ON.
+test('the map is wrapped in a native gesture detector', () => {
+  // ★ A REACT PanResponder CANNOT WIN THIS RACE, AND THE FIRST VERSION DID NOT.
   //
-  // React Native asks `onPanResponderTerminationRequest` the moment an ancestor
-  // wants the responder — and a `ScrollView` wants it on the first vertical
-  // movement. Answering yes hands the map's drag straight back to the page, which is
-  // exactly "the page scrolls instead".
-  assert.match(
-    NATIVE,
-    /onPanResponderTerminationRequest: \(\) => !gestureHeld\.current/,
-    'the surface gives the drag back to the page while a finger is in the map',
-  );
+  // The page's ScrollView is a NATIVE scroll view and claims a vertical drag with its
+  // own recogniser the moment the finger travels. A PanResponder competes for the
+  // same touch asynchronously — raised on a bridge report — so by the time the report
+  // arrived the scroll view had already won. Most drags scrolled the page; the ones
+  // that did not moved the map for about a centimetre. The claim has to be resolved by
+  // the gesture-handler dispatcher, on the ancestor, before the scroll view is asked.
+  assert.match(NATIVE, /from 'react-native-gesture-handler'/);
+  assert.match(NATIVE, /<GestureDetector gesture=\{claimGesture\}>/, 'the map has no native interceptor');
+  assert.match(NATIVE, /Gesture\.Pan\(\)/, 'the interceptor is not a pan gesture');
 });
 
-test('the claim is released when the touch ends', () => {
-  // Arrange — a claim that outlives its finger would make the page unscrollable
-  // after one visit to the map.
-  assert.match(NATIVE, /onPanResponderRelease: releaseClaim/);
-  assert.match(NATIVE, /onPanResponderTerminate: releaseClaim/);
-  assert.match(NATIVE, /gestureHeld\.current = false;/);
+test('the interceptor claims on the first movement, not at one pixel', () => {
+  // Arrange / Act — the allowance is what lets the WebView keep the finger below it.
+  //
+  // ★ minDistance(0) WAS TRIED AND IS WRONG. The interceptor suppresses the WebView
+  // while it is active, so a claim at the first pixel pans the map by the allowance and
+  // then hands the finger back — "the map only moves about a centimetre and I have to
+  // drag again".
+  assert.equal(MAP_GESTURE_ALLOWANCE, 6);
+  assert.match(NATIVE, /\.minDistance\(MAP_GESTURE_ALLOWANCE\)/);
+});
+
+test('the interceptor stays on the UI thread', () => {
+  // Assert — nothing has to be handed to JavaScript, so the decision never queues
+  // behind a frame and the claim is never late.
+  assert.match(NATIVE, /\.runOnJS\(false\)/);
+});
+
+test('the interceptor does not release when the finger leaves the box', () => {
+  // Assert — a map drag that wanders past the frame must not be handed back mid-way.
+  assert.match(NATIVE, /\.shouldCancelWhenOutside\(false\)/);
+});
+
+test('the old React responder is gone, and cannot come back by accident', () => {
+  // Assert — the mechanism that was measured not to work.
+  assert.doesNotMatch(NATIVE, /PanResponder\.create/, 'the asynchronous responder is back');
+  assert.doesNotMatch(NATIVE, /\.\.\.responder\.panHandlers/, 'a PanResponder is still spread onto the wrapper');
 });
 
 test('the WebView still does not scroll itself', () => {
@@ -141,7 +141,11 @@ test('the WebView still does not scroll itself', () => {
   assert.match(NATIVE, /overscroll-behavior: none;/);
 });
 
-/* ── 3. The web responder asks the same module ────────────────────────────── */
+test('the WebView does not hand a drag to a parent scroll view', () => {
+  // Assert — the same defect one layer down: without this the WebView asks its
+  // ancestors to scroll instead of panning.
+  assert.match(NATIVE, /nestedScrollEnabled=\{false\}/);
+});
 
 test('the web pull keeps declining gestures that began on the map', () => {
   // ★ Web was reported as already fine, and it was — because `PullToSync` consults

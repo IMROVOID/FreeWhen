@@ -60,9 +60,19 @@ test('the share gauge is drawn by the card, not beside it', () => {
     /shareSlot:\s*\{[^}]*position:\s*'absolute'[^}]*bottom:\s*0/.test(card),
     'the gauge is not pinned to the card’s bottom edge',
   );
+  // ★ THE CLIP HAS TO BE ON THE PAINTED SURFACE, WHICH IS WHY IT IS NOT A `style`.
+  //
+  // A `style` prop lands on `Card`'s outer wrapper, which paints nothing; the radius
+  // and the fill are on an inner view. An `overflow` there clipped nothing a reader
+  // could see, and the gauge escaped the card — the reported "the votes bar is still
+  // outside the box". It goes through `bleed` to the view that has the radius.
   assert.ok(
-    /card:\s*\{[^}]*overflow:\s*'hidden'/.test(card),
+    /cardWithShare:\s*\{[^}]*overflow:\s*'hidden'/.test(card),
     'the card does not clip the gauge to its own radius',
+  );
+  assert.ok(
+    /bleed=\{[^}]*styles\.cardWithShare/.test(card),
+    'the clip is passed as a `style`, so it lands on a wrapper that paints nothing',
   );
 });
 

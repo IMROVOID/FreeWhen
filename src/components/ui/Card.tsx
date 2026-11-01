@@ -29,6 +29,21 @@ export interface CardProps {
   testID?: string;
   /** A style PROP, not a single object, so a caller can compose conditional styles. */
   style?: StyleProp<ViewStyle>;
+  /**
+   * A style for the SURFACE — the box with the radius and the fill.
+   *
+   * ★ `style` CANNOT CLIP, AND THAT IS A REAL DEFECT RATHER THAN A PREFERENCE.
+   *
+   * `style` lands on an outer wrapper: it is what positions the card in its parent.
+   * The radius and the background are painted by the inner view, and that inner view
+   * is what a full-bleed child (a share gauge on the card's own bottom edge) hangs
+   * off. A caller passing `overflow: 'hidden'` in `style` therefore clipped a box that
+   * paints nothing, while the child escaped the visible card and hung below it — the
+   * reported "the votes bar is still outside the box".
+   *
+   * A caller that needs the card's own edges to contain something says so here.
+   */
+  bleed?: StyleProp<ViewStyle>;
 }
 
 /**
@@ -57,6 +72,7 @@ export function Card({
   delayLongPress,
   testID,
   style,
+  bleed,
 }: CardProps) {
   const { t } = useTheme();
 
@@ -73,6 +89,9 @@ export function Card({
         styles.base,
         { backgroundColor: background },
         variant === 'block' && { borderRadius: radius.xl },
+        // ★ THIS IS THE VIEW WITH THE RADIUS AND THE FILL, SO THIS IS THE ONE THAT
+        // CLIPS. See the note on `bleed`.
+        bleed,
       ]}
     >
       {children}

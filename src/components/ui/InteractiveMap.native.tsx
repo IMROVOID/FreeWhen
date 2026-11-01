@@ -34,7 +34,8 @@
  */
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { PanResponder, View, type ViewStyle } from 'react-native';
+import { View, type ViewStyle } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 
@@ -45,6 +46,7 @@ import type {
   MapLine,
   MapMarker,
 } from './InteractiveMap';
+import { MAP_GESTURE_ALLOWANCE } from './map-gesture';
 import type { MapSurfaceHandle } from './map-imperative';
 import { cameraKey } from './map-camera';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
@@ -550,43 +552,36 @@ export function InteractiveMap({
   const [isReady, setIsReady] = useState(false);
 
   /**
-   * ★ WHETHER A FINGER IS CURRENTLY DOWN INSIDE THE MAP.
+   * ★ THE NATIVE INTERCEPTOR, AND WHY IT IS A GESTURE AND NOT A `PanResponder`.
    *
-   * The document reports the beginning and end of every touch, and the wrapper
-   * below becomes the responder for as long as this is true — which is what stops
-   * the page's `ScrollView` claiming a vertical drag that began on the map. Read
-   * through a ref so the `PanResponder` (built once) never sees a stale value.
-   */
-  const gestureHeld = useRef(false);
-
-  /** Whether the wrapper currently holds the responder. */
-  const holding = useRef(false);
-
-  const releaseClaim = useCallback(() => {
-    gestureHeld.current = false;
-    holding.current = false;
-  }, []);
-
-  /**
-   * The responder that keeps a map drag away from the page.
+   * The page's `ScrollView` is a NATIVE scroll view, and it claims a vertical drag
+   * with its own recogniser the moment the finger travels. React Native's
+   * `PanResponder` — which the previous version raised on a bridge report — competes
+   * for the same touch ASYNCHRONOUSLY, so by the time the report arrived the scroll
+   * view had already won: most drags scrolled the page, and the ones that did not
+   * moved the map for about a centimetre before the WebView's own recogniser gave
+   * the finger up. That is exactly what was reported.
    *
-   * It claims a touch that BEGINS inside the map, and claims nothing else: the
-   * page's own scrolling, the pull-to-sync band and every control around the map
-   * are untouched. `onPanResponderTerminationRequest` answers `false` for the same
-   * reason — the ancestor `ScrollView` asks for the responder the moment the finger
-   * travels vertically, and answering "yes" would hand the map's drag straight
-   * back to the page, which is the defect.
+   * `react-native-gesture-handler`'s dispatcher resolves the claim NATIVELY, on the
+   * ancestor, before the scroll view's recogniser is consulted — the same mechanism
+   * a bottom sheet uses to survive a drag over a list. While this gesture is active
+   * the touches go to the gesture and NOT to the WebView, which is why the
+   * allowance is the first movement rather than zero: below it the WebView keeps
+   * the touch and the map pans itself, and above it the claim is already the map's.
+   *
+   * `runOnJS(false)` and no callbacks: nothing has to be handed to JavaScript, so
+   * the whole decision stays on the UI thread.
    */
-  const responder = useMemo(
+  const claimGesture = useMemo(
     () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => gestureHeld.current,
-        onMoveShouldSetPanResponder: () => gestureHeld.current,
-        onPanResponderTerminationRequest: () => !gestureHeld.current,
-        onPanResponderTerminate: releaseClaim,
-        onPanResponderRelease: releaseClaim,
-      }),
-    [releaseClaim],
+      Gesture.Pan()
+        .minDistance(MAP_GESTURE_ALLOWANCE)
+        // The map's own one- and two-finger gestures are the map's.
+        .maxPointers(2)
+        // ★ IT MUST WIN THE NEGOTIATION, SO IT ACTIVATES RATHER THAN COOPERATES.
+        .shouldCancelWhenOutside(false)
+        .runOnJS(false),
+    [],
   );
 
   /**
@@ -677,10 +672,9 @@ export function InteractiveMap({
           onPress?.({ lat: message.lat, lng: message.lng });
           break;
         case 'gesture':
-          // The app raises its native claim while the finger is down; see
-          // `responder` above and `map-gesture.ts`.
-          gestureHeld.current = message.active;
-          if (!message.active) holding.current = false;
+          // The document reports its touches for diagnostics only now; the CLAIM is
+          // native (`claimGesture`), because a bridge report is asynchronous and a
+          // scroll view is not.
           break;
         case 'camera':
           onCameraChange?.({
@@ -710,31 +704,37 @@ export function InteractiveMap({
   }
 
   return (
-    // ★ THE WRAPPER IS THE CLAIM, AND IT IS WHY A VERTICAL DRAG PANS THE MAP.
+    // ★ THE INTERCEPTOR IS NATIVE, AND IT IS WHY A VERTICAL DRAG PANS THE MAP.
     //
     // A WebView is an opaque native view: it never hands a touch back to React
     // Native, so an ancestor ScrollView wins a vertical drag that began on the map.
-    // This View holds the responder for the duration of a touch inside the map (the
-    // document reports it over the bridge), and an ancestor that lost the
-    // negotiation does not scroll. The WebView still receives the touch, so the map
-    // pans. See `map-gesture.ts` for the reasoning in full.
-    <View style={FRAME_STYLE} {...responder.panHandlers} testID={testID ? `${testID}-frame` : undefined}>
-      <WebView
-        ref={webRef as never}
-        testID={testID}
-        style={FRAME_STYLE}
-        source={{ html, baseUrl: 'https://freewhen.rovoid.tech' }}
-        originWhitelist={['*']}
-        javaScriptEnabled
-        domStorageEnabled
-        // The map handles its own gestures; the WebView must not scroll the page.
-        scrollEnabled={false}
-        onMessage={onMessage}
-        onError={() => onUnavailable?.()}
-        // A local HTML document may load the MapBox CDN; nothing else is allowed in.
-        setSupportMultipleWindows={false}
-      />
-    </View>
+    // A native gesture on this wrapper is resolved by the gesture-handler dispatcher
+    // BEFORE the scroll view's recogniser is consulted, so the page never gets the
+    // drag. See `claimGesture` and `map-gesture.ts` for the reasoning in full.
+    <GestureDetector gesture={claimGesture}>
+      <View style={FRAME_STYLE} testID={testID ? `${testID}-frame` : undefined}>
+        <WebView
+          ref={webRef as never}
+          testID={testID}
+          style={FRAME_STYLE}
+          source={{ html, baseUrl: 'https://freewhen.rovoid.tech' }}
+          originWhitelist={['*']}
+          javaScriptEnabled
+          domStorageEnabled
+          // The map handles its own gestures; the WebView must not scroll the page.
+          scrollEnabled={false}
+          // ★ AND IT MUST NOT FORWARD A DRAG TO A PARENT SCROLL VIEW EITHER.
+          //
+          // Without this the WebView asks its ancestors to scroll instead of
+          // panning, which is the same defect one layer down.
+          nestedScrollEnabled={false}
+          onMessage={onMessage}
+          onError={() => onUnavailable?.()}
+          // A local HTML document may load the MapBox CDN; nothing else is allowed in.
+          setSupportMultipleWindows={false}
+        />
+      </View>
+    </GestureDetector>
   );
 }
 
