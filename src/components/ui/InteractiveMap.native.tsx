@@ -481,8 +481,37 @@ export function buildMapDocument(options: {
      */
     window.__cameraKey = ${JSON.stringify(cameraKey(camera))};
 
+    /**
+     * ★ IT ACCEPTS EITHER ENCODING, BECAUSE THE OTHER ONE WAS A SILENT BLACKOUT.
+     *
+     * This used to be a bare \`JSON.parse(payload)\`, and the app was handing it a
+     * DOUBLE-encoded payload. The parse never failed — \`"{\\"lines\\":…}"\` is a valid
+     * JSON string literal — it just returned the inner STRING, so \`data.lines\`,
+     * \`data.markers\`, \`data.circles\`, \`data.accent\` and \`data.camera\` were all
+     * \`undefined\` on every update. The guarded writes below therefore never ran.
+     *
+     * On a device that showed as a route line in the casing's near-black instead of
+     * the origin's teal, and a pin in this document's boot colour instead of the
+     * theme's: nothing had ever recoloured them. The browser was fine because it does
+     * not go through this bridge at all.
+     *
+     * So the parse is repeated once when the first result is still a string. That
+     * keeps the document correct whatever the caller sends, and it fails loudly rather
+     * than quietly doing nothing if a payload is ever malformed.
+     */
     window.__apply = function (payload) {
-      var data = JSON.parse(payload);
+      var data = payload;
+
+      for (var depth = 0; depth < 2 && typeof data === 'string'; depth += 1) {
+        try {
+          data = JSON.parse(data);
+        } catch (e) {
+          post({ type: 'unavailable', reason: 'payload: ' + String(e && e.message || e) });
+          return;
+        }
+      }
+
+      if (!data || typeof data !== 'object') return;
 
       if (data.camera && data.cameraKey && data.cameraKey !== window.__cameraKey) {
         window.__cameraKey = data.cameraKey;
@@ -552,34 +581,44 @@ export function InteractiveMap({
   const [isReady, setIsReady] = useState(false);
 
   /**
-   * ★ THE NATIVE INTERCEPTOR, AND WHY IT IS A GESTURE AND NOT A `PanResponder`.
+   * ★ THE NATIVE INTERCEPTOR: IT BLOCKS THE PAGE, AND MUST NOT BLOCK THE MAP.
    *
    * The page's `ScrollView` is a NATIVE scroll view, and it claims a vertical drag
-   * with its own recogniser the moment the finger travels. React Native's
-   * `PanResponder` — which the previous version raised on a bridge report — competes
-   * for the same touch ASYNCHRONOUSLY, so by the time the report arrived the scroll
-   * view had already won: most drags scrolled the page, and the ones that did not
-   * moved the map for about a centimetre before the WebView's own recogniser gave
-   * the finger up. That is exactly what was reported.
+   * with its own recogniser the moment the finger travels. A React Native
+   * `PanResponder` — which an earlier version raised on a bridge report — competes for
+   * the same touch ASYNCHRONOUSLY, so by the time the report arrived the scroll view
+   * had already won. `react-native-gesture-handler`'s dispatcher resolves the claim
+   * natively, on the ancestor, before the scroll view's recogniser is consulted — the
+   * same mechanism a bottom sheet uses to survive a drag over a list.
    *
-   * `react-native-gesture-handler`'s dispatcher resolves the claim NATIVELY, on the
-   * ancestor, before the scroll view's recogniser is consulted — the same mechanism
-   * a bottom sheet uses to survive a drag over a list. While this gesture is active
-   * the touches go to the gesture and NOT to the WebView, which is why the
-   * allowance is the first movement rather than zero: below it the WebView keeps
-   * the touch and the map pans itself, and above it the claim is already the map's.
+   * ★ `cancelsTouchesInView(false)` IS THE WHOLE POINT, AND ITS DEFAULT BROKE THE MAP.
    *
-   * `runOnJS(false)` and no callbacks: nothing has to be handed to JavaScript, so
-   * the whole decision stays on the UI thread.
+   * A gesture's `cancelsTouchesInView` defaults to `true`: when the handler becomes
+   * ACTIVE it cancels the touches for the native views it covers. That is harmless
+   * over a button and fatal over a `WebView` — the map's own recogniser lost the
+   * finger the moment this gesture claimed it, so the page stopped scrolling AND the
+   * map stopped panning. The reported "now I cannot drag the maps at all" was exactly
+   * that: the touch was swallowed by a gesture that does nothing with it.
+   *
+   * With it off, the claim only decides WHO WINS the ancestor negotiation; the
+   * WebView underneath keeps receiving the touch and pans the map itself. The map is
+   * the actor here, and this gesture is only a bodyguard.
+   *
+   * `runOnJS(false)` and no callbacks: nothing has to be handed to JavaScript, so the
+   * whole decision stays on the UI thread.
    */
   const claimGesture = useMemo(
     () =>
       Gesture.Pan()
+        // The first movement, not one pixel: below this the WebView keeps the touch
+        // and pans itself, which is what makes the drag feel like one gesture.
         .minDistance(MAP_GESTURE_ALLOWANCE)
-        // The map's own one- and two-finger gestures are the map's.
+        // A pinch is two fingers on the map, not a page gesture.
         .maxPointers(2)
-        // ★ IT MUST WIN THE NEGOTIATION, SO IT ACTIVATES RATHER THAN COOPERATES.
+        // A drag that wanders past the frame must not be handed back mid-way.
         .shouldCancelWhenOutside(false)
+        // ★ THE MAP KEEPS ITS TOUCH. See the note above — the default is `true`.
+        .cancelsTouchesInView(false)
         .runOnJS(false),
     [],
   );
@@ -610,6 +649,24 @@ export function InteractiveMap({
     [mapboxCredential, theme, controls],
   );
 
+  /**
+   * Hands one payload to the document.
+   *
+   * ★ THE DOUBLE ENCODING IS DELIBERATE, AND IT USED TO BE A SILENT BLACKOUT.
+   *
+   * `JSON.stringify(payload)` produces a JS string literal that is safe to embed in
+   * injected source, and `__apply` parses it — so the argument the document receives
+   * is JSON TEXT, which is why it takes two `JSON.stringify` calls to get there.
+   *
+   * The document's `__apply` used to be a bare `JSON.parse(payload)`, and that parse
+   * never failed: `"{\"lines\":…}"` is a valid JSON string literal, so it returned the
+   * inner STRING rather than the object. `data.lines`, `data.markers`, `data.circles`,
+   * `data.accent` and `data.camera` were therefore all `undefined` on every update and
+   * the guarded writes never ran — which is why a device drew a route line in the
+   * casing's near-black and a pin in the document's boot colour while the browser drew
+   * both correctly. `__apply` now unwraps a string payload, so this encoding is
+   * correct by construction rather than by accident.
+   */
   const send = useCallback((payload: unknown) => {
     const script = `window.__apply(${JSON.stringify(JSON.stringify(payload))}); true;`;
     webRef.current?.injectJavaScript(script);

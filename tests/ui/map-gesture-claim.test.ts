@@ -117,6 +117,22 @@ test('the interceptor claims on the first movement, not at one pixel', () => {
   assert.match(NATIVE, /\.minDistance\(MAP_GESTURE_ALLOWANCE\)/);
 });
 
+test('the interceptor does NOT cancel the map’s own touches', () => {
+  // ★ THIS IS WHY THE MAP STOPPED PANNING ENTIRELY.
+  //
+  // A gesture-handler gesture cancels the touches of the native views it covers when
+  // it becomes ACTIVE — cancelsTouchesInView defaults to `true`. Over a button
+  // that is harmless; over a `WebView` it is fatal: the map's own recogniser lost
+  // the finger the moment this gesture claimed it, so the page stopped scrolling AND
+  // the map stopped panning. The report was exactly that: "now I cannot drag the maps
+  // at all". The claim must decide WHO WINS the ancestor negotiation and nothing more.
+  assert.match(
+    NATIVE,
+    /\.cancelsTouchesInView\(false\)/,
+    'the interceptor cancels the WebView’s touches, so the map never sees the drag',
+  );
+});
+
 test('the interceptor stays on the UI thread', () => {
   // Assert — nothing has to be handed to JavaScript, so the decision never queues
   // behind a frame and the claim is never late.
