@@ -66,7 +66,8 @@ test('the card passes the venue’s own coordinates and its name', () => {
 test('the proposed pin is the app’s accent, and it is the selected marker', () => {
   // Arrange — on THIS map there is one proposal in view, so the proposer's name
   // already says whose it is; the pin wears the product's colour, as asked.
-  const accent = /color: theme\.primary,/.test(MAP);
+  // The RESOLVED accent - see map-accent-drawable.test.ts.
+  const accent = /color: appearance\.accent,/.test(MAP);
   const selected = /selected: true,/.test(MAP);
 
   // Assert

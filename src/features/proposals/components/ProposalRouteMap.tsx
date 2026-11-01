@@ -144,7 +144,9 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
     const proposed: MapMarker = {
       id: 'proposed',
       coordinate: destination,
-      color: theme.primary,
+      // The MAP's resolved accent, never the raw theme value: with Material You on it
+      // can be a PlatformColor descriptor the map cannot draw.
+      color: appearance.accent,
       selected: true,
       label,
     };

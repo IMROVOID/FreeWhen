@@ -1,13 +1,31 @@
 /**
- * How far a finger must travel before the map's native interceptor claims the touch.
+ * How far a finger may travel before an ancestor may claim the gesture.
  *
- * ★ BELOW THIS, THE TOUCH MUST REACH THE MAP.
+ * ★ NOTHING ABOVE THE MAP CLAIMS ANY MORE, AND THAT IS THE FIX.
  *
- * The interceptor is a NATIVE gesture over the `WebView`. While it is active the
- * WebView receives nothing — so a claim taken at the first pixel would pan the map
- * by the allowance and then hand the finger back, which is exactly the reported
- * "the map only moves about a centimetre and I have to drag again". Claiming on the
- * FIRST MOVE (`minDistance(0)`) is what makes every drag after that one the map's.
+ * Three attempts were measured on an emulator, and the third is why this file now
+ * documents a NEGATIVE result rather than a mechanism:
+ *
+ *  1. A React `PanResponder` raised on a bridge report. Asynchronous, so the page's
+ *     `ScrollView` had already taken the drag: most drags scrolled the page.
+ *  2. The same, tightened. Some drags reached the map and then stopped after a few
+ *     points, because the WebView's own recogniser gave the finger up.
+ *  3. A `react-native-gesture-handler` `Gesture.Pan` on the map's wrapper, which
+ *     resolves natively before the scroll view is consulted. Measured on an x86_64
+ *     emulator against the installed APK: a TAP on the map's `+` control zoomed it
+ *     (the screen changed), and a DRAG in the identical box did nothing at all —
+ *     neither the map nor the page moved. The ancestor gesture swallows the drag
+ *     before the `WebView`'s own recogniser sees it, and `cancelsTouchesInView(false)`
+ *     does not change that: the handler still claims the movement.
+ *
+ * So no ancestor claims the touch. The `WebView` gets every touch in its box and
+ * hands it to `mapbox-gl`, which is what the tap already proved works; and the page's
+ * `ScrollView` is kept out of the way by the DOCUMENT instead — `nestedScrollEnabled`
+ * off, and a map that calls `preventDefault` on its own touch events.
+ *
+ * The lesson is worth more than the constant: a gesture stacked on a `WebView` cannot
+ * arbitrate with the page without also starving the map. Only one of the two can own
+ * the finger, and it has to be the one that draws.
  */
 export const MAP_GESTURE_ALLOWANCE = 6;
 
@@ -26,16 +44,10 @@ export const MAP_GESTURE_ALLOWANCE = 6;
  * reported defect, and it is asymmetric for the same reason it always was: the
  * page's scroll view is VERTICAL, so only the vertical drag was stolen.
  *
- * ★ AND A REACT `PanResponder` CANNOT WIN THAT RACE.
- *
- * The first attempt forwarded the claim with `injectJavaScript` and raised a
- * `PanResponder` on that report. It cannot work: the report is asynchronous, and
- * the `ScrollView`'s native gesture has already claimed the drag by the time it
- * arrives — so most drags scrolled the page, and the ones that did not moved the
- * map only until the finger left the WebView's own recogniser. A native gesture
- * on the ANCESTOR is the only thing that competes at the right moment: the
- * gesture-handler dispatcher resolves the claim natively, before the scroll view's
- * recogniser sees the touch. So the interceptor lives in `InteractiveMap.native`.
+ * The answer is NOT an ancestor gesture — see `MAP_GESTURE_ALLOWANCE` for the three
+ * measured attempts. `nestedScrollEnabled={false}` on the WebView is what tells the
+ * native view not to hand its drags to a parent scroll view, and the document
+ * consumes its own touch events so the page never sees them.
  *
  * This file keeps the decision, so "does this gesture belong to the map?" stays a
  * question with a testable answer, and so the web half can ask the same one.

@@ -336,6 +336,17 @@ export function LocationMapPicker({
   const appearance = mapAppearance(themeName, theme.primary);
 
   /**
+   * ★ THE PIN TAKES THE MAP'S OWN ACCENT, NOT THE RAW THEME VALUE.
+   *
+   * `theme.primary` can be a React Native `PlatformColor` descriptor when Material You
+   * is on — a value only an RN view style can resolve. The map cannot draw it: it
+   * reaches an SVG `fill` attribute, stringifies to `[object Object]`, and the pin
+   * renders in its unstyled default, which reads as a white pin on a light basemap.
+   * `mapAppearance` resolves that to a real colour; the markers need the same one.
+   */
+  const accent = appearance.accent;
+
+  /**
    * ★ THE CAMERA IS AN ASK, NOT A MIRROR.
    *
    * It used to be built from the live selection and the live zoom, so every value
@@ -370,7 +381,7 @@ export function LocationMapPicker({
         {
           id: 'picked',
           coordinate: { lat, lng },
-          color: theme.primary,
+          color: accent,
           selected: true,
           label: placeName || t('proposals.place.customPin'),
         },

@@ -33,7 +33,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 
-import { MAP_GESTURE_ALLOWANCE, claimsMapGesture, mapOwnsGesture } from '@/src/components/ui/map-gesture';
+import { claimsMapGesture, mapOwnsGesture } from '@/src/components/ui/map-gesture';
 
 function code(path: string): string {
   return readFileSync(path, 'utf8')
@@ -92,62 +92,46 @@ test('the bridge message still carries the gesture report', () => {
 
 /* ── 2. The surface claims it NATIVELY ────────────────────────────────────── */
 
-test('the map is wrapped in a native gesture detector', () => {
-  // ★ A REACT PanResponder CANNOT WIN THIS RACE, AND THE FIRST VERSION DID NOT.
+test('NOTHING above the map claims the touch, which is the measured fix', () => {
+  // ★ THIS IS A NEGATIVE RESULT, AND IT WAS MEASURED ON AN EMULATOR.
   //
-  // The page's ScrollView is a NATIVE scroll view and claims a vertical drag with its
-  // own recogniser the moment the finger travels. A PanResponder competes for the
-  // same touch asynchronously — raised on a bridge report — so by the time the report
-  // arrived the scroll view had already won. Most drags scrolled the page; the ones
-  // that did not moved the map for about a centimetre. The claim has to be resolved by
-  // the gesture-handler dispatcher, on the ancestor, before the scroll view is asked.
-  assert.match(NATIVE, /from 'react-native-gesture-handler'/);
-  assert.match(NATIVE, /<GestureDetector gesture=\{claimGesture\}>/, 'the map has no native interceptor');
-  assert.match(NATIVE, /Gesture\.Pan\(\)/, 'the interceptor is not a pan gesture');
-});
-
-test('the interceptor claims on the first movement, not at one pixel', () => {
-  // Arrange / Act — the allowance is what lets the WebView keep the finger below it.
+  // Three mechanisms were tried against the installed APK:
   //
-  // ★ minDistance(0) WAS TRIED AND IS WRONG. The interceptor suppresses the WebView
-  // while it is active, so a claim at the first pixel pans the map by the allowance and
-  // then hands the finger back — "the map only moves about a centimetre and I have to
-  // drag again".
-  assert.equal(MAP_GESTURE_ALLOWANCE, 6);
-  assert.match(NATIVE, /\.minDistance\(MAP_GESTURE_ALLOWANCE\)/);
-});
-
-test('the interceptor does NOT cancel the map’s own touches', () => {
-  // ★ THIS IS WHY THE MAP STOPPED PANNING ENTIRELY.
+  //  1. a React `PanResponder` raised on a bridge report — asynchronous, so the
+  //     page's ScrollView had already taken the drag;
+  //  2. the same, tightened — some drags reached the map, then stopped after a few
+  //     points because the WebView's recogniser gave the finger up;
+  //  3. a gesture-handler `Gesture.Pan` on the map's wrapper. A TAP on the map's
+  //     `+` control zoomed it, and a DRAG in the identical box moved NOTHING —
+  //     neither the map nor the page. The ancestor gesture takes the movement before
+  //     the WebView's own recogniser sees it, and cancelsTouchesInView(false) does not
+  //     help: the handler still holds the touch.
   //
-  // A gesture-handler gesture cancels the touches of the native views it covers when
-  // it becomes ACTIVE — cancelsTouchesInView defaults to `true`. Over a button
-  // that is harmless; over a `WebView` it is fatal: the map's own recogniser lost
-  // the finger the moment this gesture claimed it, so the page stopped scrolling AND
-  // the map stopped panning. The report was exactly that: "now I cannot drag the maps
-  // at all". The claim must decide WHO WINS the ancestor negotiation and nothing more.
-  assert.match(
-    NATIVE,
-    /\.cancelsTouchesInView\(false\)/,
-    'the interceptor cancels the WebView’s touches, so the map never sees the drag',
-  );
+  // So the WebView owns every touch in its box, and the page is held off from inside.
+  assert.doesNotMatch(NATIVE, /GestureDetector/, 'an ancestor gesture is back and will starve the map');
+  assert.doesNotMatch(NATIVE, /Gesture\.Pan\(\)/, 'an ancestor pan gesture is back');
+  assert.doesNotMatch(NATIVE, /from 'react-native-gesture-handler'/, 'the map re-imported the gesture library');
 });
 
-test('the interceptor stays on the UI thread', () => {
-  // Assert — nothing has to be handed to JavaScript, so the decision never queues
-  // behind a frame and the claim is never late.
-  assert.match(NATIVE, /\.runOnJS\(false\)/);
+test('the document consumes its own touches instead of reporting them', () => {
+  // ★ `{ passive: true }` CANNOT `preventDefault`, AND THAT WAS THE HOLE.
+  //
+  // The listener used to be passive: it only posted a message upward, so the page
+  // compositor was free to read the same touch as a scroll. A non-passive handler
+  // refuses that, which is what leaves the drag to the map for its whole life.
+  assert.match(NATIVE, /function consumeTouch\(event\)/, 'the document does not consume its touches');
+  assert.match(NATIVE, /if \(event\.cancelable\) event\.preventDefault\(\);/);
+  assert.match(NATIVE, /document\.addEventListener\('touchstart', function \(event\) \{[\s\S]{0,200}?\}, \{ passive: false \}\)/);
+  assert.match(NATIVE, /document\.addEventListener\('touchmove', consumeTouch, \{ passive: false \}\)/);
 });
 
-test('the interceptor does not release when the finger leaves the box', () => {
-  // Assert — a map drag that wanders past the frame must not be handed back mid-way.
-  assert.match(NATIVE, /\.shouldCancelWhenOutside\(false\)/);
+test('double-tap zoom cannot steal a pan either', () => {
+  assert.match(NATIVE, /addEventListener\('gesturestart'/);
 });
 
-test('the old React responder is gone, and cannot come back by accident', () => {
-  // Assert — the mechanism that was measured not to work.
-  assert.doesNotMatch(NATIVE, /PanResponder\.create/, 'the asynchronous responder is back');
-  assert.doesNotMatch(NATIVE, /\.\.\.responder\.panHandlers/, 'a PanResponder is still spread onto the wrapper');
+test('a long press does not start a selection or a callout mid-drag', () => {
+  assert.match(NATIVE, /-webkit-user-select: none; user-select: none;/);
+  assert.match(NATIVE, /-webkit-touch-callout: none;/);
 });
 
 test('the WebView still does not scroll itself', () => {

@@ -420,9 +420,20 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xl,
   },
   scroll: {
-    // A scroll view with no height cannot scroll, which is what the notice's
-    // `flex: 1` body needs it to have.
-    flex: 1,
+    // ★ `flex: 1` HERE MADE THE SHEET'S CONTENT UNREACHABLE.
+    //
+    // With dynamic sizing the sheet measures its CONTENT, so a scroll view that asks
+    // for all the free space has none to divide: it collapsed, the children inside it
+    // were laid out into a zero-height box, and every tap landed on nothing. On a
+    // device that read as a sheet whose input never focused and whose keyboard never
+    // opened — this was found by tapping the nickname field on an emulator and watching
+    // `mInputShown` stay false.
+    //
+    // `flexGrow: 0` lets the content set the height (which is what dynamic sizing
+    // measures) while `flexShrink: 1` still lets a long document scroll inside its
+    // snap point.
+    flexGrow: 0,
+    flexShrink: 1,
   },
   content: {
     padding: space[5],

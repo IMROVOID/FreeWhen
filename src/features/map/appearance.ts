@@ -16,6 +16,7 @@
  * value is the resting pose, never a clamp.
  */
 
+import { themes } from '@/src/theme/tokens';
 import { DEFAULT_PITCH } from './types';
 
 /** What a renderer needs to know about the app's appearance. */
@@ -33,6 +34,31 @@ export const MIN_MAP_ZOOM = 3;
 export const MAX_MAP_ZOOM = 20;
 
 /**
+ * A colour the MAP can actually draw.
+ *
+ * ★ A THEME COLOUR IS NOT ALWAYS A STRING, AND THAT PAINTED A PIN WHITE.
+ *
+ * With Material You on (`useDeviceAccent` defaults to true on Android 12+),
+ * `applyDeviceAccent` replaces `primary` and `brand` with `PlatformColor(...)` — a
+ * React Native descriptor object that only an RN view style can resolve. Everything
+ * that renders through RN is fine with it. The map is not: both renderers hand the
+ * value to `mapbox-gl` and to an SVG `fill` attribute, where an object stringifies to
+ * `[object Object]` — an invalid colour, so the pin fell back to its unstyled default
+ * and looked white on the light basemap while the theme said volt.
+ *
+ * A map needs a concrete CSS colour, so anything that is not a readable string is
+ * refused here and the caller's fallback is used instead. That keeps the palette the
+ * product designed rather than shipping a value the map cannot parse.
+ */
+function drawableColour(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  if (trimmed === '') return fallback;
+  if (trimmed === '[object Object]') return fallback;
+  return trimmed;
+}
+
+/**
  * Builds the appearance object from the theme's own values.
  *
  * Deliberately a pure function of its arguments: `useTheme()` is called by the
@@ -45,7 +71,7 @@ export function mapAppearance(
 ): MapAppearance {
   return {
     mode: themeName,
-    accent: primary,
+    accent: drawableColour(primary, themes[themeName].primary),
     pitch: DEFAULT_PITCH,
   };
 }

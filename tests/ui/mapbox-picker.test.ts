@@ -148,7 +148,9 @@ test('the basemap follows the app theme, from the shared resolver', () => {
 test('the marker takes the app accent, never a map default', () => {
   // Arrange — the request was explicit: the map should react to the appearance
   // colour.
-  const marker = /color: theme\.primary,/.test(PICKER);
+  // The RESOLVED accent: theme.primary can be a Material You PlatformColor that the
+  // map cannot draw, which is what painted the pin white. See map-accent-drawable.
+  const marker = /color: accent,/.test(PICKER);
   const accent = /accent=\{appearance\.accent\}/.test(PICKER);
 
   // Assert

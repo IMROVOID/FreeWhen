@@ -95,9 +95,19 @@ test('the sheet’s content scrolls, so a long document is readable', () => {
   assert.doesNotMatch(NATIVE, /BottomSheetView/, 'the non-scrolling view is still used');
 });
 
-test('the scroll view is given a height to scroll within', () => {
+test('the scroll view sizes to its content instead of claiming all the space', () => {
+  // ★ `flex: 1` MADE THE SHEET'S CONTENT UNREACHABLE, AND THIS TEST USED TO DEMAND IT.
+  //
+  // With dynamic sizing the sheet measures its CONTENT, so a child asking for all the
+  // free space gets none: the scroll view collapsed, its children were laid out into a
+  // zero-height box, and every tap landed on nothing. On a device that read as a sheet
+  // whose input never focused and whose keyboard never opened — found by tapping the
+  // nickname field on an emulator and watching `mInputShown` stay false.
   const scroll = /scroll: \{([\s\S]*?)\n {2}\}/.exec(NATIVE)?.[1] ?? '';
-  assert.match(scroll, /flex: 1/);
+
+  assert.ok(scroll.length > 0, 'the scroll style is gone');
+  assert.match(scroll, /flexGrow: 0/, 'the scroll view still claims the free space and collapses');
+  assert.match(scroll, /flexShrink: 1/, 'a long document can no longer shrink inside its snap point');
 });
 
 test('the content still carries the sheet’s padding', () => {
