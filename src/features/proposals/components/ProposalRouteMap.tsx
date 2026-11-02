@@ -44,7 +44,7 @@ import { mapAppearance } from '@/src/features/map/appearance';
 import { hasMapbox } from '@/src/features/map/mapbox-token';
 import { withAlpha } from '@/src/features/map/projection';
 import { DEFAULT_PITCH } from '@/src/features/map/types';
-import { ORIGIN_COLOR, originMarker } from '@/src/features/map/origin';
+import { originMarker } from '@/src/features/map/origin';
 import { fallbackRoute, fetchRoute, type RouteGeometry } from '@/src/features/venues/services/route-line';
 import { radius } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -171,13 +171,16 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
             {
               id: 'proposal-route',
               points: route.points,
-              // The same colour as the dot it starts at, so the two read as one fact.
-              color: ORIGIN_COLOR,
+              // THE LINE WEARS THE PIN IT LEADS TO, NOT THE DOT IT STARTS AT:
+              // the line belongs to the PROPOSAL, and the origin dot is only where
+              // the journey begins. Colouring it with the origin made the route read
+              // as a property of the reader. The pin is the app's accent here.
+              color: appearance.accent,
               // Solid: the card draws a route, not a bearing. See `EventRouteMap`.
               dashed: false,
             },
           ],
-    [route],
+    [route, appearance.accent],
   );
 
   if (basemapFailed) {

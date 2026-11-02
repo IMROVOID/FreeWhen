@@ -101,10 +101,15 @@ test('every map call site takes its origin from the one module', () => {
   assert.doesNotMatch(PROPOSAL_MAP, /color: theme\.info/);
 });
 
-test('the route line wears the origin’s colour', () => {
-  // Assert — a line in one colour from a dot in another reads as two facts.
-  assert.match(EVENT_MAP, /color: ORIGIN_COLOR/);
-  assert.match(PROPOSAL_MAP, /color: ORIGIN_COLOR/);
+test('the route line wears the colour of the pin it leads to', () => {
+  // ★ NOT THE ORIGIN'S. One colour for every line answered "where am I going?" with
+  // the reader's own hue, so a route read as a property of the reader rather than of
+  // the proposal it leads to. On the event map each line takes its DESTINATION's
+  // colour — that proposal's proposer — and on the card it takes the pin's accent.
+  assert.match(EVENT_MAP, /colorById\.get\(id\) \?\? ORIGIN_COLOR/);
+  assert.match(EVENT_MAP, /destination\.color\]\)/);
+  assert.match(PROPOSAL_MAP, /color: appearance\.accent/);
+  assert.doesNotMatch(EVENT_MAP, /^\s+color: ORIGIN_COLOR,$/m, 'the event line ignores its destination');
 });
 
 /* ── The line ─────────────────────────────────────────────────────────────── */

@@ -195,23 +195,29 @@ export function EventRouteMap({ origin, destinations, testID }: EventRouteMapPro
     return [...originMarkers, ...destinationMarkers];
   }, [origin, destinations, t]);
 
-  const lines: MapLine[] = useMemo(
-    () =>
-      Object.entries(routes).map(([id, geometry]) => ({
-        id,
-        points: geometry.points,
-        // ★ THE LINE IS THE READER'S, SO IT WEARS THE READER'S COLOUR.
-        color: ORIGIN_COLOR,
-        // ★ AND IT IS NOT DASHED.
-        //
-        // A dashed line reads as "approximate", and the request was for the map to
-        // draw a route rather than a direction. The straight-line fallback stays a
-        // fallback — it is what the server answers when the provider refuses — but
-        // it is drawn as a line, and the legend states it (see `isFallback`).
-        dashed: false,
-      })),
-    [routes],
-  );
+  const lines: MapLine[] = useMemo(() => {
+    // ★ EACH LINE WEARS ITS DESTINATION'S COLOUR, WHICH IS ITS PROPOSER'S.
+    //
+    // One colour for every line made the map answer "where am I going?" and nothing
+    // else — and the answer it gave was the ORIGIN's, so a line looked like a property
+    // of the reader rather than of the proposal it leads to. The pin at the far end is
+    // the proposer's colour, so the line into it must be too: colour is the only thing
+    // on this map that connects a route to a person.
+    const colorById = new Map(destinations.map((destination) => [destination.id, destination.color]));
+
+    return Object.entries(routes).map(([id, geometry]) => ({
+      id,
+      points: geometry.points,
+      color: colorById.get(id) ?? ORIGIN_COLOR,
+      // ★ AND IT IS NOT DASHED.
+      //
+      // A dashed line reads as "approximate", and the request was for the map to
+      // draw a route rather than a direction. The straight-line fallback stays a
+      // fallback — it is what the server answers when the provider refuses — but
+      // it is drawn as a line, and the legend states it (see `isFallback`).
+      dashed: false,
+    }));
+  }, [routes, destinations]);
 
   const hasAnyLocation = markers.length > 0;
 
