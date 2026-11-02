@@ -113,16 +113,23 @@ test('NOTHING above the map claims the touch, which is the measured fix', () => 
   assert.doesNotMatch(NATIVE, /from 'react-native-gesture-handler'/, 'the map re-imported the gesture library');
 });
 
-test('the document consumes its own touches instead of reporting them', () => {
-  // ★ `{ passive: true }` CANNOT `preventDefault`, AND THAT WAS THE HOLE.
+test('only MOVEMENT is consumed, so a tap still becomes a click', () => {
+  // ★ CANCELLING `touchstart` ALSO CANCELLED EVERY TAP.
   //
-  // The listener used to be passive: it only posted a message upward, so the page
-  // compositor was free to read the same touch as a scroll. A non-passive handler
-  // refuses that, which is what leaves the drag to the map for its whole life.
+  // A browser synthesises `click` from a touch sequence only while that sequence is
+  // uncancelled. Consuming the start meant `mapbox-gl` never saw a click, so
+  // `onPress` never fired and the picker's pin never moved — while panning still
+  // worked, because panning is driven by `touchmove`. Cancelling the MOVE is what
+  // keeps the page still, and it leaves the tap intact.
   assert.match(NATIVE, /function consumeTouch\(event\)/, 'the document does not consume its touches');
   assert.match(NATIVE, /if \(event\.cancelable\) event\.preventDefault\(\);/);
-  assert.match(NATIVE, /document\.addEventListener\('touchstart', function \(event\) \{[\s\S]{0,200}?\}, \{ passive: false \}\)/);
-  assert.match(NATIVE, /document\.addEventListener\('touchmove', consumeTouch, \{ passive: false \}\)/);
+  // The consumption is GATED on travel: a touch that ends where it began is a tap and
+  // must reach the map. See map-tap-and-sheet-drag.test.ts.
+  assert.match(NATIVE, /if \(moved\) consumeTouch\(event\);/);
+
+  const startHandler = /addEventListener\('touchstart', function \([\s\S]*?\{ passive: \w+ \}\)/.exec(NATIVE)?.[0] ?? '';
+  assert.ok(startHandler.length > 0, 'the touchstart listener is gone');
+  assert.doesNotMatch(startHandler, /consumeTouch|preventDefault/, 'touchstart is cancelled, which kills taps');
 });
 
 test('double-tap zoom cannot steal a pan either', () => {

@@ -407,13 +407,62 @@ export function buildMapDocument(options: {
       post({ type: 'unavailable', reason: String((event && event.error) || 'map error') });
     });
 
-    // A tap reports a coordinate; the app decides what it means.
+    /**
+     * ★ A TAP IS REPORTED FROM THE TOUCH ITSELF, NOT FROM A SYNTHESISED \`click\`.
+     *
+     * \`map.on('click')\` was the only source of a press, and a \`click\` is a SYNTHESISED
+     * event: the browser only produces one if it is satisfied the touch sequence was
+     * not a gesture. Inside a native WebView that assumption fails — the touch is
+     * delivered by Chromium's gesture pipeline rather than by a real pointer device,
+     * and \`touch-action: none\` on the surface tells the compositor this is not a
+     * tappable area. The result, measured on an emulator: the pin never moved, and
+     * nothing in the log said why, because no handler had run at all.
+     *
+     * So the press comes from \`touchend\` on the canvas, where the coordinate is exact
+     * and the event is guaranteed to exist. A drag is excluded by distance and by
+     * duration — the same rule a click uses — so panning still never moves the pin.
+     */
+    var TAP_MAX_MOVE_PX = 10;
+    var TAP_MAX_MS = 600;
+    var tapStart = null;
+
+    function reportPress(point) {
+      post({ type: 'press', lat: point.lat, lng: point.lng });
+    }
+
+    map.on('touchend', function (event) {
+      if (!tapStart) return;
+
+      var touch = event.changedTouches && event.changedTouches[0];
+      var started = tapStart;
+      tapStart = null;
+
+      if (!touch) return;
+      if (Date.now() - started.at > TAP_MAX_MS) return;
+      if (Math.abs(touch.clientX - started.x) > TAP_MAX_MOVE_PX) return;
+      if (Math.abs(touch.clientY - started.y) > TAP_MAX_MOVE_PX) return;
+
+      reportPress(map.unproject([touch.clientX, touch.clientY]));
+    });
+
+    map.on('touchstart', function (event) {
+      var touch = event.touches && event.touches[0];
+      if (!touch) return;
+
+      tapStart = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+    });
+
+    map.on('touchcancel', function () {
+      tapStart = null;
+    });
+
+    // A desktop build still reaches this surface, and a mouse produces a real click.
     map.on('click', function (event) {
-      post({ type: 'press', lat: event.lngLat.lat, lng: event.lngLat.lng });
+      reportPress({ lat: event.lngLat.lat, lng: event.lngLat.lng });
     });
 
     /**
-     * ★ THE DOCUMENT CONSUMES ITS OWN TOUCHES, AND THAT IS WHAT KEEPS THE PAGE STILL.
+     * ★ THE DOCUMENT CONSUMES ITS OWN MOVEMENT, AND THAT IS WHAT KEEPS THE PAGE STILL.
      *
      * \`scrollEnabled={false}\` stops the WebView scrolling ITSELF, and
      * \`touch-action: none\` stops this document claiming the finger as a scroll —
@@ -422,13 +471,18 @@ export function buildMapDocument(options: {
      * vertical drag that began on the map and scroll the page instead (the reported
      * defect; horizontal drags were fine because that ScrollView is vertical only).
      *
-     * ★ NOT \`{ passive: true }\`, DELIBERATELY.
+     * ★ ONLY \`touchmove\` IS CANCELLED, AND CANCELLING \`touchstart\` WAS BREAKING TAPS.
      *
-     * A passive listener cannot \`preventDefault\`, and that is the whole job here: a
-     * non-passive handler on the document stops the page compositor from ever
-     * treating this touch as a scroll gesture, so the drag belongs to the map for its
-     * whole life. The earlier version was passive and only REPORTED the touch up,
-     * which made the ancestor claim purely advisory — and it lost every time.
+     * A browser synthesises \`click\` from a touch sequence UNLESS that sequence is
+     * cancelled — and cancelling \`touchstart\` cancels the whole sequence. So every tap
+     * on the map stopped producing a \`click\`, \`mapbox-gl\`'s \`click\` handler never ran,
+     * \`onPress\` never fired, and the picker's pin never moved to where the reader
+     * tapped. The map still panned, because panning is driven by \`touchmove\`.
+     *
+     * Cancelling \`touchmove\` is what actually keeps the page still, and it leaves the
+     * tap intact: the movement that would scroll is refused, the gesture that ends
+     * without movement still becomes a click. Both are non-passive — a passive listener
+     * cannot \`preventDefault\` at all, which is why the earlier version lost every time.
      *
      * The report is kept: it is the only signal that a touch reached the document, and
      * it is what tells "the touch never arrived" apart from "the map refused it".
@@ -439,18 +493,44 @@ export function buildMapDocument(options: {
       if (event.cancelable) event.preventDefault();
     }
 
+    /**
+     * ★ A TAP IS NOT CANCELLED, AND NEITHER IS A TOUCH THAT DID NOT MOVE.
+     *
+     * Cancelling a touch sequence suppresses the \`touchend\` and \`click\` that follow —
+     * which is what broke tap-to-place-the-pin. \`touchmove\` is still consumed so the
+     * page cannot scroll under a pan, but only once the finger has actually TRAVELLED:
+     * a touch that ends where it began is a tap, and a tap must reach the map.
+     */
+    var CONSUME_MIN_MOVE_PX = 8;
+    var touchOrigin = null;
+
     document.addEventListener('touchstart', function (event) {
-      consumeTouch(event);
+      var touch = event.touches && event.touches[0];
+      touchOrigin = touch ? { x: touch.clientX, y: touch.clientY } : null;
       post({ type: 'gesture', active: true });
+    }, { passive: true });
+
+    document.addEventListener('touchmove', function (event) {
+      if (!touchOrigin) return;
+
+      var touch = event.touches && event.touches[0];
+      if (!touch) return;
+
+      var moved =
+        Math.abs(touch.clientX - touchOrigin.x) > CONSUME_MIN_MOVE_PX ||
+        Math.abs(touch.clientY - touchOrigin.y) > CONSUME_MIN_MOVE_PX;
+
+      // A finger that has not left its start point is a tap in progress.
+      if (moved) consumeTouch(event);
     }, { passive: false });
 
-    document.addEventListener('touchmove', consumeTouch, { passive: false });
-
     document.addEventListener('touchend', function () {
+      touchOrigin = null;
       post({ type: 'gesture', active: false });
     }, { passive: true });
 
     document.addEventListener('touchcancel', function () {
+      touchOrigin = null;
       post({ type: 'gesture', active: false });
     }, { passive: true });
 

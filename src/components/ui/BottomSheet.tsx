@@ -349,6 +349,21 @@ export function BottomSheet({
             snapPoints={snapPoints}
             enablePanDownToClose={dismissible}
             enableDynamicSizing={isDynamic}
+            /**
+             * ★ ONLY THE HANDLE MOVES THE SHEET, NOT A DRAG ANYWHERE IN IT.
+             *
+             * `enableContentPanningGesture` defaults to TRUE, which makes the whole
+             * panel a pan-down target: holding the sheet's body and dragging down
+             * collapsed or dismissed it. The report was exactly that — "the Overlays
+             * minimize when I hold from anywhere on the Overlay and drag down; only
+             * dragging the Handle should minimize/move the Overlay".
+             *
+             * Turning content panning off leaves the grabber as the one drag surface,
+             * which is also what lets a long document scroll inside the sheet instead
+             * of fighting the pan.
+             */
+            enableContentPanningGesture={false}
+            enableHandlePanningGesture
             onClose={handleClose}
             // ★ THE ACKNOWLEDGEMENT. This is the only thing that marks the open as
             // done, so a call the library silently ignored cannot consume the retry.
