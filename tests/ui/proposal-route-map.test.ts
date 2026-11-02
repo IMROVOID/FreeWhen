@@ -82,9 +82,15 @@ test('with a start point, the route is drawn from it', () => {
   // disagree about the road between the same two places.
   assert.match(MAP, /fetchRoute\(drawableOrigin, destination\)/);
   assert.match(MAP, /fallbackRoute\(drawableOrigin, destination\)/);
-  // SOLID NOW, AND THAT IS THE REPORT: a dashed line read as approximate, and a
-  // fallback drawn solid is still honest because the geometry module labels it.
-  assert.match(MAP, /dashed: false/);
+  // ★ THE DASH FOLLOWS THE GEOMETRY'S SOURCE, NOT A FLAT "NEVER DASHED".
+  //
+  // The flat rule was: "a dashed line read as approximate, and a fallback drawn
+  // solid is still honest because the geometry module labels it". That left the
+  // reader unable to tell a refused route from a resolved one — which is the
+  // "it is a simple straight line on short distances" report. A road is solid; a
+  // bearing is dashed; the legend still says so in words.
+  assert.match(MAP, /dashed: route\.source === 'straight_line'/);
+  assert.doesNotMatch(MAP, /^\s*dashed: false,\s*$/m);
 });
 
 test('without a start point, the proposed place is drawn alone', () => {

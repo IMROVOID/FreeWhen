@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -85,6 +85,18 @@ export default function RankedVenuesScreen() {
   const { isOffline, pendingCount } = useOffline();
 
   const [selectedVenueId, setSelectedVenueId] = useState<string | null>(null);
+
+  /**
+   * The page's scroll view, handed to the map.
+   *
+   * ★ THIS PAGE SCROLLS, AND THE MAP IS A WEBVIEW.
+   *
+   * On Android a `WebView` takes no part in React Native's responder negotiation,
+   * so this `ScrollView` intercepts a vertical drag before the map's recogniser sees
+   * it — the page scrolls and the map never pans. The map stands it down for the
+   * duration of each touch. See `InteractiveMap`'s `ancestorScroll`.
+   */
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
   const [renderLevel, setRenderLevel] = useState<MapRenderLevel>(4);
 
   // The adapter is built once per mount: a new one per render would tear down
@@ -199,6 +211,7 @@ export default function RankedVenuesScreen() {
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
@@ -255,6 +268,7 @@ export default function RankedVenuesScreen() {
           selectedVenueId={selectedVenueId}
           onSelectVenue={selectFromMap}
           onPropose={propose}
+          ancestorScroll={scrollRef}
           testID="ranking-map"
         />
       </MapErrorBoundary>

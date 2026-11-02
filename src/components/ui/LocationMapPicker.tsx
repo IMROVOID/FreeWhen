@@ -59,6 +59,7 @@ import {
 import { Button } from '@/src/components/ui/Button';
 import { Card } from '@/src/components/ui/Card';
 import { InteractiveMap } from '@/src/components/ui/InteractiveMap';
+import type { AncestorScrollHandle } from '@/src/components/ui/InteractiveMap';
 import { Pressy } from '@/src/components/ui/Pressy';
 import { Text } from '@/src/components/ui/Text';
 import type { MapSurfaceHandle } from '@/src/components/ui/map-imperative';
@@ -85,6 +86,16 @@ export interface LocationMapPickerProps {
   initialName?: string;
   onSelect: (venue: VenueRef) => void;
   onCancel?: () => void;
+  /**
+   * The scrolling page this picker sits inside, when it sits inside one.
+   *
+   * The picker's own map is a `WebView` on Android, which takes no part in React
+   * Native's responder negotiation — so an ancestor `ScrollView` intercepts a
+   * vertical drag and the page scrolls instead of the map panning. Omitted inside
+   * an overlay that does not scroll, which is the configuration already reported
+   * working. See `InteractiveMap`'s `ancestorScroll`.
+   */
+  ancestorScroll?: React.RefObject<AncestorScrollHandle | null>;
   testID?: string;
 }
 
@@ -110,6 +121,7 @@ export function LocationMapPicker({
   initialName = '',
   onSelect,
   onCancel,
+  ancestorScroll,
   testID,
 }: LocationMapPickerProps) {
   const { t } = useTranslation();
@@ -403,6 +415,7 @@ export function LocationMapPicker({
             // The zoom pair lives in the map's own corner, so it moves with the map
             // and is drawn by the same document on both platforms.
             controls
+            ancestorScroll={ancestorScroll}
             onPress={handlePress}
             onCameraChange={noteCamera}
             onUnavailable={() => setBasemapFailed(true)}

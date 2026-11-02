@@ -21,13 +21,18 @@
  * available (FR-1.22) — the ranking reports reduced coverage instead (Phase 8).
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Location from 'expo-location';
 
 import { logSafe } from '@/src/lib/redact';
 
-import { deleteStartPoint, saveStartPoint, type SavedStartPoint } from '../services/start-point';
+import {
+  deleteStartPoint,
+  readStartPoint,
+  saveStartPoint,
+  type SavedStartPoint,
+} from '../services/start-point';
 import { roundedManualStartPoint, roundedStartPoint } from '../services/round-coords';
 
 export type StartPointStatus = 'idle' | 'requesting' | 'saving' | 'saved' | 'denied' | 'failed';
@@ -75,6 +80,15 @@ export function useStartPoint(
 
       try {
         const result = await saveStartPoint(eventId, payload, userId);
+        // ★ A WRITE OUTRANKS EVERY READ ALREADY IN FLIGHT.
+        //
+        // The hydrate below starts a request at mount. If the participant saves
+        // their location before that request resolves — which is the normal first
+        // entry, where the sheet is already open — the read answers "no point" and
+        // would otherwise overwrite the row that was just written. Bumping the
+        // sequence here makes the in-flight answer stale by definition.
+        sequence.current += 1;
+
         setSaved(result.start_point);
         setAudience(result.audience);
         setStatus('saved');
@@ -87,6 +101,51 @@ export function useStartPoint(
     },
     [eventId, userId],
   );
+
+  /**
+   * ★ THE SAVED POINT IS LOADED ON MOUNT, AND THAT WAS THE REPORTED DEFECT.
+   *
+   * `saved` used to be filled only by this hook's own `saveStartPoint`, so leaving
+   * the event page and returning started from `null`: the map had no origin dot
+   * and drew no route, which the reader experiences as "my location was not
+   * saved". The row was on the server the whole time — there was simply no read.
+   *
+   * `sequence` is the staleness guard. A read that resolves AFTER a save or a
+   * delete has already changed the truth answers a question that no longer
+   * applies, and applying it would resurrect a deleted point or erase a fresh one.
+   *
+   * A failed read is deliberately SILENT: it must not clear a point, must not
+   * surface an error over a screen that is only drawing a dot, and must not count
+   * as "no point" for `shouldOfferStartPoint` — which would re-ask a question the
+   * participant already answered. `status` is left untouched on that path.
+   */
+  const sequence = useRef(0);
+
+  useEffect(() => {
+    if (!eventId) return;
+
+    let active = true;
+    sequence.current += 1;
+    const mine = sequence.current;
+
+    void (async () => {
+      try {
+        const point = await readStartPoint(eventId, userId);
+        if (!active || sequence.current !== mine) return;
+
+        setSaved(point);
+        // A point that exists means the question is answered; one that does not
+        // leaves the status alone, so the gate decides whether to ask.
+        if (point !== null) setStatus('saved');
+      } catch {
+        // See the note above: an unreadable point is not an absent one.
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [eventId, userId]);
 
   const requestCurrentLocation = useCallback(async () => {
     setStatus('requesting');
@@ -158,6 +217,14 @@ export function useStartPoint(
   const remove = useCallback(async () => {
     try {
       await deleteStartPoint(eventId, userId);
+      // ★ A DELETE OUTRANKS A READ IN FLIGHT, FOR THE SAME REASON A SAVE DOES.
+      //
+      // Without this, removing a point while the mount-time read is still pending
+      // would let that read answer with the row that has just been deleted, and the
+      // dot would reappear on the next render — the participant's privacy control
+      // visibly failing.
+      sequence.current += 1;
+
       setSaved(null);
       setAudience(null);
       setStatus('idle');

@@ -47,6 +47,7 @@ import type {
 } from './InteractiveMap';
 import type { MapSurfaceHandle } from './map-imperative';
 import { cameraKey } from './map-camera';
+import { MAP_ANCESTOR_LOCK_KEY } from './map-gesture';
 import { readMapboxToken, styleForTheme } from '@/src/features/map/mapbox-token';
 import { map as mapTokens } from '@/src/theme/tokens';
 import { linesFeatureCollection } from '@/src/features/map/projection';
@@ -378,18 +379,31 @@ export function buildMapDocument(options: {
       });
 
       /**
-       * ★ THE CASING IS GONE, AND THE LINE IS WIDER, BECAUSE THE HALO WAS DARKENING IT.
+       * ★ NO DARK CASING — A LIGHT HALO UNDER A BRIGHTENED STROKE.
        *
        * A 4px coloured stroke sat inside a 7px BLACK casing at 25% opacity. Between
        * them the visible line was a thin colour threaded through a dark halo, which
        * on the night basemap read as one dark olive line rather than as the
        * proposer's colour — the report was "the line is too dark, make it wider and
        * lighter". The casing existed to separate an accent line from a PALE basemap;
-       * on the dark style it does the opposite, and the line has its own contrast.
+       * on the dark style it does the opposite.
        *
-       * So one stroke, wider, at full opacity. The colour is the destination's, which
-       * is already chosen to read on both appearances.
+       * The stroke is now lifted toward white by route-color.ts, so it needs a rim
+       * on the other side: a light halo that keeps a bright line from dissolving into
+       * pale streets. It is drawn FIRST, under the stroke, and it is additive width
+       * only — the coloured line still sits on top, at full opacity.
        */
+      map.addLayer({
+        id: 'route-halo', type: 'line', source: 'route',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': ${JSON.stringify(mapTokens.routeHalo)},
+          'line-opacity': ${mapTokens.routeHaloOpacity},
+          'line-width': 6 + ${mapTokens.routeHaloWidth * 2},
+          'line-dasharray': ['case', ['get', 'dashed'], ['literal', [2, 2]], ['literal', [1, 0]]]
+        }
+      });
+
       map.addLayer({
         id: 'route-line', type: 'line', source: 'route',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
@@ -691,6 +705,7 @@ export function InteractiveMap({
   onUnavailable,
   onReady,
   controls = false,
+  ancestorScroll,
   testID,
 }: InteractiveMapProps & { ref?: React.Ref<MapSurfaceHandle | null> }) {
   const webRef = useRef<WebViewHandle | null>(null);
@@ -804,6 +819,49 @@ export function InteractiveMap({
     [],
   );
 
+  /**
+   * ★ THE ANCESTOR LOCK — THE FIX FOR "THE PAGE SCROLLS INSTEAD OF THE MAP".
+   *
+   * `nestedScrollEnabled={false}` below is an `UIScrollView` behaviour: it stops
+   * iOS adopting the pan, and it reaches nothing on Android. There, a `WebView`
+   * takes no part in React Native's responder negotiation, so the ancestor
+   * `ScrollView` intercepts a VERTICAL drag as soon as it passes `touchSlop` —
+   * before the `WebView`'s recogniser sees the event — scrolls the page, and
+   * cancels the touch the map was panning with. The asymmetry in the report is the
+   * tell: the ancestor is vertical, so only vertical drags were stolen, and the
+   * location overlay works because no `ScrollView` sits over that map.
+   *
+   * A `RCTScrollView` with `scrollEnabled === false` returns `false` from
+   * `onInterceptTouchEvent` unconditionally. So the ancestor is disabled for the
+   * duration of each touch, through `setNativeProps` — a native write, with no
+   * React render in the middle of a drag.
+   *
+   * ★ IT IS RELEASED ON EVERY EXIT PATH.
+   *
+   * A lock that is set and not cleared leaves the page permanently unscrollable,
+   * which is worse than the defect. So `active: false` unlocks, `touchcancel`
+   * unlocks from the document, and unmounting mid-touch unlocks from the cleanup
+   * below.
+   */
+  const setAncestorScroll = useCallback(
+    (enabled: boolean) => {
+      const ancestor = ancestorScroll?.current;
+      if (!ancestor) return;
+
+      ancestor.setNativeProps({ [MAP_ANCESTOR_LOCK_KEY]: enabled } as {
+        scrollEnabled: boolean;
+      });
+    },
+    [ancestorScroll],
+  );
+
+  useEffect(() => {
+    return () => {
+      // Unmounting mid-touch must not leave the page locked.
+      setAncestorScroll(true);
+    };
+  }, [setAncestorScroll]);
+
   const onMessage = useCallback(
     (event: WebViewMessageEvent) => {
       let message: BridgeMessage;
@@ -825,10 +883,34 @@ export function InteractiveMap({
           onPress?.({ lat: message.lat, lng: message.lng });
           break;
         case 'gesture':
-          // The document reports its touches for diagnostics only. Nothing claims
-          // them: the WebView owns every touch in its box. See `map-gesture.ts`.
+          /**
+           * ★ THIS IS THE CONSUMER THE GESTURE REPORT WAS ALWAYS GOING TO NEED.
+           *
+           * The document posts `active: true` on `touchstart` and `active: false`
+           * on `touchend` / `touchcancel`. It used to be recorded as diagnostics
+           * only, because every mechanism that acted on it made things worse: a
+           * `PanResponder` is asynchronous and lost the drag, and a gesture-handler
+           * `Pan` on the wrapper starved the map instead of freeing it.
+           *
+           * Disabling the ancestor is not a fourth attempt at those. Nothing above
+           * the map claims the finger — the `WebView` still keeps every touch — the
+           * ancestor is simply told it may not intercept.
+           */
+          setAncestorScroll(!message.active);
           break;
         case 'camera':
+          /**
+           * ★ A SETTLED CAMERA IS A SAFETY NET FOR THE LOCK.
+           *
+           * The unlock rides on the document's own `active: false` report. If that
+           * report is ever lost — a WebView reload mid-gesture, a crashed document,
+           * a touch whose `touchend` the compositor swallowed — the page would stay
+           * unscrollable until the screen was rebuilt, which is a worse defect than
+           * the one being fixed. A `moveend` can only be posted by a live document
+           * that has finished a gesture, so unlocking here is always safe: no finger
+           * is down by definition.
+           */
+          setAncestorScroll(true);
           onCameraChange?.({
             centre: { lat: message.lat, lng: message.lng },
             zoom: message.zoom,
@@ -838,7 +920,7 @@ export function InteractiveMap({
           break;
       }
     },
-    [onReady, onUnavailable, onPress, onCameraChange],
+    [onReady, onUnavailable, onPress, onCameraChange, setAncestorScroll],
   );
 
   /**

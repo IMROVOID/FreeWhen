@@ -139,7 +139,41 @@ export interface InteractiveMapProps {
    * stays quiet.
    */
   controls?: boolean;
+  /**
+   * The scrolling ancestor the map must stand down while a finger is on it.
+   *
+   * ★ A MAP INSIDE A SCROLL VIEW IS A DIFFERENT PROBLEM FROM A MAP ALONE, AND IT
+   *   IS A PROPERTY OF THE ANCESTOR.
+   *
+   * On Android the map is a `WebView`, which takes no part in React Native's
+   * responder negotiation — so an ancestor `ScrollView` intercepts a vertical drag
+   * as soon as it passes `touchSlop`, scrolls the page, and cancels the touch the
+   * map was handling. `nestedScrollEnabled={false}` is an `UIScrollView` behaviour
+   * and reaches nothing there. The measured report is exactly this: "dragging the
+   * map vertically on a scrollable page scrolls the page instead", while the same
+   * map inside a non-scrolling overlay (the location sheet) works.
+   *
+   * So the surface is given the ancestor, and holds it disabled for the duration
+   * of each touch — see `MAP_ANCESTOR_LOCK_KEY` for why that is the one lever that
+   * works and which three gesture-based attempts were already measured and
+   * rejected.
+   *
+   * Omit it when there is no scrolling ancestor: a map inside a fixed-height
+   * overlay has nothing to lock, and passing a wrong ref would disable the page.
+   */
+  ancestorScroll?: React.RefObject<AncestorScrollHandle | null>;
   testID?: string;
+}
+
+/**
+ * The one method the lock uses on an ancestor scroll view.
+ *
+ * Narrowed deliberately: `setNativeProps` is what writes `scrollEnabled` without a
+ * React render, and a React `ScrollView` satisfies this shape. Declaring it this
+ * way keeps the surface from depending on the whole `ScrollView` type.
+ */
+export interface AncestorScrollHandle {
+  setNativeProps(props: { scrollEnabled: boolean }): void;
 }
 
 /**

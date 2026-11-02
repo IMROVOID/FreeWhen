@@ -8,8 +8,8 @@
  * - Automatic type inference (TIME, PLACE, or TIME_AND_PLACE).
  */
 
-import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,6 +63,18 @@ export default function ProposeScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [duplicate, setDuplicate] = useState<DuplicateHint | null>(null);
+
+  /**
+   * The form's scroll view, handed to the picker's map.
+   *
+   * ★ A VERTICAL DRAG ON THE MAP WAS SCROLLING THIS FORM INSTEAD.
+   *
+   * On Android the map is a WebView, which takes no part in React Native's responder
+   * negotiation — so this ScrollView intercepts a vertical drag as soon as it passes
+   * touchSlop and the map never pans. The map stands it down for the duration of
+   * each touch; see `InteractiveMap`'s `ancestorScroll`.
+   */
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
 
   /** The error under a field, translated. */
   const errorFor = useCallback(
@@ -170,6 +182,7 @@ export default function ProposeScreen() {
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
@@ -335,6 +348,9 @@ export default function ProposeScreen() {
                 setShowLocationPicker(false);
               }}
               onCancel={venue ? () => setShowLocationPicker(false) : undefined}
+              // The map is a WebView on Android: without the ancestor it loses a vertical
+              // drag to this ScrollView and the form scrolls instead of the map panning.
+              ancestorScroll={scrollRef}
               testID="propose-map-picker"
             />
           </View>

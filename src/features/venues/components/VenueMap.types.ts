@@ -16,6 +16,7 @@
  * `src/platform/README.md`.
  */
 
+import type { AncestorScrollHandle } from '@/src/components/ui/InteractiveMap';
 import type { ApproxArea, MapAdapter, VenuePin } from '@/src/features/map/types';
 import type { RankedVenue } from '@/src/engine/types';
 import type { Coordinate } from '@/src/routing/types';
@@ -31,6 +32,16 @@ export interface VenueMapProps {
   selectedVenueId?: string | null;
   onSelectVenue?: (venueId: string) => void;
   onPropose?: () => void;
+  /**
+   * The scrolling page this map sits inside.
+   *
+   * On Android the map is a `WebView`, which takes no part in React Native's
+   * responder negotiation — so an ancestor `ScrollView` intercepts a vertical
+   * drag and the page scrolls instead of the map panning. The ranked-venues
+   * screen is one of those pages. Omitted on a surface with no scrolling
+   * ancestor. See `InteractiveMap`.
+   */
+  ancestorScroll?: React.RefObject<AncestorScrollHandle | null>;
   testID?: string;
 }
 

@@ -77,3 +77,33 @@ export function claimsMapGesture(move: { dx: number; dy: number }): boolean {
 export function mapOwnsGesture(originIsMap: boolean): boolean {
   return originIsMap;
 }
+
+/**
+ * The native prop written through `setNativeProps` to stand an ancestor down.
+ *
+ * ★ IT IS A NAME, NOT A MECHANISM, AND IT LIVES HERE TO BE SHARED.
+ *
+ * The map surface writes it and the test asserts it, so spelling it twice would
+ * let the two disagree — the failure mode being "the lock was applied under a name
+ * nobody reads", which looks exactly like the bug it was meant to fix.
+ *
+ * ★ WHY A LOCK AND NOT A GESTURE.
+ *
+ * On Android a `WebView` is an opaque native view: it takes no part in React
+ * Native's responder negotiation, so an ancestor `ScrollView` intercepts a
+ * vertical drag as soon as it passes `touchSlop` — before the WebView's own
+ * recogniser sees the event. The page scrolls and the map receives
+ * `ACTION_CANCEL`. That is the reported "the page scrolls instead of the map
+ * moving", and it is asymmetric because the ancestor is vertical.
+ *
+ * `nestedScrollEnabled={false}` covers iOS (it is a `UIScrollView` behaviour) and
+ * reaches nothing on Android. A `RCTScrollView` whose `scrollEnabled` is `false`
+ * returns `false` from `onInterceptTouchEvent` unconditionally, which is the one
+ * lever that makes the ancestor decline rather than compete. So the map stops
+ * *asking* the ancestor and starts *disabling* it, for the duration of the touch.
+ *
+ * The three ancestor-gesture mechanisms that were measured and rejected are
+ * documented on `MAP_GESTURE_ALLOWANCE`; this is not a fourth attempt at those,
+ * because nothing above the map ever claims the finger.
+ */
+export const MAP_ANCESTOR_LOCK_KEY = 'scrollEnabled';

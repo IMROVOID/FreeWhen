@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowSquareOut } from 'phosphor-react-native';
 
 import { Card } from '@/src/components/ui/Card';
+import type { AncestorScrollHandle } from '@/src/components/ui/InteractiveMap';
 import { ProposalRouteMap } from './ProposalRouteMap';
 import { VoteShareBar } from './VoteShareBar';
 import { Chip } from '@/src/components/ui/Chip';
@@ -77,6 +78,15 @@ export interface ProposalCardProps {
    * origin draws the proposed place alone rather than a line from nowhere.
    */
   origin?: Coordinate | null;
+  /**
+   * The scrolling page this card lives in, handed down to its map.
+   *
+   * On Android a map inside a `ScrollView` loses a vertical drag to the ancestor —
+   * the page scrolls and the map never pans. The card cannot discover the ancestor
+   * (a `WebView` has no path up the responder chain), so the screen that owns the
+   * scroll view passes it down. See `InteractiveMap`'s `ancestorScroll`.
+   */
+  ancestorScroll?: React.RefObject<AncestorScrollHandle | null>;
   testID?: string;
 }
 
@@ -127,6 +137,7 @@ export function ProposalCard({
   onOpenComments,
   commentCount,
   origin = null,
+  ancestorScroll,
   testID,
 }: ProposalCardProps) {
   const { t, i18n } = useTranslation();
@@ -235,6 +246,7 @@ export function ProposalCard({
               destination={{ lat: proposal.venue.lat, lng: proposal.venue.lng }}
               label={proposal.venue.name}
               origin={origin}
+              ancestorScroll={ancestorScroll}
               testID={testID ? `${testID}-map` : undefined}
             />
           )}

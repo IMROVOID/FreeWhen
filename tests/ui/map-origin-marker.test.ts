@@ -114,12 +114,23 @@ test('the route line wears the colour of the pin it leads to', () => {
 
 /* ── The line ─────────────────────────────────────────────────────────────── */
 
-test('the decoration maps never draw a dashed line', () => {
-  // Arrange — the report: "use normal lines, not dashed lines". The dash was the
-  // fallback announcing itself; a straight line that is solid is still honest,
-  // because the legend says so and the geometry is the provider's when it answers.
-  assert.match(EVENT_MAP, /dashed: false/);
-  assert.match(PROPOSAL_MAP, /dashed: false/);
+test('the decoration maps dash a fallback and only a fallback', () => {
+  // ★ THE EARLIER RULE WAS "NEVER DASHED", AND IT WAS A WORKAROUND.
+  //
+  // Its reasoning was: the report said "use normal lines, not dashed lines", and a
+  // solid straight line is "still honest, because the legend says so". But the dash
+  // is what the RENDERER reads to distinguish a street from a bearing, and the report
+  // this replaces is "it is a simple straight line on short distances even though
+  // there is still a street between them" — a reader could not tell a refused route
+  // from a resolved one. The legend is a redundant statement of the fact, not a
+  // substitute for drawing it.
+  //
+  // So the flag follows the GEOMETRY'S OWN SOURCE on both surfaces: a provider route
+  // is solid, a straight-line fallback is dashed.
+  assert.match(EVENT_MAP, /dashed: geometry\.source === 'straight_line'/);
+  assert.match(PROPOSAL_MAP, /dashed: route\.source === 'straight_line'/);
+  assert.doesNotMatch(EVENT_MAP, /^\s*dashed: false,\s*$/m);
+  assert.doesNotMatch(PROPOSAL_MAP, /^\s*dashed: false,\s*$/m);
 });
 
 test('the dash expression is a valid MapBox case, so the layer compiles', () => {

@@ -32,6 +32,7 @@ import { placeSearchHandler } from './routes/place-search';
 import { routeGeometryHandler } from './routes/route-geometry-http';
 import {
   deleteStartPointHandler,
+  getStartPointHandler,
   listParticipantsHandler,
   patchParticipantHandler,
   setStartPointHandler,
@@ -81,7 +82,12 @@ interface Route {
   handler: Handler;
 }
 
-const ROUTES: Route[] = [
+/**
+ * The route table. Exported so a test can assert the SHAPE of the API — that a
+ * resource exposing `PUT` and `DELETE` also exposes `GET` — rather than reading
+ * this file as text.
+ */
+export const ROUTES: Route[] = [
   // Two paths, one handler. Caddy routes the bare `/health` (a proxy's probe
   // wants a short path); the API routes `/api/health` (an operator curls what
   // the app calls). A deployment where those two disagree is a deployment
@@ -107,6 +113,15 @@ const ROUTES: Route[] = [
     method: 'PUT',
     segments: ['api', 'participants', 'me', 'start-point'],
     handler: setStartPointHandler,
+  },
+  // ★ THE READ IS WHAT MAKES THE SAVE PERSIST ACROSS VISITS.
+  //
+  // The row was always written and always per-event; without a way to fetch it,
+  // every fresh mount of the event page had no origin and the map drew no route.
+  {
+    method: 'GET',
+    segments: ['api', 'participants', 'me', 'start-point'],
+    handler: getStartPointHandler,
   },
   {
     method: 'DELETE',

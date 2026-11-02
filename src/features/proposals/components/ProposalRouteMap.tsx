@@ -39,12 +39,13 @@ import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { InteractiveMap } from '@/src/components/ui/InteractiveMap';
-import type { MapLine, MapMarker } from '@/src/components/ui/InteractiveMap';
+import type { AncestorScrollHandle, MapLine, MapMarker } from '@/src/components/ui/InteractiveMap';
 import { mapAppearance } from '@/src/features/map/appearance';
 import { hasMapbox } from '@/src/features/map/mapbox-token';
 import { withAlpha } from '@/src/features/map/projection';
 import { DEFAULT_PITCH } from '@/src/features/map/types';
 import { originMarker } from '@/src/features/map/origin';
+import { brightenForStroke } from '@/src/features/map/route-color';
 import { fallbackRoute, fetchRoute, type RouteGeometry } from '@/src/features/venues/services/route-line';
 import { radius } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
@@ -76,10 +77,26 @@ export interface ProposalRouteMapProps {
   label: string;
   /** The viewer's own start point — `null` when they never set one. */
   origin?: Coordinate | null;
+  /**
+   * The scrolling page this map sits inside.
+   *
+   * On Android the map is a `WebView`, which takes no part in React Native's
+   * responder negotiation: a vertical drag that starts here is intercepted by the
+   * ancestor `ScrollView` and scrolls the page instead of panning. A `WebView`
+   * has no path up the responder chain, so the ancestor is passed in and stood
+   * down for the duration of each touch. See `InteractiveMap`.
+   */
+  ancestorScroll?: React.RefObject<AncestorScrollHandle | null>;
   testID?: string;
 }
 
-export function ProposalRouteMap({ destination, label, origin = null, testID }: ProposalRouteMapProps) {
+export function ProposalRouteMap({
+  destination,
+  label,
+  origin = null,
+  ancestorScroll,
+  testID,
+}: ProposalRouteMapProps) {
   const { t } = useTranslation();
   const { t: theme, name } = useTheme();
 
@@ -161,7 +178,11 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
     // `ORIGIN_COLOR` rather than `theme.info`, which is the near-black
     // `palette.espresso` on the light theme: the reported "black" origin and line.
     return [originPoint, proposed];
-  }, [destination, drawableOrigin, label, t, theme.primary]);
+    // `appearance.accent` is what the pin is painted with, so it is what the memo
+    // must depend on — `theme.primary` was the value it is DERIVED from, which meant
+    // a Material You repaint left the pin its old colour until something else
+    // re-rendered the card.
+  }, [destination, drawableOrigin, label, t, appearance.accent]);
 
   const lines: MapLine[] = useMemo(
     () =>
@@ -174,10 +195,16 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
               // THE LINE WEARS THE PIN IT LEADS TO, NOT THE DOT IT STARTS AT:
               // the line belongs to the PROPOSAL, and the origin dot is only where
               // the journey begins. Colouring it with the origin made the route read
-              // as a property of the reader. The pin is the app's accent here.
-              color: appearance.accent,
-              // Solid: the card draws a route, not a bearing. See `EventRouteMap`.
-              dashed: false,
+              // as a property of the reader. The pin is the app's accent here — and
+              // the stroke is that accent LIFTED toward white, because a 6 px
+              // antialiased line of the pin's own hex reads a step darker than the
+              // filled pin does. See `route-color.ts`.
+              color: brightenForStroke(appearance.accent),
+              // ★ THE FALLBACK IS DASHED. A straight line is the direction the
+              // provider refused to resolve, not a road, and drawing it solid made a
+              // refusal look like a route — which is what the "it is just a simple
+              // straight line" report was actually seeing.
+              dashed: route.source === 'straight_line',
             },
           ],
     [route, appearance.accent],
@@ -207,6 +234,7 @@ export function ProposalRouteMap({ destination, label, origin = null, testID }: 
         // proposal, and a control that re-frames onto it is the gesture-undo defect
         // with a button on top — see `InteractiveMap`'s `controls` prop.
         controls
+        ancestorScroll={ancestorScroll}
         onUnavailable={() => setBasemapFailed(true)}
         testID={testID ? `${testID}-surface` : undefined}
       />

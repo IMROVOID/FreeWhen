@@ -187,6 +187,15 @@ export function InteractiveMap({
   onUnavailable,
   onReady,
   controls = false,
+  // ★ ACCEPTED AND IGNORED, DELIBERATELY.
+  //
+  // This exists for the Android `WebView`, which takes no part in React Native's
+  // responder negotiation and therefore loses a vertical drag to an ancestor
+  // `ScrollView`. The browser has no such seam: `touch-action: none` on the
+  // document stops the page claiming the finger, and `PullToSync` already declines
+  // a gesture that began on a map surface — which is why web was reported working.
+  // Accepting the prop keeps one call site serving both platforms.
+  ancestorScroll: _ancestorScroll,
   testID,
 }: InteractiveMapProps & { ref?: React.Ref<MapSurfaceHandle | null> }) {
   const frameRef = useRef<ComponentRef<typeof View> | null>(null);
@@ -457,7 +466,7 @@ export function InteractiveMap({
         map.addSource('route', { type: 'geojson', data: collection });
 
         /**
-         * ★ NO CASING, AND A WIDER STROKE — THE HALO WAS DARKENING THE LINE.
+         * ★ NO DARK CASING, A WIDER STROKE AND A LIGHT HALO.
          *
          * A 4px coloured stroke inside a 7px BLACK casing at 25% opacity left the
          * visible line as a thin colour threaded through a dark halo: on the night
@@ -466,8 +475,26 @@ export function InteractiveMap({
          * separate an accent line from a PALE basemap; on the dark style it does the
          * opposite, and the destination colour already carries its own contrast.
          *
-         * Both renderers state the same numbers, so the two surfaces agree.
+         * The stroke is now also lifted toward white by `route-color.ts`, so what it
+         * needs is a rim on the other side: a light halo that keeps a bright line
+         * from dissolving into pale streets. It is drawn FIRST, under the stroke, and
+         * it is additive width only — the coloured line still sits on top.
          */
+        map.addLayer({
+          id: 'route-halo',
+          type: 'line',
+          source: 'route',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': mapTokens.routeHalo,
+            'line-opacity': mapTokens.routeHaloOpacity,
+            'line-width': 6 + mapTokens.routeHaloWidth * 2,
+            // The halo follows the same dash pattern, so a fallback does not lose its
+            // rim on the gaps.
+            'line-dasharray': ['case', ['get', 'dashed'], ['literal', [2, 2]], ['literal', [1, 0]]],
+          },
+        });
+
         map.addLayer({
           id: 'route-line',
           type: 'line',

@@ -31,8 +31,8 @@
  * The banner is a strip above the content, never a modal.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, View, type ScrollViewInstance } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -230,6 +230,18 @@ export default function EventHomeScreen() {
   const [savedStartPoint, setSavedStartPoint] = useState<{ lat: number; lng: number } | null>(
     null,
   );
+
+  /**
+   * ★ THE PAGE'S SCROLL VIEW, HANDED TO THE MAP SO IT CAN STAND IT DOWN.
+   *
+   * On Android the map is a `WebView`, which takes no part in React Native's
+   * responder negotiation: a vertical drag that starts on the map is intercepted by
+   * this `ScrollView` and scrolls the page instead of panning the map — the
+   * reported defect. A `RCTScrollView` with `scrollEnabled === false` cannot
+   * intercept, so the map disables it for the duration of each touch and re-enables
+   * it on release.
+   */
+  const scrollRef = useRef<ScrollViewInstance | null>(null);
 
   const myStartPoint = useMemo(() => {
     // The value the sheet reported wins: it is the freshest truth this screen has,
@@ -441,6 +453,7 @@ export default function EventHomeScreen() {
       testID="event-home-pull"
     >
     <ScrollView
+      ref={scrollRef}
       style={[styles.screen, { backgroundColor: theme.bg }]}
       contentContainerStyle={[
         styles.content,
@@ -601,6 +614,7 @@ export default function EventHomeScreen() {
           <EventRouteMap
             origin={myStartPoint}
             destinations={mapDestinations}
+            ancestorScroll={scrollRef}
             testID="event-home-map"
           />
 
@@ -635,6 +649,7 @@ export default function EventHomeScreen() {
                   // screen alone; the cards below draw the distance to each proposed
                   // place from it, which is the one fact a list of venues cannot show.
                   origin={myStartPoint}
+                  ancestorScroll={scrollRef}
                   share={shareOfAllAnswers(
                     { ...proposal, tally },
                     rankedProposals.map((entry) => ({ ...entry, tally: tallyFor(entry.id) })),

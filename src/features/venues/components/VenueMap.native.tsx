@@ -60,6 +60,7 @@ export function VenueMap({
   selectedVenueId = null,
   onSelectVenue,
   onPropose,
+  ancestorScroll,
   testID,
 }: VenueMapProps) {
   const { t } = useTranslation();
@@ -193,6 +194,7 @@ export function VenueMap({
             markers={markers}
             theme={appearance.mode}
             accent={appearance.accent}
+            ancestorScroll={ancestorScroll}
             // A pin tap is the map→list direction of the P0 selection sync.
             onPress={
               onSelectVenue

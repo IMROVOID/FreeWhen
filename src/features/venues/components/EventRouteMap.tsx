@@ -31,7 +31,7 @@ import { MapPin, NavigationArrow } from 'phosphor-react-native';
 
 import { Text } from '@/src/components/ui/Text';
 import { InteractiveMap } from '@/src/components/ui/InteractiveMap';
-import type { MapLine, MapMarker } from '@/src/components/ui/InteractiveMap';
+import type { AncestorScrollHandle, MapLine, MapMarker } from '@/src/components/ui/InteractiveMap';
 import { hasMapbox } from '@/src/features/map/mapbox-token';
 import { mapAppearance } from '@/src/features/map/appearance';
 import { DEFAULT_MAP_CENTRE } from '@/src/features/map/projection';
@@ -39,6 +39,7 @@ import { boundingBox } from '@/src/features/map/level';
 import { DEFAULT_PITCH, EVENT_PADDING_RATIO, MIN_EVENT_ZOOM } from '@/src/features/map/types';
 import { fetchRoute, fallbackRoute, type RouteGeometry } from '@/src/features/venues/services/route-line';
 import { ORIGIN_COLOR, originMarker } from '@/src/features/map/origin';
+import { brightenForStroke } from '@/src/features/map/route-color';
 import { radius, size, space } from '@/src/theme/tokens';
 import { useTheme } from '@/src/theme/useTheme';
 import type { Coordinate } from '@/src/routing/types';
@@ -68,13 +69,25 @@ export interface EventRouteMapProps {
   /** The viewer's own start point, or `null` when they have not set one. */
   origin: Coordinate | null;
   destinations: RouteDestination[];
+  /**
+   * The scrolling page this map sits inside.
+   *
+   * ★ THE MAP CANNOT DISCOVER IT, AND THE DEFECT IS A PROPERTY OF THAT PAGE.
+   *
+   * On Android the map is a `WebView`, which takes no part in React Native's
+   * responder negotiation: a vertical drag that starts on the map is intercepted
+   * by the ancestor `ScrollView` and scrolls the page instead. The map needs to be
+   * handed the ancestor so it can stand it down for the duration of each touch —
+   * see `InteractiveMap`'s `ancestorScroll`.
+   */
+  ancestorScroll?: React.RefObject<AncestorScrollHandle | null>;
   testID?: string;
 }
 
 /** The map's height on the event page. Short enough to sit inside the scroll. */
 const MAP_HEIGHT = 260;
 
-export function EventRouteMap({ origin, destinations, testID }: EventRouteMapProps) {
+export function EventRouteMap({ origin, destinations, ancestorScroll, testID }: EventRouteMapProps) {
   const { t } = useTranslation();
   const { t: theme, name } = useTheme();
 
@@ -203,19 +216,30 @@ export function EventRouteMap({ origin, destinations, testID }: EventRouteMapPro
     // of the reader rather than of the proposal it leads to. The pin at the far end is
     // the proposer's colour, so the line into it must be too: colour is the only thing
     // on this map that connects a route to a person.
+    //
+    // ★ AND IT IS THE PIN'S COLOUR LIFTED, NOT THE PIN'S COLOUR.
+    //
+    // The report was "the lines follow the pin colour but are too dark". Both used to
+    // be handed the same hex and still looked different, because a filled pin with a
+    // white ring carries far more ink than a 6 px antialiased stroke of the same
+    // value. `brightenForStroke` lifts the stroke toward white by the same fraction
+    // per channel, so the hue — "whose line is that?" — survives while the apparent
+    // brightness matches the pin.
     const colorById = new Map(destinations.map((destination) => [destination.id, destination.color]));
 
     return Object.entries(routes).map(([id, geometry]) => ({
       id,
       points: geometry.points,
-      color: colorById.get(id) ?? ORIGIN_COLOR,
-      // ★ AND IT IS NOT DASHED.
+      color: brightenForStroke(colorById.get(id) ?? ORIGIN_COLOR),
+      // ★ A FALLBACK IS DASHED, AND SAYING OTHERWISE WAS THE LIE.
       //
-      // A dashed line reads as "approximate", and the request was for the map to
-      // draw a route rather than a direction. The straight-line fallback stays a
-      // fallback — it is what the server answers when the provider refuses — but
-      // it is drawn as a line, and the legend states it (see `isFallback`).
-      dashed: false,
+      // This used to be `dashed: false` unconditionally, on the reasoning that "the
+      // request was for the map to draw a route rather than a direction". But a
+      // straight line between two points is not a route — it is the direction the
+      // provider refused to resolve — and drawing it solid made a refusal look like a
+      // road. The flag is the geometry's own source, so a line is dashed exactly when
+      // it is not a street.
+      dashed: geometry.source === 'straight_line',
     }));
   }, [routes, destinations]);
 
@@ -262,6 +286,7 @@ export function EventRouteMap({ origin, destinations, testID }: EventRouteMapPro
           // The zoom pair. This surface draws no camera-moving control: the whole
           // point of the event map is that the camera is the reader's.
           controls
+          ancestorScroll={ancestorScroll}
           onUnavailable={() => setBasemapFailed(true)}
           testID={testID ? `${testID}-surface` : undefined}
         />

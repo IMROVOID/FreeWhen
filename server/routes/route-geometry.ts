@@ -79,6 +79,35 @@ export function straightLineRoute(from: RoutePoint, to: RoutePoint): RouteGeomet
 }
 
 /**
+ * The geometry precision MapBox is asked for, and the decoder reads.
+ *
+ * ★ FIVE DECIMALS WAS THE "POLYGON LINES DRAWN ON THE STREETS" REPORT.
+ *
+ * `geometries=polyline` is MapBox's legacy five-decimal encoding — a `1.1 m`
+ * grid. At five decimals the encoder ALSO rounds adjacent vertices onto each
+ * other, so a dense city route arrives with its shape flattened: vertices that
+ * described a curve come back as the same point or as a coarse zig-zag. The
+ * provider cannot be blamed for a line that cuts the corner of a block when the
+ * request asked it to quantise the corner away.
+ *
+ * Six decimals is ~11 cm, which is finer than a stroke can be drawn, and it
+ * preserves the vertex list the provider actually computed. `polyline6` is a
+ * documented query parameter, not a different endpoint, so nothing else changes.
+ */
+export const GEOMETRY_PRECISION = 6;
+
+/** The `geometries=` value that pairs with `GEOMETRY_PRECISION`. */
+const GEOMETRIES_PARAM = 'polyline6';
+
+/**
+ * The precision the ENDPOINTS are rounded to in the provider URL.
+ *
+ * Deliberately NOT `GEOMETRY_PRECISION`: this one is a cache identity, not a shape
+ * resolution. See `directionsUrl`.
+ */
+export const ROUTE_URL_DECIMALS = 5;
+
+/**
  * The longest encoded polyline this server will decode.
  *
  * ★ THE DECODER IS UNBOUNDED CPU, AND A PROVIDER RESPONSE IS UNTRUSTED INPUT.
@@ -86,11 +115,12 @@ export function straightLineRoute(from: RoutePoint, to: RoutePoint): RouteGeomet
  * `decodePolyline` emits roughly one point per two characters, so a 100 KB
  * geometry is 50,000 points of synchronous work. The 8-second transport timeout
  * does NOT cover this: it aborts the body READ, and parsing happens after that
- * resolves. A served route for a 2 km walk is a few hundred points; 8 KB of
- * encoded geometry is already an order of magnitude past any real answer, so
- * anything larger is a fault or an attack and degrades to the straight line.
+ * resolves. A served route for a 2 km walk is a few hundred points; 32 KB of
+ * encoded geometry — which is what six decimals costs for an order of magnitude
+ * more vertices than any real answer — is still well past anything the provider
+ * produces, so the ceiling remains a fault boundary rather than a route limit.
  */
-export const MAX_ENCODED_POLYLINE = 8_192;
+export const MAX_ENCODED_POLYLINE = 32_768;
 
 /**
  * The most points a drawn route may carry.
@@ -177,16 +207,58 @@ export function isDrawablePoint(value: unknown): value is RoutePoint {
   );
 }
 
-/** The URL for a directions request, with the token appended. */
+/**
+ * The URL for a directions request, with the token appended.
+ *
+ * ★ TWO DIFFERENT ROUNDINGS, FOR TWO DIFFERENT QUESTIONS.
+ *
+ * The ENDPOINT is rounded to five decimals (~1.1 m) so that two viewers standing at
+ * the same venue produce byte-identical URLs and a cache can answer the second one
+ * for free. That property is kept deliberately — it is the difference between one
+ * metered call and one per viewer.
+ *
+ * The GEOMETRY is requested at six decimals (`polyline6`), because that is a
+ * separate knob: how finely the provider encodes the SHAPE it computed. Five
+ * decimals there quantised adjacent vertices onto each other and flattened the
+ * curve, which is the reported "polygon lines drawn on the streets".
+ *
+ * ★ AND THE ROUNDING CANNOT BE ALLOWED TO FUSE TWO DISTINCT ENDPOINTS.
+ *
+ * That is the short-distance defect. At five decimals a proposed place and a start
+ * point a couple of metres apart — a pin and a doorway, both in the same block —
+ * rounded onto the SAME pair, so the provider was asked for a zero-length leg. It
+ * answered with a one-point geometry, the decoder rejected it as "not a line", and
+ * the map drew the straight-line fallback: "it is a simple straight line on short
+ * distances even though there is still a street between them".
+ *
+ * So the endpoints are rounded for the cache key, and THEN nudged apart if the
+ * rounding collided. A real answer comes back for a real 3 m journey, and two
+ * viewers at the same venue still share one URL, because their rounding agrees
+ * long before the nudge applies.
+ */
 export function directionsUrl(from: RoutePoint, to: RoutePoint, accessToken: string): string {
-  // Five decimals is ~1 m — finer than a route line can be drawn, and it makes two
-  // viewers sharing a venue produce the SAME URL, so a proxy or CDN can reuse one
-  // provider answer instead of paying for each.
-  const fix = (value: number): string => value.toFixed(5);
-  const coords = `${fix(from.lng)},${fix(from.lat)};${fix(to.lng)},${fix(to.lat)}`;
-  // `geometries=polyline` is the default but is named so a future default change
-  // cannot silently start returning GeoJSON into the polyline decoder.
-  return `${DIRECTIONS_URL}/${coords}?geometries=polyline&overview=full&access_token=${accessToken}`;
+  const round = (value: number): string => value.toFixed(ROUTE_URL_DECIMALS);
+
+  const fromLng = round(from.lng);
+  let fromLat = round(from.lat);
+  const toLng = round(to.lng);
+  const toLat = round(to.lat);
+
+  // ★ ONLY A ROUNDING COLLISION IS BROKEN, AND ONLY BY ONE UNIT.
+  //
+  // The endpoints were distinct on the way in (`resolveRouteGeometry` short-circuits
+  // an identical pair), so reaching here with equal strings means the 1.1 m grid
+  // fused them. Advancing `from` one step of the grid is the smallest change that
+  // restores the journey without inventing a distance: 1.1 m.
+  if (fromLng === toLng && fromLat === toLat) {
+    fromLat = (Number(fromLat) + 10 ** -ROUTE_URL_DECIMALS).toFixed(ROUTE_URL_DECIMALS);
+  }
+
+  const coords = `${fromLng},${fromLat};${toLng},${toLat}`;
+  // `geometries` is named explicitly rather than left to the default, so a future
+  // change to MapBox's default cannot silently start returning a coarser shape
+  // than `decodePolyline` was told to read.
+  return `${DIRECTIONS_URL}/${coords}?geometries=${GEOMETRIES_PARAM}&overview=full&steps=false&access_token=${accessToken}`;
 }
 
 /**
@@ -264,7 +336,7 @@ async function resolveWithMapbox(
     // MAX_ENCODED_POLYLINE: the transport timeout does not cover parsing.
     if (first.geometry.length > MAX_ENCODED_POLYLINE) return null;
 
-    const points = decodePolyline(first.geometry);
+    const points = decodePolyline(first.geometry, GEOMETRY_PRECISION);
     // A one-point line is not a line; the caller's fallback at least shows the
     // direction.
     if (points.length < 2 || points.length > MAX_ROUTE_POINTS) return null;
@@ -320,7 +392,7 @@ async function resolveWithNeshan(
     if (typeof encoded !== 'string' || encoded.length === 0) return null;
     if (encoded.length > MAX_ENCODED_POLYLINE) return null;
 
-    const points = decodePolyline(encoded);
+    const points = decodePolyline(encoded, GEOMETRY_PRECISION);
     if (points.length < 2 || points.length > MAX_ROUTE_POINTS) return null;
 
     const distance = (first?.legs ?? []).reduce(

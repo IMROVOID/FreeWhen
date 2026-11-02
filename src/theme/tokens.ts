@@ -220,10 +220,22 @@ export const participantColors = [
 export const map = {
   /** The ring around a marker. White reads on both the light and the dark style. */
   markerRing: '#FFFFFF',
-  /** The underlay beneath a route line, so the accent stays legible either way. */
-  routeCasing: '#000000',
-  /** The opacity of that underlay. */
-  routeCasingOpacity: 0.25,
+  /**
+   * The underlay beneath a route line.
+   *
+   * ★ IT IS LIGHT, AND IT REPLACES A DARK CASING THAT WAS THE DEFECT.
+   *
+   * The old casing was black at 25 %, meant to separate an accent line from a PALE
+   * basemap — and on the night style it did the opposite, turning every route into
+   * one dark olive thread. The stroke is now brightened toward white instead
+   * (`route-color.ts`), so what it needs is a halo on the OTHER side: a light rim
+   * that keeps a bright line from dissolving into pale streets.
+   */
+  routeHalo: '#FFFFFF',
+  /** The halo's opacity. Low enough to rim the stroke rather than outline it. */
+  routeHaloOpacity: 0.18,
+  /** How much wider the halo is than the stroke it sits under, in points. */
+  routeHaloWidth: 1.5,
   /** The shadow under a marker, which lifts it off a busy basemap. */
   markerShadow: 'rgba(0,0,0,0.4)',
   /**

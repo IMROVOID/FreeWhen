@@ -26,6 +26,7 @@ import {
   deleteStartPoint,
   listParticipantsFor,
   patchParticipant,
+  readStartPoint,
   setStartPoint,
   startPointAudience,
 } from '../lib/participant-service';
@@ -92,6 +93,46 @@ export async function setStartPointHandler(request: Request): Promise<Response> 
     audience: audience
       ? { participant_count: audience.participant_count, expires_at: audience.event_end }
       : null,
+  });
+}
+
+/**
+ * `GET /api/participants/me/start-point?event_id=`
+ *
+ * ★ THE READ THE RESOURCE WAS MISSING, AND THE FIX FOR A REPORTED DEFECT.
+ *
+ * The row was always written and always per-event — `start_point` is keyed by
+ * `participant_id`, and a participant row is per event. But without a read the
+ * client could only ever learn a point from the result of its own save, so leaving
+ * the event page and coming back produced a map with no origin dot and no route.
+ * "The user location is not saved" was really "the user location cannot be
+ * fetched".
+ *
+ * ★ `NOT_PARTICIPANT` FOR A STRANGER, NOT `{ start_point: null }`.
+ *
+ * A `null` answer to a non-member is an existence oracle: a caller could walk event
+ * ids and learn which are real from the shape of the response. The membership
+ * check is the same one every write here performs.
+ *
+ * ★ NO MUTATION BUDGET, AND NO CACHING.
+ *
+ * The mutation limiter exists to bound writes; charging a screen load against it
+ * would let opening an event page exhaust the participant's ability to save a
+ * location. And the body is one person's position, so it is `no-store`: `private`
+ * alone still allows a service worker or an intermediary to keep a copy.
+ */
+export async function getStartPointHandler(request: Request): Promise<Response> {
+  const caller = await callerFrom(request);
+  if (!caller) return wireError('NOT_PARTICIPANT');
+
+  const eventId = eventIdFrom(request, null);
+  if (!eventId) return validationFailed([{ path: ['event_id'], message: 'errors.validationFailed' }]);
+
+  const read = await readStartPoint(caller, eventId);
+  if (!read.ok) return wireError(read.reason);
+
+  return json({ start_point: read.start_point }, 200, {
+    'Cache-Control': 'private, no-store',
   });
 }
 

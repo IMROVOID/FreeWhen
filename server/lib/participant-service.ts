@@ -99,6 +99,65 @@ export async function setStartPoint(
 }
 
 /**
+ * Reads the caller's own start point — the other half of the resource.
+ *
+ * ★ THE WRITE ALWAYS EXISTED; THE READ DID NOT, AND THAT WAS THE REPORTED DEFECT.
+ *
+ * `start_point` is keyed by `participant_id`, and a participant row is per event,
+ * so the storage was already per-event and already durable. But the client could
+ * only ever learn a point from the result of its OWN `setStartPoint`, and
+ * `listParticipantsFor` deliberately omits the coordinate. So every fresh mount of
+ * the event page had no origin: the map redrew with no dot and no route, and the
+ * reader concluded the location had not been saved.
+ *
+ * ★ IT RETURNS THE CALLER'S OWN ROW AND NOTHING ELSE.
+ *
+ * `participantFor` resolves the member from `auth.uid()`, so there is no id this
+ * function can be tricked into reading on somebody else's behalf. The audience
+ * projection above stays the only path by which one participant sees another's
+ * state, and it still never carries a coordinate.
+ */
+export async function readStartPoint(
+  caller: Caller,
+  eventId: string,
+): Promise<StartPointReadOutcome> {
+  const member = await participantFor(caller, eventId);
+  if (!member) return { ok: false, reason: 'NOT_PARTICIPANT' };
+
+  const result = await scopedQueryable().query<{
+    lat_rounded: string;
+    lng_rounded: string;
+    accuracy_m: number;
+    label: string | null;
+  }>(
+    `select lat_rounded, lng_rounded, accuracy_m, label
+       from start_point
+      where participant_id = $1`,
+    [member.id],
+  );
+
+  // No row is a NORMAL state, not a failure: the participant skipped the question
+  // or deleted their point, and the sheet is what offers it again.
+  const row = result.rows[0];
+  if (!row) return { ok: true, start_point: null };
+
+  return {
+    ok: true,
+    start_point: {
+      // `numeric(5,2)` arrives as a string from `pg`; the client wants a number.
+      lat: Number(row.lat_rounded),
+      lng: Number(row.lng_rounded),
+      accuracy_m: row.accuracy_m,
+      label: row.label,
+    },
+  };
+}
+
+export type StartPointReadOutcome =
+  | { ok: true; start_point: { lat: number; lng: number; accuracy_m: number; label: string | null } | null }
+  | { ok: false; reason: ParticipantFailure };
+
+/**
  * Removes the caller's start point (FR-8.21).
  *
  * It touches `start_point` and nothing else. A participant who deletes their

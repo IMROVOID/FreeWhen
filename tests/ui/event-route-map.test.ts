@@ -115,14 +115,20 @@ test('the lines are fetched in parallel, not one after another', () => {
 });
 
 test('a straight-line route is drawn dashed, so it does not claim a road', () => {
-  // Assert
-  // SOLID NOW, AND THAT IS THE REPORT.
+  // ★ THE PREVIOUS VERSION OF THIS TEST ASSERTED THE OPPOSITE, AND THAT WAS THE BUG.
   //
-  // A dashed line read as "approximate" and the request was that a route look like a
-  // route. The fallback is still LABELLED as one (map.directionOnly), so the picture
-  // does not silently claim a road.
-  assert.match(MAP, /dashed: false/);
+  // It pinned `dashed: false` on the reasoning that "a dashed line read as
+  // approximate and the request was that a route look like a route". But a straight
+  // line between two points is not a route — it is the direction the provider would
+  // not resolve — and drawing it solid told the reader a road existed where none had
+  // been asked for. That is half of the reported "it is a simple straight line on
+  // short distances even though there is still a street between them".
+  //
+  // The dash now FOLLOWS the geometry's own source, so a street is solid and a
+  // refusal is dashed. The legend still states it in words (map.directionOnly).
+  assert.match(MAP, /dashed: geometry\.source === 'straight_line'/);
   assert.match(MAP, /map\.directionOnly/);
+  assert.doesNotMatch(MAP, /^\s*dashed: false,\s*$/m);
 });
 
 test('an endpoint that is missing draws no line at all', () => {
