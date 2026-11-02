@@ -377,19 +377,25 @@ export function buildMapDocument(options: {
         data: { type: 'FeatureCollection', features: [] }
       });
 
-      // A casing underlay keeps an accent line legible on both appearances.
-      map.addLayer({
-        id: 'route-casing', type: 'line', source: 'route',
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': ${JSON.stringify(mapTokens.routeCasing)}, 'line-opacity': ${mapTokens.routeCasingOpacity}, 'line-width': 7 }
-      });
-
+      /**
+       * ★ THE CASING IS GONE, AND THE LINE IS WIDER, BECAUSE THE HALO WAS DARKENING IT.
+       *
+       * A 4px coloured stroke sat inside a 7px BLACK casing at 25% opacity. Between
+       * them the visible line was a thin colour threaded through a dark halo, which
+       * on the night basemap read as one dark olive line rather than as the
+       * proposer's colour — the report was "the line is too dark, make it wider and
+       * lighter". The casing existed to separate an accent line from a PALE basemap;
+       * on the dark style it does the opposite, and the line has its own contrast.
+       *
+       * So one stroke, wider, at full opacity. The colour is the destination's, which
+       * is already chosen to read on both appearances.
+       */
       map.addLayer({
         id: 'route-line', type: 'line', source: 'route',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
         paint: {
           'line-color': ['get', 'color'],
-          'line-width': 4,
+          'line-width': 6,
           // ★ A \`case\` MUST YIELD LITERALS.
           //
           // A bare array as a branch is read as an expression, not as a dash

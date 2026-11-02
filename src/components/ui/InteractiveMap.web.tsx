@@ -456,20 +456,18 @@ export function InteractiveMap({
       } else {
         map.addSource('route', { type: 'geojson', data: collection });
 
-        // A casing underlay makes an accent-coloured line legible on both the
-        // light and the dark basemap, which a lone stroke is not.
-        map.addLayer({
-          id: 'route-casing',
-          type: 'line',
-          source: 'route',
-          layout: { 'line-join': 'round', 'line-cap': 'round' },
-          paint: {
-            'line-color': mapTokens.routeCasing,
-            'line-opacity': mapTokens.routeCasingOpacity,
-            'line-width': 7,
-          },
-        });
-
+        /**
+         * ★ NO CASING, AND A WIDER STROKE — THE HALO WAS DARKENING THE LINE.
+         *
+         * A 4px coloured stroke inside a 7px BLACK casing at 25% opacity left the
+         * visible line as a thin colour threaded through a dark halo: on the night
+         * basemap it read as one dark olive line instead of the proposer's colour —
+         * "the line is too dark, make it wider and lighter". The casing was there to
+         * separate an accent line from a PALE basemap; on the dark style it does the
+         * opposite, and the destination colour already carries its own contrast.
+         *
+         * Both renderers state the same numbers, so the two surfaces agree.
+         */
         map.addLayer({
           id: 'route-line',
           type: 'line',
@@ -477,7 +475,7 @@ export function InteractiveMap({
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
             'line-color': ['get', 'color'],
-            'line-width': 4,
+            'line-width': 6,
             // ★ A `case` MUST YIELD LITERALS, AND THE FIRST VERSION DID NOT.
             //
             // `line-dasharray` is a data-driven painting property, so it takes an
