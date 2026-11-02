@@ -11,26 +11,40 @@
  *
  * ★ WHAT WAS MEASURED FIRST, AND WHY THAT MATTERS.
  *
- * The live deployment already answers with MapBox geometry:
+ * The live deployment already answered with MapBox geometry:
  *
- *     ?from=35.7000,51.4000&to=35.7100,51.4100 → source=mapbox, 2864 m, 12 points
+ *     ?from=35.7000,51.4000&to=35.7100,51.4100 → source=mapbox, 2859 m, 11 points
  *     ?from=35.7000,51.4000&to=35.7003,51.4004 → source=mapbox,  784 m,  8 points
  *
- * So "the server returns a straight line" is NOT the defect, and a fix aimed there
- * would have changed nothing. Two narrow, real defects sit either side of it:
+ * So "the server returns a straight line" was never the defect, and a fix aimed
+ * there would have changed nothing. The two real defects were:
  *
- *  1. **Vertex resolution.** Eight vertices cannot describe a 784 m drive around a
- *     block, and MapBox GL draws straight segments between vertices with no map
- *     matching — so the line cuts across the buildings the street bends around.
- *     That is exactly what "polygon lines drawn on the streets" describes. The
- *     provider will answer at higher precision; the request did not ask for it.
- *
- *  2. **A refusal drawn as a road.** The client overrode every line to
+ *  1. **A refusal drawn as a road.** The client overrode every line to
  *     `dashed: false`, so a `straight_line` fallback — the honest answer to a
  *     provider that would not resolve — was drawn as a solid route. A short
- *     distance is where a refusal is most likely (MapBox has no drive network for
- *     a 3 m hop across a footpath), which is why the report pairs the two
- *     complaints: "a simple straight line on short distances".
+ *     distance is where a refusal is most likely, which is why the report pairs
+ *     the two complaints: "a simple straight line on short distances".
+ *
+ *  2. **A refusal CAUSED by the endpoint rounding.** `directionsUrl` rounded each
+ *     endpoint to five decimals (~1.1 m) so two viewers at one venue would share a
+ *     URL. Two distinct endpoints a couple of metres apart — a pin and a doorway in
+ *     the same block — rounded onto the same pair, so the provider was asked for a
+ *     zero-length leg, answered with a one-point geometry, the decoder rejected it,
+ *     and the map drew the fallback. The rounding is kept for cache identity (it is
+ *     a real saving) and broken apart only when it actually collides.
+ *
+ * ★ AND ONE WRONG TURN, RECORDED HERE SO IT IS NOT REPEATED.
+ *
+ * The first version of this fix asked for `geometries=polyline6`, on the belief
+ * that five decimals were flattening the curve. Directions does not accept that
+ * value — it accepts `geojson` or `polyline` — and an unrecognised value is
+ * silently ignored. The provider kept answering at precision 5 and the decoder read
+ * it as precision 6, which divides every coordinate by ten: Tehran's route came
+ * back at (5.14, 3.57), in the Gulf of Guinea. These tests passed throughout,
+ * because they encoded their fixtures at the same precision they decoded with. Only
+ * a probe against the real service found it. The precision is therefore pinned to
+ * the request that produced it, below, and there is a local assertion that the two
+ * agree.
  */
 
 import assert from 'node:assert/strict';
@@ -38,6 +52,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import {
+  GEOMETRY_PRECISION,
   MAX_ENCODED_POLYLINE,
   decodePolyline,
   directionsUrl,
@@ -85,93 +100,111 @@ function transport(status: number, body: string, urls: string[] = []): GeometryT
   };
 }
 
-/* ── 1. Vertex resolution ─────────────────────────────────────────────────── */
+/* ── 1. The precision the request makes and the decoder reads must agree ──── */
 
-test('the request asks for the geometry precision the map can draw', () => {
-  // ★ SIX DECIMALS IS ~11 cm; FIVE IS ~1.1 m.
+test('the request asks for a format Directions actually offers', () => {
+  // ★ `polyline6` IS NOT A DIRECTIONS VALUE, AND ASKING FOR IT WAS A LIVE OUTAGE.
   //
-  // At five decimals a dense city route quantises its vertices onto a 1.1 m grid,
-  // which is invisible. The reason to ask for six is that it lets the provider
-  // return the FULL vertex list without the encoder rounding adjacent points onto
-  // each other and collapsing them — the "polygon lines drawn on the streets"
-  // report. `polyline6` is MapBox's documented higher-resolution format and is a
-  // plain query parameter.
+  // Directions accepts `geojson` or `polyline`. Anything else is IGNORED rather
+  // than rejected, so the request looked fine and the answer came back at the
+  // default precision — which the decoder was then told to read at six decimals.
   const url = directionsUrl(FROM, TO, PK);
+  const geometries = new URL(url).searchParams.get('geometries');
 
-  assert.match(url, /geometries=polyline6/, 'the request still asks for the coarse polyline');
+  assert.ok(
+    geometries === 'polyline' || geometries === 'geojson',
+    `Directions does not accept geometries=${geometries}`,
+  );
   assert.match(url, /overview=full/, 'the request no longer asks for the full shape');
 });
 
-test('a six-decimal polyline survives the round trip to under a centimetre', () => {
-  // Arrange — two vertices 0.11 m apart, which five decimals cannot tell apart.
+test('the decoder reads exactly the precision the request produces', () => {
+  // ★ THIS IS THE ASSERTION THAT WOULD HAVE CAUGHT THE 10× COORDINATE BUG.
+  //
+  // A `polyline` answer is precision 5; a `geojson` answer is not a polyline at
+  // all. The decoder's precision must be the one the requested format encodes at,
+  // or every coordinate is scaled by a power of ten.
+  const url = directionsUrl(FROM, TO, PK);
+  const geometries = new URL(url).searchParams.get('geometries');
+
+  const expected = geometries === 'polyline' ? 5 : null;
+  if (expected !== null) {
+    assert.equal(
+      GEOMETRY_PRECISION,
+      expected,
+      `geometries=${geometries} encodes at ${expected} decimals but the decoder reads ${GEOMETRY_PRECISION}`,
+    );
+  }
+});
+
+test('a precision-5 polyline round-trips onto the coordinates it encodes', () => {
+  // Arrange — a real Tehran leg, encoded the way the provider encodes it.
   const points: Array<[number, number]> = [
-    [51.389, 35.6892],
-    [51.389001, 35.689201],
-    [51.389002, 35.689199],
+    [51.4, 35.70013],
+    [51.40037, 35.70014],
+    [51.40023, 35.69933],
+    [51.39811, 35.69929],
   ];
 
   // Act
-  const decoded = decodePolyline(encodePolyline(points, 6), 6);
+  const decoded = decodePolyline(encodePolyline(points, 5), GEOMETRY_PRECISION);
 
-  // Assert
-  assert.equal(decoded.length, points.length);
-
+  // Assert — within half a grid cell (~5 m at this latitude) of the input, and
+  // emphatically not a tenth of it.
   for (let index = 0; index < points.length; index += 1) {
     const expected = points[index]!;
     const actual = decoded[index]!;
     assert.ok(
-      Math.abs(actual[0] - expected[0]) < 1e-6,
+      Math.abs(actual[0] - expected[0]) < 1e-4,
       `vertex ${index} longitude drifted: ${actual[0]} vs ${expected[0]}`,
     );
     assert.ok(
-      Math.abs(actual[1] - expected[1]) < 1e-6,
+      Math.abs(actual[1] - expected[1]) < 1e-4,
       `vertex ${index} latitude drifted: ${actual[1]} vs ${expected[1]}`,
     );
   }
 });
 
-test('a dense route keeps every vertex instead of collapsing them', () => {
-  // Arrange — a 400-vertex city route at six decimals. At five decimals adjacent
-  // vertices quantise onto the same grid point and the shape flattens into the
-  // "polygon lines" the report describes.
-  const points: Array<[number, number]> = [];
-  for (let step = 0; step < 400; step += 1) {
-    points.push([51.389 + step * 0.000004, 35.6892 + step * 0.000003]);
+test('a Tehran route never decodes into the Gulf of Guinea', () => {
+  // ★ THE EXACT SHAPE OF THE SHIPPED BUG, AS A REGRESSION GUARD.
+  //
+  // Decoding precision-5 geometry at 6 divides every coordinate by ten: 51.4
+  // becomes 5.14 and 35.7 becomes 3.57, which are real coordinates — off the coast
+  // of Africa. The check is coarse on purpose: it does not care what the route is,
+  // only that it is in the city it was asked about.
+  const points: Array<[number, number]> = [
+    [51.4, 35.70013],
+    [51.400263, 35.70016],
+  ];
+  const decoded = decodePolyline(encodePolyline(points, 5), GEOMETRY_PRECISION);
+
+  for (const [lng, lat] of decoded) {
+    assert.ok(lng > 50 && lng < 53, `longitude ${lng} is not in Tehran`);
+    assert.ok(lat > 34 && lat < 37, `latitude ${lat} is not in Tehran`);
   }
-
-  // Act
-  const encoded = encodePolyline(points, 6);
-  const decoded = decodePolyline(encoded, 6);
-
-  // Assert
-  assert.equal(decoded.length, 400, 'vertices were lost in the round trip');
-  assert.equal(
-    new Set(decoded.map((point) => `${point[0]},${point[1]}`)).size,
-    400,
-    'distinct vertices collapsed onto one another',
-  );
 });
 
 test('the encoded ceiling still refuses an oversized payload', () => {
   // ★ THE DECODER IS UNBOUNDED CPU AND A PROVIDER BODY IS UNTRUSTED INPUT.
   //
-  // Six decimals produce longer encodings than five, so the ceiling has to be
-  // re-justified rather than raised blindly: a real city route stays well under it.
+  // The transport timeout aborts the body READ; parsing happens after that
+  // resolves, synchronously, at about one point per two characters. The cap is
+  // applied on the ENCODED length so the work is never started.
   assert.ok(MAX_ENCODED_POLYLINE >= 8_192, 'the ceiling was lowered below a real answer');
-  assert.ok(MAX_ENCODED_POLYLINE <= 65_536, 'the ceiling no longer bounds the CPU a caller can spend');
+  assert.ok(MAX_ENCODED_POLYLINE <= 65_536, 'the ceiling no longer bounds the work');
 
   const points: Array<[number, number]> = [];
   for (let step = 0; step < 1_500; step += 1) {
-    points.push([51.389 + step * 0.000004, 35.6892 + step * 0.000003]);
+    points.push([51.389 + step * 0.0004, 35.6892 + step * 0.0003]);
   }
   assert.ok(
-    encodePolyline(points, 6).length < MAX_ENCODED_POLYLINE,
+    encodePolyline(points, 5).length < MAX_ENCODED_POLYLINE,
     'a realistic city route no longer fits under the ceiling',
   );
 });
 
-test('a six-decimal answer is decoded as a mapbox route', async () => {
-  // Arrange — the provider answering in the format the request now asks for.
+test('a real provider answer is decoded as a mapbox route', async () => {
+  // Arrange — the provider answering the way it actually answers: precision 5.
   const points: Array<[number, number]> = [
     [51.389, 35.6892],
     [51.38915, 35.68944],
@@ -179,7 +212,7 @@ test('a six-decimal answer is decoded as a mapbox route', async () => {
     [51.39001, 35.68979],
   ];
   const body = JSON.stringify({
-    routes: [{ geometry: encodePolyline(points, 6), distance: 142 }],
+    routes: [{ geometry: encodePolyline(points, 5), distance: 142 }],
   });
 
   // Act
@@ -188,6 +221,7 @@ test('a six-decimal answer is decoded as a mapbox route', async () => {
   // Assert
   assert.equal(geometry.source, 'mapbox');
   assert.equal(geometry.points.length, 4);
+  assert.ok(geometry.points[0]![0] > 50, 'the decoded route left the city');
 });
 
 /* ── 2. A short distance is still a request ───────────────────────────────── */
@@ -196,12 +230,12 @@ test('two points a few metres apart are still sent to the provider', () => {
   // ★ THE SHORT-DISTANCE COMPLAINT IS NOT ABOUT THE PROVIDER HAVING NO ROADS.
   //
   // `resolveRouteGeometry` short-circuits when the two endpoints are EQUAL, which
-  // is correct. The defect was one layer down: `directionsUrl` rounds each
-  // endpoint to five decimals before building the URL, and at five decimals two
-  // points 3 m apart can round onto the same pair — so the provider was asked for
-  // a zero-length leg and answered with a one-point geometry, which the decoder
-  // rejects, which becomes the straight line. The rounding is for cache reuse; it
-  // must not make two distinct endpoints identical.
+  // is correct. The defect was one layer down: `directionsUrl` rounded each
+  // endpoint to five decimals before building the URL, and two points 3 m apart
+  // could round onto the same pair — so the provider was asked for a zero-length
+  // leg and answered with a one-point geometry the decoder rejects, which becomes
+  // the straight line. The rounding is for cache reuse; it must not make two
+  // distinct endpoints identical.
   const from = { lat: 35.6892, lng: 51.389 };
   const to = { lat: 35.689227, lng: 51.389031 };
 
@@ -221,6 +255,14 @@ test('a genuinely zero-length journey is not sent at all', async () => {
 
   assert.equal(geometry.source, 'straight_line');
   assert.equal(urls.length, 0, 'a zero-length route still spent a provider call');
+});
+
+test('two viewers at one venue still share a cache key', () => {
+  // The rounding's actual purpose, which the fix must not throw away.
+  const a = directionsUrl({ lat: 35.68921010, lng: 51.38912010 }, TO, PK);
+  const b = directionsUrl({ lat: 35.68921099, lng: 51.38912099 }, TO, PK);
+
+  assert.equal(a, b, 'the URL varies below a metre, so no cache can reuse it');
 });
 
 /* ── 3. A refusal is not drawn as a road ──────────────────────────────────── */

@@ -79,25 +79,28 @@ export function straightLineRoute(from: RoutePoint, to: RoutePoint): RouteGeomet
 }
 
 /**
- * The geometry precision MapBox is asked for, and the decoder reads.
+ * The geometry precision MapBox Directions encodes at, and the decoder reads.
  *
- * ★ FIVE DECIMALS WAS THE "POLYGON LINES DRAWN ON THE STREETS" REPORT.
+ * ★ IT IS 5, AND THAT IS THE PROVIDER'S CONTRACT, NOT A CHOICE.
  *
- * `geometries=polyline` is MapBox's legacy five-decimal encoding — a `1.1 m`
- * grid. At five decimals the encoder ALSO rounds adjacent vertices onto each
- * other, so a dense city route arrives with its shape flattened: vertices that
- * described a curve come back as the same point or as a coarse zig-zag. The
- * provider cannot be blamed for a line that cuts the corner of a block when the
- * request asked it to quantise the corner away.
+ * `polyline6` is a valid value for MapBox's MAPS API, but it is NOT one for
+ * DIRECTIONS: the `geometries` parameter there accepts `geojson` or `polyline`
+ * only, and an unrecognised value is silently ignored rather than rejected. An
+ * earlier revision of this file asked for `polyline6`, was answered with a
+ * precision-5 polyline, and then decoded it at precision 6 — which divides every
+ * coordinate by ten. The whole of Tehran's route came back at (5.14, 3.57) in the
+ * Gulf of Guinea, and the map drew a line in the sea. The unit tests did not catch
+ * it because they fed the decoder a polyline encoded at the same precision they
+ * decoded with; only a live probe against the real service did.
  *
- * Six decimals is ~11 cm, which is finer than a stroke can be drawn, and it
- * preserves the vertex list the provider actually computed. `polyline6` is a
- * documented query parameter, not a different endpoint, so nothing else changes.
+ * So the request asks for what Directions actually offers, and the decoder is told
+ * the precision that request produces. The two constants below are therefore
+ * pinned to each other by a test.
  */
-export const GEOMETRY_PRECISION = 6;
+export const GEOMETRY_PRECISION = 5;
 
 /** The `geometries=` value that pairs with `GEOMETRY_PRECISION`. */
-const GEOMETRIES_PARAM = 'polyline6';
+const GEOMETRIES_PARAM = 'polyline';
 
 /**
  * The precision the ENDPOINTS are rounded to in the provider URL.
