@@ -106,9 +106,21 @@ test('the route line wears the colour of the pin it leads to', () => {
   // the reader's own hue, so a route read as a property of the reader rather than of
   // the proposal it leads to. On the event map each line takes its DESTINATION's
   // colour — that proposal's proposer — and on the card it takes the pin's accent.
-  assert.match(EVENT_MAP, /colorById\.get\(id\) \?\? ORIGIN_COLOR/);
-  assert.match(EVENT_MAP, /destination\.color\]\)/);
-  assert.match(PROPOSAL_MAP, /color: appearance\.accent/);
+  //
+  // ★ AND THE FALLBACK IS GONE, BECAUSE IT WAS DRAWING THE ORIGIN'S TEAL SILENTLY.
+  //
+  // The colour used to resolve through a keyed lookup with `?? ORIGIN_COLOR` on the
+  // miss, so a miss painted every route in `#0E7C86` while the pins stayed their own
+  // colours. A device screenshot caught it: a bright yellow pin beside a muted
+  // teal-green line. Colour is the only thing tying a line to a person, so it is now
+  // read straight from the destination and there is no substitute path.
+  assert.match(EVENT_MAP, /brightenForStroke\(destination\.color\)/);
+  assert.doesNotMatch(
+    EVENT_MAP,
+    /^\s*color:.*\?\?\s*ORIGIN_COLOR/m,
+    'a missed destination still silently becomes the origin colour',
+  );
+  assert.match(PROPOSAL_MAP, /brightenForStroke\(appearance\.accent\)/);
   assert.doesNotMatch(EVENT_MAP, /^\s+color: ORIGIN_COLOR,$/m, 'the event line ignores its destination');
 });
 

@@ -222,25 +222,44 @@ export function EventRouteMap({ origin, destinations, ancestorScroll, testID }: 
     // The report was "the lines follow the pin colour but are too dark". Both used to
     // be handed the same hex and still looked different, because a filled pin with a
     // white ring carries far more ink than a 6 px antialiased stroke of the same
-    // value. `brightenForStroke` lifts the stroke toward white by the same fraction
-    // per channel, so the hue — "whose line is that?" — survives while the apparent
-    // brightness matches the pin.
-    const colorById = new Map(destinations.map((destination) => [destination.id, destination.color]));
+    // value. `brightenForStroke` lifts the stroke toward white and holds it above a
+    // luminance floor, so the hue — "whose line is that?" — survives while the stroke
+    // is unmistakably the brighter of the two marks.
+    //
+    // ★ THE COLOUR COMES FROM THE DESTINATION, NOT FROM A KEYED LOOKUP THAT CAN MISS.
+    //
+    // The colour used to be resolved through an id-keyed map whose miss fell back to
+    // the TEAL origin colour, silently. A miss drew every route in that muted
+    // teal-green while the pins beside them kept their own colours — which is exactly
+    // "the lines are still too dark, and they are not the pin's colour". Both keys
+    // come from `destination.id`, so a miss should be impossible; making it
+    // impossible to happen SILENTLY is the point of reading the destination here.
+    const destinationById = new Map(destinations.map((destination) => [destination.id, destination]));
 
-    return Object.entries(routes).map(([id, geometry]) => ({
-      id,
-      points: geometry.points,
-      color: brightenForStroke(colorById.get(id) ?? ORIGIN_COLOR),
-      // ★ A FALLBACK IS DASHED, AND SAYING OTHERWISE WAS THE LIE.
-      //
-      // This used to be `dashed: false` unconditionally, on the reasoning that "the
-      // request was for the map to draw a route rather than a direction". But a
-      // straight line between two points is not a route — it is the direction the
-      // provider refused to resolve — and drawing it solid made a refusal look like a
-      // road. The flag is the geometry's own source, so a line is dashed exactly when
-      // it is not a street.
-      dashed: geometry.source === 'straight_line',
-    }));
+    return Object.entries(routes).flatMap(([id, geometry]) => {
+      const destination = destinationById.get(id);
+      // A route only exists for a destination the effect above was given, so a
+      // missing one is a transient between the fetch landing and a relay-out. Drawing
+      // nothing for that frame is honest; drawing the wrong colour is not.
+      if (!destination) return [];
+
+      return [
+        {
+          id,
+          points: geometry.points,
+          color: brightenForStroke(destination.color),
+          // ★ A FALLBACK IS DASHED, AND SAYING OTHERWISE WAS THE LIE.
+          //
+          // This used to be `dashed: false` unconditionally, on the reasoning that "the
+          // request was for the map to draw a route rather than a direction". But a
+          // straight line between two points is not a route — it is the direction the
+          // provider refused to resolve — and drawing it solid made a refusal look like
+          // a road. The flag is the geometry's own source, so a line is dashed exactly
+          // when it is not a street.
+          dashed: geometry.source === 'straight_line',
+        },
+      ];
+    });
   }, [routes, destinations]);
 
   const hasAnyLocation = markers.length > 0;

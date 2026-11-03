@@ -30,7 +30,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
-import { brightenForStroke, relativeLuminance } from '@/src/features/map/route-color';
+import {
+  MIN_STROKE_LUMINANCE,
+  brightenForStroke,
+  relativeLuminance,
+} from '@/src/features/map/route-color';
 import { map as mapTokens, participantColors } from '@/src/theme/tokens';
 
 /* ── The arithmetic ───────────────────────────────────────────────────────── */
@@ -54,16 +58,58 @@ test('every participant colour gets brighter, not just the dark ones', () => {
   }
 });
 
-test('the lift is measurable, not a rounding artefact', () => {
-  // Arrange — the smallest lift worth shipping. Below this the change is inside
-  // the noise of an anti-aliased 6 px stroke and the report comes back.
-  const MIN_LIFT = 0.02;
-
-  // Act / Assert
+test('the lift is large enough to read as "brighter", not to round up', () => {
+  // ★ 0.02 WAS THE FLOOR THAT LET THE DEFECT SHIP A SECOND TIME.
+  //
+  // The first version of this test only demanded a measurable gain, so a 22 % lift
+  // passed it while a device screenshot still showed a muted stroke beside a bright
+  // pin. "The lines are still too dark" came back. The floor is now a visible step:
+  // the stroke has to clear MIN_STROKE_LUMINANCE on its own merits, which is a
+  // property of the colour rather than of how it was derived.
   for (const color of participantColors) {
-    const gain = relativeLuminance(brightenForStroke(color)) - relativeLuminance(color);
-    assert.ok(gain >= MIN_LIFT, `${color} only gained ${gain.toFixed(4)} luminance`);
+    const stroke = brightenForStroke(color);
+    const before = relativeLuminance(color);
+    const after = relativeLuminance(stroke);
+
+    // ★ THE FLOOR IS THE GUARANTEE; THE GAIN IS RELATIVE TO THE HEADROOM LEFT.
+    //
+    // A flat "must gain 0.08" is the wrong rule for an already-bright hue: volt
+    // `#D4FF3A` is at 0.858, so the most any lift can add is 0.14 and 0.08 of that
+    // would be most of the way to white. What must hold for EVERY colour is the
+    // absolute floor; the gain requirement applies to the colours that had room, and
+    // is expressed as a fraction of the headroom they actually had.
+    assert.ok(
+      after >= MIN_STROKE_LUMINANCE,
+      `${color} -> ${stroke} is ${after.toFixed(3)}, below the ${MIN_STROKE_LUMINANCE} floor`,
+    );
+
+    // ★ AND IT MUST NOT COME OUT WEAKER THAN THE PIN IT BELONGS TO.
+    //
+    // The real requirement is not a fraction of headroom — that varies by hue and
+    // by how bright the palette entry already was. It is that the stroke be
+    // STRICTLY the brighter mark, by a margin a reader can see on a dark basemap.
+    assert.ok(
+      after - before >= 0.04,
+      `${color} -> ${stroke} barely changed (${before.toFixed(3)} -> ${after.toFixed(3)})`,
+    );
   }
+});
+
+test('a dim hue is pushed all the way to the floor, not just lifted a fraction', () => {
+  // ★ A FIXED FRACTION IS RELATIVE TO THE HUE, SO IT DOES NOT GUARANTEE LEGIBILITY.
+  //
+  // A dark red lifted by the same fraction as a bright lime lands well below it, so
+  // "is this line bright enough?" would depend on which person proposed the place.
+  // Deep colours are the ones that need the second pass; this asserts it runs.
+  const dim = '#4A1020';
+  assert.ok(relativeLuminance(dim) < 0.1, 'the fixture is not actually dim');
+
+  const stroke = brightenForStroke(dim);
+
+  assert.ok(
+    relativeLuminance(stroke) >= MIN_STROKE_LUMINANCE,
+    `a dim hue was not pushed to the floor: ${stroke} is ${relativeLuminance(stroke).toFixed(3)}`,
+  );
 });
 
 test('the hue survives, so a line still names its proposal', () => {
@@ -152,6 +198,32 @@ test('the proposal card brightens its line too', () => {
   assert.match(PROPOSAL_MAP, /brightenForStroke/, 'the proposal card does not brighten its line');
 });
 
+test('a line never falls back to the origin colour without saying so', () => {
+  // ★ MEASURED ON A DEVICE: THE PIN WAS YELLOW AND THE LINE WAS MUTED TEAL-GREEN.
+  //
+  // The line resolved its colour through `colorById.get(id) ?? ORIGIN_COLOR`, so a
+  // lookup that misses drew every route in the ORIGIN's teal (`#0E7C86`) while the
+  // pins beside them kept their own colours — "the lines are still too dark, and
+  // they are not the pin's colour". Colour is the only thing connecting a line to a
+  // person, so a silent substitution is worse than a missing line.
+  // The lookup is gone from the CODE, not merely from the prose: a comment quoting
+  // the old expression must not satisfy this.
+  assert.doesNotMatch(
+    EVENT_MAP,
+    /colorById\.get\(/,
+    'the line colour is still resolved through a keyed lookup that can miss',
+  );
+  assert.doesNotMatch(
+    EVENT_MAP,
+    /^\s*color:\s*brightenForStroke\([^)]*\?\?\s*ORIGIN_COLOR/m,
+    'a missed lookup still falls back to the origin teal',
+  );
+  assert.match(
+    EVENT_MAP,
+    /brightenForStroke\(destination\.color\)/,
+    'the line colour is not taken from the destination it leads to',
+  );
+});
 test('neither surface has brought a dark casing back', () => {
   // ★ A REGRESSION GUARD ON `c45663b`.
   //

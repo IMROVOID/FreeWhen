@@ -105,7 +105,10 @@ test('one line is drawn per proposed place', () => {
 
   // Act / Assert
   assert.ok(perDestination, 'the map does not fetch a line per destination');
-  assert.match(MAP, /Object\.entries\(routes\)\.map\(\(\[id, geometry\]\) => \(\{/);
+  // The routes are turned into drawable lines one per entry. It is a flatMap
+  // entry whose destination has gone yields NO line rather than a wrongly-coloured
+  // one — see the note in EventRouteMap.
+  assert.match(MAP, /Object\.entries\(routes\)\.flatMap\(/);
 });
 
 test('the lines are fetched in parallel, not one after another', () => {

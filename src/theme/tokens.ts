@@ -232,8 +232,18 @@ export const map = {
    * that keeps a bright line from dissolving into pale streets.
    */
   routeHalo: '#FFFFFF',
-  /** The halo's opacity. Low enough to rim the stroke rather than outline it. */
-  routeHaloOpacity: 0.18,
+  /**
+   * The halo's opacity.
+   *
+   * ★ 0.18 WAS TOO FAINT TO DO ANYTHING ON THE NIGHT STYLE.
+   *
+   * The halo exists to hold a bright stroke apart from the map it crosses, and a
+   * device screenshot showed it contributing almost nothing: the stroke read as a
+   * muted thread on the dark basemap with no rim at all. At 0.45 it is a visible
+   * edge that still does not read as a white outline, because it is only 1.5 pt
+   * wider than the stroke on each side.
+   */
+  routeHaloOpacity: 0.45,
   /** How much wider the halo is than the stroke it sits under, in points. */
   routeHaloWidth: 1.5,
   /** The shadow under a marker, which lifts it off a busy basemap. */
